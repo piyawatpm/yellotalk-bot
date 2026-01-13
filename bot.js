@@ -462,7 +462,11 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
         });
 
         // Update previous participants list
+        const oldSize = previousParticipants.size;
         previousParticipants = new Map(currentParticipants);
+        const newSize = previousParticipants.size;
+
+        console.log(`[${timestamp}] 📊 Updated previousParticipants: ${oldSize} → ${newSize}`);
 
         // Update current participants list for keyword responses
         currentParticipantsList = participants;
