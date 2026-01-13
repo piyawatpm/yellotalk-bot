@@ -294,6 +294,12 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
         if (senderUuid !== UUID) {
             const messageLower = message.toLowerCase();
 
+            // IMPORTANT: Don't respond to bot responses (prevent infinite loop)
+            if (message.includes('คนในห้องตอนนี้') && message.includes('คน):')) {
+                // This is a bot's user list response, ignore it
+                return;
+            }
+
             // Check for "list users" keywords
             if (KEYWORDS.LIST_USERS.some(keyword => messageLower.includes(keyword))) {
                 console.log(`[${timestamp}] 🔍 Detected keyword: List users request`);
