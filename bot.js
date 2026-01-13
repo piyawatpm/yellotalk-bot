@@ -29,7 +29,7 @@ let currentParticipantsList = []; // Store current participants for quick access
 
 // Keywords to detect (expandable for future features)
 const KEYWORDS = {
-    LIST_USERS: ['ใครบ้าง', 'คนในห้อง', 'มีใครบ้าง', 'list', 'users', 'who'],
+    LIST_USERS: ['ใครบ้าง', 'มีใครบ้าง', 'list', 'users', 'who'],
 };
 
 // Fetch rooms
