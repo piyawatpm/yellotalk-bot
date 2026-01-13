@@ -74,9 +74,11 @@ function lockSpeaker(position, room_id = null) {
         position: position
     };
 
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[${timestamp}] 🔒 Locking speaker slot ${position + 1}...`);
+
     socket.emit('lock_speaker', lockData, (response) => {
-        const timestamp = new Date().toLocaleTimeString();
-        console.log(`[${timestamp}] 🔒 Locked speaker slot ${position}`);
+        console.log(`[${timestamp}] ✅ Lock response:`, response);
     });
 }
 
@@ -94,9 +96,11 @@ function unlockSpeaker(position, room_id = null) {
         position: position
     };
 
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[${timestamp}] 🔓 Unlocking speaker slot ${position + 1}...`);
+
     socket.emit('unlock_speaker', unlockData, (response) => {
-        const timestamp = new Date().toLocaleTimeString();
-        console.log(`[${timestamp}] 🔓 Unlocked speaker slot ${position}`);
+        console.log(`[${timestamp}] ✅ Unlock response:`, response);
     });
 }
 
@@ -111,30 +115,34 @@ function startCommandInterface() {
 
     rl.on('line', (line) => {
         const input = line.trim();
+        if (!input) return;
+
         const parts = input.split(' ');
         const cmd = parts[0].toLowerCase();
+
+        console.log(`> ${input}`);  // Echo command
 
         if (cmd === 'msg' && parts.length > 1) {
             const message = parts.slice(1).join(' ');
             sendMessage(message);
         } else if (cmd === 'lock' && parts.length === 2) {
             const position = parseInt(parts[1]);
-            if (position >= 1 && position <= 10) {
+            if (!isNaN(position) && position >= 1 && position <= 10) {
                 lockSpeaker(position - 1);  // 0-indexed
             } else {
                 console.log('❌ Position must be 1-10');
             }
         } else if (cmd === 'unlock' && parts.length === 2) {
             const position = parseInt(parts[1]);
-            if (position >= 1 && position <= 10) {
+            if (!isNaN(position) && position >= 1 && position <= 10) {
                 unlockSpeaker(position - 1);  // 0-indexed
             } else {
                 console.log('❌ Position must be 1-10');
             }
         } else if (cmd === 'quit' || cmd === 'exit') {
             process.kill(process.pid, 'SIGINT');
-        } else if (input.length > 0) {
-            console.log('❌ Unknown command. Use: msg, lock, unlock, quit');
+        } else {
+            console.log('❌ Unknown command. Try: msg <text>, lock <1-10>, unlock <1-10>, quit');
         }
     });
 }
