@@ -429,19 +429,9 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
         // Update current participants list for keyword responses
         currentParticipantsList = participants;
 
-        // Check if target user left (for follow mode)
-        if (followUserUuid) {
-            const isTargetStillHere = participants.some(p => p.uuid === followUserUuid);
-
-            if (!isTargetStillHere) {
-                console.log(`\n[${timestamp}] ⚠️  Target user ${followUserName} left the room!`);
-                console.log(`[${timestamp}] 🔄 Disconnecting and waiting for their next room...`);
-
-                setTimeout(() => {
-                    if (socket) socket.disconnect();
-                }, 1000);
-            }
-        }
+        // DON'T check if target left via participant_changed
+        // Owner might not be in participant list!
+        // We'll detect room end via live_end/end_live events instead
     });
 
     socket.on('speaker_changed', (data) => {
