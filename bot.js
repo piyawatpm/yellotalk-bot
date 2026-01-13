@@ -510,6 +510,7 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
 // Polling function for follow mode
 async function startFollowPolling(targetUserUuid, targetUserName) {
     let checkCount = 0;
+    let interval = null;  // Declare interval first!
 
     const checkForRoom = async () => {
         checkCount++;
@@ -525,18 +526,18 @@ async function startFollowPolling(targetUserUuid, targetUserName) {
             console.log(`   Topic: ${foundRoom.topic}`);
             console.log(`   Joining now...\n`);
 
-            clearInterval(interval);
+            if (interval) clearInterval(interval);  // Clear if exists
             connectAndJoin(foundRoom, targetUserUuid, targetUserName);
         } else {
             console.log(`         ❌ No room - waiting 5s...`);
         }
     };
 
-    // Check immediately
-    await checkForRoom();
+    // Start checking every 5 seconds
+    interval = setInterval(checkForRoom, 5000);
 
-    // Then keep checking every 5 seconds
-    const interval = setInterval(checkForRoom, 5000);
+    // Also check immediately (first check)
+    await checkForRoom();
 }
 
 // Follow specific user (mode 1)
