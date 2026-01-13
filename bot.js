@@ -220,7 +220,7 @@ function connectAndJoin(room) {
         socket.emit('join_room', joinData, (response) => {
             if (response?.result === 200) {
                 console.log('✅ Successfully joined room!');
-                hasJoinedRoom = true;
+                // DON'T set hasJoinedRoom here - let participant_changed handle it
             } else {
                 console.log('⚠️  Join response:', response);
             }
@@ -298,11 +298,11 @@ function connectAndJoin(room) {
             currentParticipants.set(p.uuid, p.pin_name || 'User');
         });
 
-        // First time seeing participants - just save them, don't greet
+        // FIRST TIME: Save existing participants, DON'T greet anyone
         if (!hasJoinedRoom) {
             previousParticipants = new Map(currentParticipants);
 
-            // Save join times for existing participants
+            // Record join times for everyone currently in room (for future bye messages)
             participants.forEach(p => {
                 if (p.uuid !== UUID) {
                     participantJoinTimes.set(p.uuid, {
@@ -312,9 +312,9 @@ function connectAndJoin(room) {
                 }
             });
 
-            hasJoinedRoom = true;  // Set immediately after saving
-            console.log(`[${timestamp}] 📋 Initial state saved (${participants.length} participants)`);
-            return;  // Don't greet anyone on first update
+            hasJoinedRoom = true;
+            console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
+            return;  // Exit - don't greet anyone on initial join!
         }
 
         // Find NEW participants (joined)
@@ -324,18 +324,23 @@ function connectAndJoin(room) {
 
             // New participant detected!
             if (uuid !== UUID && !previousParticipants.has(uuid)) {
-                const joinTime = new Date();
-                participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
+                // Also check if we already have join time (prevent duplicate greets)
+                if (!participantJoinTimes.has(uuid)) {
+                    const joinTime = new Date();
+                    participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
 
-                const greeting = `สวัสดี ${userName}`;
+                    const greeting = `สวัสดี ${userName}`;
 
-                console.log(`[${timestamp}] 👋 ${userName} joined`);
-                console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
+                    console.log(`[${timestamp}] 👋 ${userName} joined`);
+                    console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
 
-                // Send greeting with delay
-                setTimeout(() => {
-                    sendMessage(greeting);
-                }, 1000 + (index * 500));
+                    // Send greeting with delay
+                    setTimeout(() => {
+                        sendMessage(greeting);
+                    }, 1000 + (index * 500));
+                } else {
+                    console.log(`[${timestamp}] 🔄 ${userName} rejoined (skipping duplicate greet)`);
+                }
             }
         });
 
