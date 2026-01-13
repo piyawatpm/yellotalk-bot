@@ -411,6 +411,18 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
         if (newCount === 0 && participants.length > previousParticipants.size) {
             console.log(`[${timestamp}] 🐛 DEBUG: Participant count increased but no new UUIDs detected`);
             console.log(`           Previous: ${previousParticipants.size}, Current: ${participants.length}`);
+
+            // Show the new participant's UUID and name
+            const currentUuids = new Set(participants.map(p => p.uuid));
+            const previousUuids = new Set(previousParticipants.keys());
+
+            participants.forEach(p => {
+                if (!previousUuids.has(p.uuid) && p.uuid !== UUID) {
+                    console.log(`           New person: ${p.pin_name} (${p.uuid})`);
+                    console.log(`           In participantJoinTimes? ${participantJoinTimes.has(p.uuid)}`);
+                    console.log(`           In previousParticipants? ${previousParticipants.has(p.uuid)}`);
+                }
+            });
         }
 
         // Find participants who LEFT
