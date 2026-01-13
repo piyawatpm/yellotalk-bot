@@ -724,24 +724,10 @@ async function regularMode() {
         readline.close();
 
         if (mode === '1') {
-            // Follow user mode
-            const rl2 = require('readline').createInterface({
-                input: process.stdin,
-                output: process.stdout
-            });
-
-            rl2.question('➤ Enter target user UUID: ', async (targetUuid) => {
-                rl2.close();
-
-                if (!targetUuid || targetUuid.length < 10) {
-                    console.log('❌ Invalid UUID');
-                    process.exit(1);
-                }
-
-                await followUserMode(targetUuid.trim());
-            });
+            // Follow user mode - shows all owners, user selects
+            await followUserMode();
         } else if (mode === '2') {
-            // Regular mode
+            // Regular mode - select room from list
             await regularMode();
         } else {
             console.log('❌ Invalid mode');
