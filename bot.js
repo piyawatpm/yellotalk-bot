@@ -192,7 +192,7 @@ function displayRooms(rooms) {
 }
 
 // Connect and monitor room
-function connectAndJoin(room) {
+function connectAndJoin(room, followUserUuid = null, followUserName = null) {
     currentRoomId = room.id;
     const gmeId = String(room.gme_id || '');
     const topic = (room.topic || 'Untitled').substring(0, 60);
@@ -255,6 +255,16 @@ function connectAndJoin(room) {
 
     socket.on('disconnect', (reason) => {
         console.log(`\n⚠️  Disconnected: ${reason}`);
+
+        // If in follow mode, start polling again
+        if (followUserUuid) {
+            console.log(`\n⏱️  Waiting for ${followUserName} to create a new room...`);
+            console.log('   Checking every 5 seconds...\n');
+
+            setTimeout(() => {
+                startFollowPolling(followUserUuid, followUserName);
+            }, 2000);
+        }
     });
 
     socket.on('connect_error', (error) => {
@@ -418,6 +428,20 @@ function connectAndJoin(room) {
 
         // Update current participants list for keyword responses
         currentParticipantsList = participants;
+
+        // Check if target user left (for follow mode)
+        if (followUserUuid) {
+            const isTargetStillHere = participants.some(p => p.uuid === followUserUuid);
+
+            if (!isTargetStillHere) {
+                console.log(`\n[${timestamp}] ⚠️  Target user ${followUserName} left the room!`);
+                console.log(`[${timestamp}] 🔄 Disconnecting and waiting for their next room...`);
+
+                setTimeout(() => {
+                    if (socket) socket.disconnect();
+                }, 1000);
+            }
+        }
     });
 
     socket.on('speaker_changed', (data) => {
@@ -442,6 +466,31 @@ function connectAndJoin(room) {
         console.log(`[${timestamp}] ℹ️  Room info updated`);
     });
 
+    // Detect room end
+    socket.on('live_end', (data) => {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`\n[${timestamp}] 🔚 Room ended!`);
+
+        if (followUserUuid) {
+            console.log(`[${timestamp}] 🔄 Waiting for ${followUserName}'s next room...\n`);
+            setTimeout(() => {
+                if (socket) socket.disconnect();
+            }, 1000);
+        }
+    });
+
+    socket.on('end_live', (data) => {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`\n[${timestamp}] 🔚 Room closed!`);
+
+        if (followUserUuid) {
+            console.log(`[${timestamp}] 🔄 Waiting for ${followUserName}'s next room...\n`);
+            setTimeout(() => {
+                if (socket) socket.disconnect();
+            }, 1000);
+        }
+    });
+
     // Handle exit
     process.on('SIGINT', () => {
         console.log('\n\n👋 Disconnecting...');
@@ -456,6 +505,38 @@ function connectAndJoin(room) {
 
         process.exit(0);
     });
+}
+
+// Polling function for follow mode
+async function startFollowPolling(targetUserUuid, targetUserName) {
+    let checkCount = 0;
+
+    const checkForRoom = async () => {
+        checkCount++;
+        const now = new Date().toLocaleTimeString();
+
+        console.log(`[${now}] 🔍 Check #${checkCount} - Looking for ${targetUserName}'s room...`);
+
+        const rooms = await fetchRooms();
+        const foundRoom = rooms.find(r => r.owner?.uuid === targetUserUuid);
+
+        if (foundRoom) {
+            console.log(`\n✅ FOUND ${targetUserName}'s room!`);
+            console.log(`   Topic: ${foundRoom.topic}`);
+            console.log(`   Joining now...\n`);
+
+            clearInterval(interval);
+            connectAndJoin(foundRoom, targetUserUuid, targetUserName);
+        } else {
+            console.log(`         ❌ No room - waiting 5s...`);
+        }
+    };
+
+    // Check immediately
+    await checkForRoom();
+
+    // Then keep checking every 5 seconds
+    const interval = setInterval(checkForRoom, 5000);
 }
 
 // Follow specific user (mode 1)
@@ -520,40 +601,13 @@ async function followUserMode() {
             if (targetRoom.participants_count !== undefined) {
                 console.log(`\n✅ They have an active room right now!`);
                 console.log(`   Joining immediately...\n`);
-                connectAndJoin(targetRoom);
+                connectAndJoin(targetRoom, targetUserUuid, targetUserName);
             } else {
                 // Start polling
                 console.log('\n⏱️  Waiting for them to create a room...');
                 console.log('   Checking every 5 seconds...\n');
 
-                let checkCount = 0;
-
-                const checkForRoom = async () => {
-                    checkCount++;
-                    const now = new Date().toLocaleTimeString();
-
-                    console.log(`[${now}] 🔍 Check #${checkCount} - Scanning...`);
-
-                    const rooms = await fetchRooms();
-                    const foundRoom = rooms.find(r => r.owner?.uuid === targetUserUuid);
-
-                    if (foundRoom) {
-                        console.log(`\n✅ FOUND ${targetUserName}'s room!`);
-                        console.log(`   Topic: ${foundRoom.topic}`);
-                        console.log(`   Joining now...\n`);
-
-                        clearInterval(interval);
-                        connectAndJoin(foundRoom);
-                    } else {
-                        console.log(`         ❌ No room yet - waiting 5s...`);
-                    }
-                };
-
-                // Check immediately
-                await checkForRoom();
-
-                // Then check every 5 seconds
-                const interval = setInterval(checkForRoom, 5000);
+                startFollowPolling(targetUserUuid, targetUserName);
             }
         } else {
             console.log('❌ Invalid choice');
