@@ -412,16 +412,24 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log(`[${timestamp}] 🐛 DEBUG: Participant count increased but no new UUIDs detected`);
             console.log(`           Previous: ${previousParticipants.size}, Current: ${participants.length}`);
 
-            // Show the new participant's UUID and name
+            // Find who's new
             const currentUuids = new Set(participants.map(p => p.uuid));
             const previousUuids = new Set(previousParticipants.keys());
 
-            participants.forEach(p => {
-                if (!previousUuids.has(p.uuid) && p.uuid !== UUID) {
-                    console.log(`           New person: ${p.pin_name} (${p.uuid})`);
-                    console.log(`           In participantJoinTimes? ${participantJoinTimes.has(p.uuid)}`);
-                    console.log(`           In previousParticipants? ${previousParticipants.has(p.uuid)}`);
-                }
+            console.log(`\n           Current UUIDs (${currentUuids.size}):`);
+            participants.forEach((p, i) => {
+                const isNew = !previousUuids.has(p.uuid);
+                const isBot = p.uuid === UUID;
+                const inJoinTimes = participantJoinTimes.has(p.uuid);
+
+                console.log(`           ${i+1}. ${p.pin_name}`);
+                console.log(`              UUID: ${p.uuid.substring(0, 20)}...`);
+                console.log(`              New? ${isNew} | Bot? ${isBot} | HasJoinTime? ${inJoinTimes}`);
+            });
+
+            console.log(`\n           Previous UUIDs (${previousUuids.size}):`);
+            Array.from(previousUuids).forEach((uuid, i) => {
+                console.log(`           ${i+1}. ${uuid.substring(0, 20)}...`);
             });
         }
 
