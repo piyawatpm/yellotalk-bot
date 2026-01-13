@@ -283,7 +283,7 @@ function connectAndJoin(room) {
         }
     });
 
-    let previousParticipants = new Map(); // uuid -> {name, joinTime}
+    let previousParticipants = new Map(); // uuid -> name
 
     // Auto-greet NEW participants and say goodbye when they leave
     socket.on('participant_changed', (data) => {
@@ -298,65 +298,77 @@ function connectAndJoin(room) {
             currentParticipants.set(p.uuid, p.pin_name || 'User');
         });
 
-        if (hasJoinedRoom) {
-            // Find NEW participants (joined)
-            participants.forEach((participant, index) => {
-                const uuid = participant.uuid;
-                const userName = participant.pin_name || 'User';
+        // First time seeing participants - just save them, don't greet
+        if (!hasJoinedRoom) {
+            previousParticipants = new Map(currentParticipants);
 
-                // New participant detected!
-                if (uuid !== UUID && !previousParticipants.has(uuid)) {
-                    const joinTime = new Date();
-                    participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
-
-                    const greeting = `สวัสดี ${userName}`;
-
-                    console.log(`[${timestamp}] 👋 ${userName} joined`);
-                    console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
-
-                    // Send greeting with delay
-                    setTimeout(() => {
-                        sendMessage(greeting);
-                    }, 1000 + (index * 500));
+            // Save join times for existing participants
+            participants.forEach(p => {
+                if (p.uuid !== UUID) {
+                    participantJoinTimes.set(p.uuid, {
+                        name: p.pin_name || 'User',
+                        joinTime: new Date()
+                    });
                 }
             });
 
-            // Find participants who LEFT
-            previousParticipants.forEach((prevName, prevUuid) => {
-                if (prevUuid !== UUID && !currentParticipants.has(prevUuid)) {
-                    // This participant left!
-                    const joinInfo = participantJoinTimes.get(prevUuid);
-                    if (joinInfo) {
-                        const leaveTime = new Date();
-                        const duration = leaveTime - joinInfo.joinTime;
-                        const minutes = Math.floor(duration / 60000);
-                        const seconds = Math.floor((duration % 60000) / 1000);
-
-                        const userName = joinInfo.name;
-                        const timeStr = minutes > 0 ? `${minutes}นาที ${seconds}วินาที` : `${seconds}วินาที`;
-                        const goodbye = `bye~ ${userName} (อยู่ ${timeStr})`;
-
-                        console.log(`[${timestamp}] 👋 ${userName} left after ${timeStr}`);
-                        console.log(`[${timestamp}] 🤖 Sending: "${goodbye}"`);
-
-                        setTimeout(() => {
-                            sendMessage(goodbye);
-                        }, 800);
-
-                        // Clean up
-                        participantJoinTimes.delete(prevUuid);
-                    }
-                }
-            });
+            hasJoinedRoom = true;  // Set immediately after saving
+            console.log(`[${timestamp}] 📋 Initial state saved (${participants.length} participants)`);
+            return;  // Don't greet anyone on first update
         }
+
+        // Find NEW participants (joined)
+        participants.forEach((participant, index) => {
+            const uuid = participant.uuid;
+            const userName = participant.pin_name || 'User';
+
+            // New participant detected!
+            if (uuid !== UUID && !previousParticipants.has(uuid)) {
+                const joinTime = new Date();
+                participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
+
+                const greeting = `สวัสดี ${userName}`;
+
+                console.log(`[${timestamp}] 👋 ${userName} joined`);
+                console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
+
+                // Send greeting with delay
+                setTimeout(() => {
+                    sendMessage(greeting);
+                }, 1000 + (index * 500));
+            }
+        });
+
+        // Find participants who LEFT
+        previousParticipants.forEach((prevName, prevUuid) => {
+            if (prevUuid !== UUID && !currentParticipants.has(prevUuid)) {
+                // This participant left!
+                const joinInfo = participantJoinTimes.get(prevUuid);
+                if (joinInfo) {
+                    const leaveTime = new Date();
+                    const duration = leaveTime - joinInfo.joinTime;
+                    const minutes = Math.floor(duration / 60000);
+                    const seconds = Math.floor((duration % 60000) / 1000);
+
+                    const userName = joinInfo.name;
+                    const timeStr = minutes > 0 ? `${minutes}นาที ${seconds}วินาที` : `${seconds}วินาที`;
+                    const goodbye = `bye~ ${userName} (อยู่ ${timeStr})`;
+
+                    console.log(`[${timestamp}] 👋 ${userName} left after ${timeStr}`);
+                    console.log(`[${timestamp}] 🤖 Sending: "${goodbye}"`);
+
+                    setTimeout(() => {
+                        sendMessage(goodbye);
+                    }, 800);
+
+                    // Clean up
+                    participantJoinTimes.delete(prevUuid);
+                }
+            }
+        });
 
         // Update previous participants list
         previousParticipants = new Map(currentParticipants);
-
-        // After first participant_changed, we've seen the initial state
-        if (!hasJoinedRoom) {
-            setTimeout(() => { hasJoinedRoom = true; }, 2000);
-        }
     });
 
     socket.on('speaker_changed', (data) => {
