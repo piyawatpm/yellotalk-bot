@@ -256,6 +256,13 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
     socket.on('disconnect', (reason) => {
         console.log(`\n⚠️  Disconnected: ${reason}`);
 
+        // Clear all tracking when disconnected (room ended)
+        participantJoinTimes.clear();
+        currentParticipantsList = [];
+        hasJoinedRoom = false;  // Reset for next room
+
+        console.log(`[Cleared all participant tracking]`);
+
         // If in follow mode, start polling again
         if (followUserUuid) {
             console.log(`\n⏱️  Waiting for ${followUserName} to create a new room...`);
