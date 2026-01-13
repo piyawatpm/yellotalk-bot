@@ -21,9 +21,9 @@ const AVATAR_ID = config.avatar_id;
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 let messageCount = 0;
-let currentParticipants = new Set();
 let socket = null;
 let currentRoomId = null;
+let hasJoinedRoom = false;
 
 // Fetch rooms
 async function fetchRooms() {
@@ -112,13 +112,7 @@ function connectAndJoin(room) {
         socket.emit('join_room', joinData, (response) => {
             if (response?.result === 200) {
                 console.log('✅ Successfully joined room!');
-
-                // Initialize participants list from join response
-                if (response.room?.participants) {
-                    response.room.participants.forEach(p => {
-                        currentParticipants.add(p.uuid);
-                    });
-                }
+                hasJoinedRoom = true;
             } else {
                 console.log('⚠️  Join response:', response);
             }
@@ -172,62 +166,31 @@ function connectAndJoin(room) {
         }
     });
 
-    // NEW: Auto-greet new participants
     socket.on('participant_changed', (data) => {
         const timestamp = new Date().toLocaleTimeString();
         const participants = Array.isArray(data) ? data : [];
 
         console.log(`[${timestamp}] 👥 Participants updated (${participants.length} total)`);
+    });
 
-        // Check for new participants
-        const newParticipants = [];
-        const currentUUIDs = new Set();
+    // Auto-greet new speakers (people who join voice)
+    socket.on('speaker_changed', (data) => {
+        const timestamp = new Date().toLocaleTimeString();
+        const userName = data.pin_name || 'User';
 
-        participants.forEach(p => {
-            currentUUIDs.add(p.uuid);
+        console.log(`[${timestamp}] 🎤 ${userName} joined as speaker`);
 
-            // New participant detected!
-            if (!currentParticipants.has(p.uuid) && p.uuid !== UUID) {
-                newParticipants.push(p);
-            }
-        });
+        // Only greet after we've fully joined (ignore initial speaker list)
+        if (hasJoinedRoom && data.uuid !== UUID) {
+            const greeting = `สวัสดี ${userName}`;
 
-        // Update current list
-        currentParticipants = currentUUIDs;
+            console.log(`[${timestamp}] 👋 Greeting new participant`);
+            console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
 
-        // Greet new participants
-        newParticipants.forEach(participant => {
-            const name = participant.pin_name || 'User';
-            const greeting = `สวัสดี ${name}`;
-
-            console.log(`[${timestamp}] 👋 New participant: ${name}`);
-            console.log(`[${timestamp}] 🤖 Auto-sending: "${greeting}"`);
-
-            // Send greeting with 1 second delay to not spam
+            // Send greeting after 1 second delay
             setTimeout(() => {
                 sendMessage(greeting);
             }, 1000);
-        });
-    });
-
-    socket.on('speaker_changed', (data) => {
-        const timestamp = new Date().toLocaleTimeString();
-        const user = data.pin_name || 'User';
-        const userUuid = data.uuid;
-
-        console.log(`[${timestamp}] 🎤 ${user} speaker status changed`);
-
-        // Optional: Also greet new speakers
-        if (userUuid && !currentParticipants.has(userUuid) && userUuid !== UUID) {
-            currentParticipants.add(userUuid);
-
-            const greeting = `สวัสดี ${user}`;
-            console.log(`[${timestamp}] 👋 New speaker: ${user}`);
-            console.log(`[${timestamp}] 🤖 Auto-sending: "${greeting}"`);
-
-            setTimeout(() => {
-                sendMessage(greeting);
-            }, 1500);
         }
     });
 
