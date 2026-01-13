@@ -376,20 +376,25 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
         }
 
         // Find NEW participants (joined)
+        let newCount = 0;
         participants.forEach((participant, index) => {
             const uuid = participant.uuid;
             const userName = participant.pin_name || 'User';
 
+            // Skip bot itself
+            if (uuid === UUID) return;
+
             // New participant detected!
-            if (uuid !== UUID && !previousParticipants.has(uuid)) {
+            if (!previousParticipants.has(uuid)) {
                 // Also check if we already have join time (prevent duplicate greets)
                 if (!participantJoinTimes.has(uuid)) {
+                    newCount++;
                     const joinTime = new Date();
                     participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
 
                     const greeting = `สวัสดี ${userName}`;
 
-                    console.log(`[${timestamp}] 👋 ${userName} joined`);
+                    console.log(`[${timestamp}] 👋 ${userName} joined (new participant #${newCount})`);
                     console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
 
                     // Send greeting with delay
@@ -401,6 +406,12 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
                 }
             }
         });
+
+        // Debug: Show if we should have detected someone
+        if (newCount === 0 && participants.length > previousParticipants.size) {
+            console.log(`[${timestamp}] 🐛 DEBUG: Participant count increased but no new UUIDs detected`);
+            console.log(`           Previous: ${previousParticipants.size}, Current: ${participants.length}`);
+        }
 
         // Find participants who LEFT
         previousParticipants.forEach((prevName, prevUuid) => {
