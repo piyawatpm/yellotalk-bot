@@ -24,6 +24,7 @@ let messageCount = 0;
 let socket = null;
 let currentRoomId = null;
 let hasJoinedRoom = false;
+let participantJoinTimes = new Map(); // Track when each participant joined
 
 // Fetch rooms
 async function fetchRooms() {
@@ -282,43 +283,78 @@ function connectAndJoin(room) {
         }
     });
 
-    let knownParticipants = new Set();
+    let previousParticipants = new Map(); // uuid -> {name, joinTime}
 
-    // Auto-greet NEW participants (anyone who joins the room)
+    // Auto-greet NEW participants and say goodbye when they leave
     socket.on('participant_changed', (data) => {
         const timestamp = new Date().toLocaleTimeString();
         const participants = Array.isArray(data) ? data : [];
 
         console.log(`[${timestamp}] 👥 Participants updated (${participants.length} total)`);
 
-        // Only greet after we've fully joined (ignore initial participant list)
+        // Build current participant map
+        const currentParticipants = new Map();
+        participants.forEach(p => {
+            currentParticipants.set(p.uuid, p.pin_name || 'User');
+        });
+
         if (hasJoinedRoom) {
-            // Find new participants
+            // Find NEW participants (joined)
             participants.forEach((participant, index) => {
                 const uuid = participant.uuid;
                 const userName = participant.pin_name || 'User';
 
                 // New participant detected!
-                if (uuid !== UUID && !knownParticipants.has(uuid)) {
-                    knownParticipants.add(uuid);
+                if (uuid !== UUID && !previousParticipants.has(uuid)) {
+                    const joinTime = new Date();
+                    participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
 
                     const greeting = `สวัสดี ${userName}`;
 
-                    console.log(`[${timestamp}] 👋 New participant: ${userName}`);
+                    console.log(`[${timestamp}] 👋 ${userName} joined`);
                     console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
 
-                    // Send greeting with delay (stagger if multiple)
+                    // Send greeting with delay
                     setTimeout(() => {
                         sendMessage(greeting);
                     }, 1000 + (index * 500));
                 }
             });
+
+            // Find participants who LEFT
+            previousParticipants.forEach((prevName, prevUuid) => {
+                if (prevUuid !== UUID && !currentParticipants.has(prevUuid)) {
+                    // This participant left!
+                    const joinInfo = participantJoinTimes.get(prevUuid);
+                    if (joinInfo) {
+                        const leaveTime = new Date();
+                        const duration = leaveTime - joinInfo.joinTime;
+                        const minutes = Math.floor(duration / 60000);
+                        const seconds = Math.floor((duration % 60000) / 1000);
+
+                        const userName = joinInfo.name;
+                        const timeStr = minutes > 0 ? `${minutes}นาที ${seconds}วินาที` : `${seconds}วินาที`;
+                        const goodbye = `bye~ ${userName} (อยู่ ${timeStr})`;
+
+                        console.log(`[${timestamp}] 👋 ${userName} left after ${timeStr}`);
+                        console.log(`[${timestamp}] 🤖 Sending: "${goodbye}"`);
+
+                        setTimeout(() => {
+                            sendMessage(goodbye);
+                        }, 800);
+
+                        // Clean up
+                        participantJoinTimes.delete(prevUuid);
+                    }
+                }
+            });
         }
+
+        // Update previous participants list
+        previousParticipants = new Map(currentParticipants);
 
         // After first participant_changed, we've seen the initial state
         if (!hasJoinedRoom) {
-            // Build initial known participants list
-            participants.forEach(p => knownParticipants.add(p.uuid));
             setTimeout(() => { hasJoinedRoom = true; }, 2000);
         }
     });
