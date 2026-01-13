@@ -281,15 +281,22 @@ function connectAndJoin(room) {
             if (KEYWORDS.LIST_USERS.some(keyword => messageLower.includes(keyword))) {
                 console.log(`[${timestamp}] 🔍 Detected keyword: List users request`);
 
-                // Build user list
-                const userList = currentParticipantsList
-                    .filter(p => p.uuid !== UUID)  // Exclude bot
+                // Filter out bot from list
+                const usersWithoutBot = currentParticipantsList.filter(p => p.uuid !== UUID);
+
+                if (usersWithoutBot.length === 0) {
+                    console.log(`[${timestamp}] ⚠️  Participant list not loaded yet`);
+                    return;
+                }
+
+                // Build numbered user list
+                const userList = usersWithoutBot
                     .map((p, i) => `${i + 1}. ${p.pin_name}`)
                     .join('\n');
 
-                const response = `คนในห้องตอนนี้ (${currentParticipantsList.length - 1} คน):\n${userList}`;
+                const response = `คนในห้องตอนนี้ (${usersWithoutBot.length} คน):\n${userList}`;
 
-                console.log(`[${timestamp}] 🤖 Auto-responding with user list`);
+                console.log(`[${timestamp}] 🤖 Auto-responding with user list (${usersWithoutBot.length} users)`);
 
                 setTimeout(() => {
                     sendMessage(response);
