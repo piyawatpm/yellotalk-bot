@@ -76,9 +76,19 @@ function lockSpeaker(position, room_id = null) {
 
     const timestamp = new Date().toLocaleTimeString();
     console.log(`[${timestamp}] 🔒 Locking speaker slot ${position + 1}...`);
+    console.log(`           Sending:`, JSON.stringify(lockData));
 
     socket.emit('lock_speaker', lockData, (response) => {
-        console.log(`[${timestamp}] ✅ Lock response:`, response);
+        if (response) {
+            console.log(`[${timestamp}] ✅ Lock response:`, JSON.stringify(response).substring(0, 200));
+            if (response.result === 200 || response.success) {
+                console.log(`[${timestamp}] ✅ Slot ${position + 1} locked successfully!`);
+            } else {
+                console.log(`[${timestamp}] ⚠️  Lock failed:`, response.message || response.error || 'Unknown error');
+            }
+        } else {
+            console.log(`[${timestamp}] ⚠️  No response from server (might not be owner)`);
+        }
     });
 }
 
@@ -98,9 +108,19 @@ function unlockSpeaker(position, room_id = null) {
 
     const timestamp = new Date().toLocaleTimeString();
     console.log(`[${timestamp}] 🔓 Unlocking speaker slot ${position + 1}...`);
+    console.log(`           Sending:`, JSON.stringify(unlockData));
 
     socket.emit('unlock_speaker', unlockData, (response) => {
-        console.log(`[${timestamp}] ✅ Unlock response:`, response);
+        if (response) {
+            console.log(`[${timestamp}] ✅ Unlock response:`, JSON.stringify(response).substring(0, 200));
+            if (response.result === 200 || response.success) {
+                console.log(`[${timestamp}] ✅ Slot ${position + 1} unlocked successfully!`);
+            } else {
+                console.log(`[${timestamp}] ⚠️  Unlock failed:`, response.message || response.error || 'Unknown error');
+            }
+        } else {
+            console.log(`[${timestamp}] ⚠️  No response from server (might not be owner)`);
+        }
     });
 }
 
@@ -262,32 +282,51 @@ function connectAndJoin(room) {
         }
     });
 
+    let knownParticipants = new Set();
+
+    // Auto-greet NEW participants (anyone who joins the room)
     socket.on('participant_changed', (data) => {
         const timestamp = new Date().toLocaleTimeString();
         const participants = Array.isArray(data) ? data : [];
 
         console.log(`[${timestamp}] 👥 Participants updated (${participants.length} total)`);
+
+        // Only greet after we've fully joined (ignore initial participant list)
+        if (hasJoinedRoom) {
+            // Find new participants
+            participants.forEach((participant, index) => {
+                const uuid = participant.uuid;
+                const userName = participant.pin_name || 'User';
+
+                // New participant detected!
+                if (uuid !== UUID && !knownParticipants.has(uuid)) {
+                    knownParticipants.add(uuid);
+
+                    const greeting = `สวัสดี ${userName}`;
+
+                    console.log(`[${timestamp}] 👋 New participant: ${userName}`);
+                    console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
+
+                    // Send greeting with delay (stagger if multiple)
+                    setTimeout(() => {
+                        sendMessage(greeting);
+                    }, 1000 + (index * 500));
+                }
+            });
+        }
+
+        // After first participant_changed, we've seen the initial state
+        if (!hasJoinedRoom) {
+            // Build initial known participants list
+            participants.forEach(p => knownParticipants.add(p.uuid));
+            setTimeout(() => { hasJoinedRoom = true; }, 2000);
+        }
     });
 
-    // Auto-greet new speakers (people who join voice)
     socket.on('speaker_changed', (data) => {
         const timestamp = new Date().toLocaleTimeString();
-        const userName = data.pin_name || 'User';
-
-        console.log(`[${timestamp}] 🎤 ${userName} joined as speaker`);
-
-        // Only greet after we've fully joined (ignore initial speaker list)
-        if (hasJoinedRoom && data.uuid !== UUID) {
-            const greeting = `สวัสดี ${userName}`;
-
-            console.log(`[${timestamp}] 👋 Greeting new participant`);
-            console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
-
-            // Send greeting after 1 second delay
-            setTimeout(() => {
-                sendMessage(greeting);
-            }, 1000);
-        }
+        const speakers = Array.isArray(data) ? data : [data];
+        console.log(`[${timestamp}] 🎤 Speaker changed (${speakers.length} speakers)`);
     });
 
     socket.on('new_gift', (data) => {
