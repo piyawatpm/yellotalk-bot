@@ -352,6 +352,9 @@ function connectAndJoin(room) {
 
             hasJoinedRoom = true;
             console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
+
+            // Update current list BEFORE returning!
+            currentParticipantsList = participants;
             return;  // Exit - don't greet anyone on initial join!
         }
 
@@ -455,13 +458,50 @@ function connectAndJoin(room) {
     });
 }
 
-// Main
-(async () => {
+// Follow specific user (mode 1)
+async function followUserMode(targetUserUuid) {
+    console.log('\n' + '='.repeat(80));
+    console.log('🎯 Follow User Mode');
     console.log('='.repeat(80));
-    console.log('🤖 YelloTalk Chat Bot - Auto-Greeting Edition');
-    console.log('='.repeat(80));
+    console.log(`Target: ${targetUserUuid}`);
+    console.log('Checking every 5 seconds for their room...\n');
 
-    // Fetch rooms
+    let checkCount = 0;
+
+    const checkForRoom = async () => {
+        checkCount++;
+        const now = new Date().toLocaleTimeString();
+
+        console.log(`[${now}] 🔍 Check #${checkCount} - Scanning rooms...`);
+
+        const allRooms = await fetchRooms();
+
+        // Find room where target user is owner
+        const targetRoom = allRooms.find(room => {
+            return room.owner && room.owner.uuid === targetUserUuid;
+        });
+
+        if (targetRoom) {
+            console.log(`\n✅ FOUND ${targetRoom.owner.pin_name}'s room!`);
+            console.log(`   Topic: ${targetRoom.topic}`);
+            console.log(`   Joining now...\n`);
+
+            clearInterval(interval);
+            connectAndJoin(targetRoom);
+        } else {
+            console.log(`         ❌ Not found - waiting 5s...`);
+        }
+    };
+
+    // Check immediately
+    await checkForRoom();
+
+    // Then check every 5 seconds
+    const interval = setInterval(checkForRoom, 5000);
+}
+
+// Regular mode (mode 2)
+async function regularMode() {
     console.log('\n🔍 Fetching active rooms...');
     const rooms = await fetchRooms();
 
@@ -471,11 +511,8 @@ function connectAndJoin(room) {
     }
 
     console.log(`✅ Found ${rooms.length} rooms`);
-
-    // Display rooms
     displayRooms(rooms);
 
-    // Get user input
     const readline = require('readline').createInterface({
         input: process.stdin,
         output: process.stdout
@@ -496,6 +533,53 @@ function connectAndJoin(room) {
             connectAndJoin(room);
         } else {
             console.log('❌ Invalid choice');
+            process.exit(1);
+        }
+    });
+}
+
+// Main
+(async () => {
+    console.log('='.repeat(80));
+    console.log('🤖 YelloTalk Chat Bot');
+    console.log('='.repeat(80));
+
+    // Mode selection
+    console.log('\nSelect Mode:');
+    console.log('  1. Follow User   - Auto-join when specific user creates room');
+    console.log('  2. Regular       - Select room from list');
+    console.log('');
+
+    const readline = require('readline').createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    readline.question('➤ Mode (1 or 2): ', async (mode) => {
+        readline.close();
+
+        if (mode === '1') {
+            // Follow user mode
+            const rl2 = require('readline').createInterface({
+                input: process.stdin,
+                output: process.stdout
+            });
+
+            rl2.question('➤ Enter target user UUID: ', async (targetUuid) => {
+                rl2.close();
+
+                if (!targetUuid || targetUuid.length < 10) {
+                    console.log('❌ Invalid UUID');
+                    process.exit(1);
+                }
+
+                await followUserMode(targetUuid.trim());
+            });
+        } else if (mode === '2') {
+            // Regular mode
+            await regularMode();
+        } else {
+            console.log('❌ Invalid mode');
             process.exit(1);
         }
     });
