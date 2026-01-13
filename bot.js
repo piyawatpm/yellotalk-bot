@@ -60,6 +60,85 @@ function sendMessage(message, room_id = null) {
     });
 }
 
+// Lock speaker slot
+function lockSpeaker(position, room_id = null) {
+    if (!socket || !socket.connected) {
+        console.log('❌ Not connected to room');
+        return;
+    }
+
+    const roomId = room_id || currentRoomId;
+
+    const lockData = {
+        room: roomId,
+        position: position
+    };
+
+    socket.emit('lock_speaker', lockData, (response) => {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`[${timestamp}] 🔒 Locked speaker slot ${position}`);
+    });
+}
+
+// Unlock speaker slot
+function unlockSpeaker(position, room_id = null) {
+    if (!socket || !socket.connected) {
+        console.log('❌ Not connected to room');
+        return;
+    }
+
+    const roomId = room_id || currentRoomId;
+
+    const unlockData = {
+        room: roomId,
+        position: position
+    };
+
+    socket.emit('unlock_speaker', unlockData, (response) => {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`[${timestamp}] 🔓 Unlocked speaker slot ${position}`);
+    });
+}
+
+// Command interface for interactive control
+function startCommandInterface() {
+    const readline = require('readline');
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        prompt: ''
+    });
+
+    rl.on('line', (line) => {
+        const input = line.trim();
+        const parts = input.split(' ');
+        const cmd = parts[0].toLowerCase();
+
+        if (cmd === 'msg' && parts.length > 1) {
+            const message = parts.slice(1).join(' ');
+            sendMessage(message);
+        } else if (cmd === 'lock' && parts.length === 2) {
+            const position = parseInt(parts[1]);
+            if (position >= 1 && position <= 10) {
+                lockSpeaker(position - 1);  // 0-indexed
+            } else {
+                console.log('❌ Position must be 1-10');
+            }
+        } else if (cmd === 'unlock' && parts.length === 2) {
+            const position = parseInt(parts[1]);
+            if (position >= 1 && position <= 10) {
+                unlockSpeaker(position - 1);  // 0-indexed
+            } else {
+                console.log('❌ Position must be 1-10');
+            }
+        } else if (cmd === 'quit' || cmd === 'exit') {
+            process.kill(process.pid, 'SIGINT');
+        } else if (input.length > 0) {
+            console.log('❌ Unknown command. Use: msg, lock, unlock, quit');
+        }
+    });
+}
+
 // Display rooms
 function displayRooms(rooms) {
     console.log('\n' + '='.repeat(80));
@@ -126,7 +205,16 @@ function connectAndJoin(room) {
             console.log('\n' + '='.repeat(80));
             console.log('📺 LIVE CHAT FEED & AUTO-GREETING');
             console.log('='.repeat(80));
-            console.log('Listening for new messages... (Press Ctrl+C to stop)\n');
+            console.log('Listening for new messages...\n');
+            console.log('Commands:');
+            console.log('  msg <text>    - Send message');
+            console.log('  lock <1-10>   - Lock speaker slot');
+            console.log('  unlock <1-10> - Unlock speaker slot');
+            console.log('  quit          - Exit bot');
+            console.log();
+
+            // Start command input handler
+            startCommandInterface();
         }, 1000);
     });
 
