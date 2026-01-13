@@ -25,6 +25,12 @@ let socket = null;
 let currentRoomId = null;
 let hasJoinedRoom = false;
 let participantJoinTimes = new Map(); // Track when each participant joined
+let currentParticipantsList = []; // Store current participants for quick access
+
+// Keywords to detect (expandable for future features)
+const KEYWORDS = {
+    LIST_USERS: ['ใครบ้าง', 'คนในห้อง', 'มีใครบ้าง', 'list', 'users', 'who'],
+};
 
 // Fetch rooms
 async function fetchRooms() {
@@ -262,9 +268,34 @@ function connectAndJoin(room) {
         const timestamp = new Date().toLocaleTimeString();
         const sender = data.pin_name || 'Unknown';
         const message = data.message || '';
+        const senderUuid = data.uuid;
 
         console.log(`\n[${timestamp}] 💬 ${sender}:`);
         console.log(`           ${message}`);
+
+        // Keyword detection (don't respond to our own messages)
+        if (senderUuid !== UUID) {
+            const messageLower = message.toLowerCase();
+
+            // Check for "list users" keywords
+            if (KEYWORDS.LIST_USERS.some(keyword => messageLower.includes(keyword))) {
+                console.log(`[${timestamp}] 🔍 Detected keyword: List users request`);
+
+                // Build user list
+                const userList = currentParticipantsList
+                    .filter(p => p.uuid !== UUID)  // Exclude bot
+                    .map((p, i) => `${i + 1}. ${p.pin_name}`)
+                    .join('\n');
+
+                const response = `คนในห้องตอนนี้ (${currentParticipantsList.length - 1} คน):\n${userList}`;
+
+                console.log(`[${timestamp}] 🤖 Auto-responding with user list`);
+
+                setTimeout(() => {
+                    sendMessage(response);
+                }, 800);
+            }
+        }
     });
 
     socket.on('load_message', (data) => {
@@ -374,6 +405,9 @@ function connectAndJoin(room) {
 
         // Update previous participants list
         previousParticipants = new Map(currentParticipants);
+
+        // Update current participants list for keyword responses
+        currentParticipantsList = participants;
     });
 
     socket.on('speaker_changed', (data) => {
