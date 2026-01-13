@@ -459,45 +459,107 @@ function connectAndJoin(room) {
 }
 
 // Follow specific user (mode 1)
-async function followUserMode(targetUserUuid) {
+async function followUserMode() {
     console.log('\n' + '='.repeat(80));
     console.log('🎯 Follow User Mode');
     console.log('='.repeat(80));
-    console.log(`Target: ${targetUserUuid}`);
-    console.log('Checking every 5 seconds for their room...\n');
 
-    let checkCount = 0;
+    // First, fetch ALL rooms and show owners
+    console.log('\n🔍 Fetching all rooms and owners...');
+    const allRooms = await fetchRooms();
 
-    const checkForRoom = async () => {
-        checkCount++;
-        const now = new Date().toLocaleTimeString();
+    if (!allRooms || allRooms.length === 0) {
+        console.log('❌ No rooms found!');
+        process.exit(1);
+    }
 
-        console.log(`[${now}] 🔍 Check #${checkCount} - Scanning rooms...`);
+    console.log(`✅ Found ${allRooms.length} rooms\n`);
 
-        const allRooms = await fetchRooms();
+    // Display rooms with owners
+    console.log('='.repeat(80));
+    console.log('📋 ROOM OWNERS');
+    console.log('='.repeat(80) + '\n');
 
-        // Find room where target user is owner
-        const targetRoom = allRooms.find(room => {
-            return room.owner && room.owner.uuid === targetUserUuid;
-        });
+    allRooms.slice(0, 20).forEach((room, i) => {
+        const topic = (room.topic || 'Untitled').substring(0, 40);
+        const ownerName = (room.owner?.pin_name || 'Unknown').substring(0, 25);
+        const ownerUuid = room.owner?.uuid || 'N/A';
+        const participants = room.participants_count || 0;
 
-        if (targetRoom) {
-            console.log(`\n✅ FOUND ${targetRoom.owner.pin_name}'s room!`);
-            console.log(`   Topic: ${targetRoom.topic}`);
-            console.log(`   Joining now...\n`);
+        console.log(`${String(i + 1).padStart(2)}. ${ownerName}`);
+        console.log(`    Room: ${topic}`);
+        console.log(`    UUID: ${ownerUuid}`);
+        console.log(`    👥 ${participants} people`);
+        console.log();
+    });
 
-            clearInterval(interval);
-            connectAndJoin(targetRoom);
-        } else {
-            console.log(`         ❌ Not found - waiting 5s...`);
+    // Select target owner
+    const readline = require('readline').createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    readline.question(`➤ Select user to follow (1-${Math.min(allRooms.length, 20)}) or 'q' to quit: `, async (answer) => {
+        readline.close();
+
+        if (answer.toLowerCase() === 'q') {
+            console.log('👋 Goodbye!');
+            process.exit(0);
         }
-    };
 
-    // Check immediately
-    await checkForRoom();
+        const choice = parseInt(answer) - 1;
+        if (choice >= 0 && choice < allRooms.length) {
+            const targetRoom = allRooms[choice];
+            const targetUserUuid = targetRoom.owner.uuid;
+            const targetUserName = targetRoom.owner.pin_name;
 
-    // Then check every 5 seconds
-    const interval = setInterval(checkForRoom, 5000);
+            console.log(`\n✅ Following: ${targetUserName}`);
+            console.log(`   UUID: ${targetUserUuid}`);
+
+            // Check if they have a room NOW
+            if (targetRoom.participants_count !== undefined) {
+                console.log(`\n✅ They have an active room right now!`);
+                console.log(`   Joining immediately...\n`);
+                connectAndJoin(targetRoom);
+            } else {
+                // Start polling
+                console.log('\n⏱️  Waiting for them to create a room...');
+                console.log('   Checking every 5 seconds...\n');
+
+                let checkCount = 0;
+
+                const checkForRoom = async () => {
+                    checkCount++;
+                    const now = new Date().toLocaleTimeString();
+
+                    console.log(`[${now}] 🔍 Check #${checkCount} - Scanning...`);
+
+                    const rooms = await fetchRooms();
+                    const foundRoom = rooms.find(r => r.owner?.uuid === targetUserUuid);
+
+                    if (foundRoom) {
+                        console.log(`\n✅ FOUND ${targetUserName}'s room!`);
+                        console.log(`   Topic: ${foundRoom.topic}`);
+                        console.log(`   Joining now...\n`);
+
+                        clearInterval(interval);
+                        connectAndJoin(foundRoom);
+                    } else {
+                        console.log(`         ❌ No room yet - waiting 5s...`);
+                    }
+                };
+
+                // Check immediately
+                await checkForRoom();
+
+                // Then check every 5 seconds
+                const interval = setInterval(checkForRoom, 5000);
+            }
+        } else {
+            console.log('❌ Invalid choice');
+            process.exit(1);
+        }
+    });
 }
 
 // Regular mode (mode 2)
