@@ -1,0 +1,10 @@
+{
+  "name": "yellotalk-bot",
+  "version": "1.0.0",
+  "description": "YelloTalk room chat monitor",
+  "main": "bot.js",
+  "dependencies": {
+    "socket.io-client": "^4.7.4",
+    "axios": "^1.6.5"
+  }
+}
