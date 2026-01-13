@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * YelloTalk Chat Bot - WORKING VERSION
- * Monitors YelloTalk room chat in real-time
+ * YelloTalk Chat Bot - With Auto-Greeting
+ * Monitors chat and greets new participants
  */
 
 const io = require('socket.io-client');
@@ -21,6 +21,9 @@ const AVATAR_ID = config.avatar_id;
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 let messageCount = 0;
+let currentParticipants = new Set();
+let socket = null;
+let currentRoomId = null;
 
 // Fetch rooms
 async function fetchRooms() {
@@ -32,6 +35,29 @@ async function fetchRooms() {
         httpsAgent
     });
     return response.data.json || [];
+}
+
+// Send message function
+function sendMessage(message, room_id = null) {
+    if (!socket || !socket.connected) {
+        console.log('❌ Not connected to room');
+        return;
+    }
+
+    const roomId = room_id || currentRoomId;
+
+    const messageData = {
+        room: roomId,
+        uuid: UUID,
+        avatar_id: AVATAR_ID,
+        pin_name: PIN_NAME,
+        message: message
+    };
+
+    socket.emit('new_message', messageData, (response) => {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`[${timestamp}] ✅ Message sent: "${message}"`);
+    });
 }
 
 // Display rooms
@@ -53,7 +79,7 @@ function displayRooms(rooms) {
 
 // Connect and monitor room
 function connectAndJoin(room) {
-    const roomId = room.id;
+    currentRoomId = room.id;
     const gmeId = String(room.gme_id || '');
     const topic = (room.topic || 'Untitled').substring(0, 60);
     const campus = room.owner?.group_shortname || 'No Group';
@@ -63,7 +89,7 @@ function connectAndJoin(room) {
     console.log('='.repeat(80));
 
     // Create Socket.IO connection
-    const socket = io('https://live.yellotalk.co:8443', {
+    socket = io('https://live.yellotalk.co:8443', {
         auth: { token: TOKEN },
         transports: ['websocket'],
         rejectUnauthorized: false
@@ -74,7 +100,7 @@ function connectAndJoin(room) {
 
         // Join room
         const joinData = {
-            room: roomId,
+            room: currentRoomId,
             uuid: UUID,
             avatar_id: AVATAR_ID,
             gme_id: gmeId,
@@ -86,18 +112,25 @@ function connectAndJoin(room) {
         socket.emit('join_room', joinData, (response) => {
             if (response?.result === 200) {
                 console.log('✅ Successfully joined room!');
+
+                // Initialize participants list from join response
+                if (response.room?.participants) {
+                    response.room.participants.forEach(p => {
+                        currentParticipants.add(p.uuid);
+                    });
+                }
             } else {
                 console.log('⚠️  Join response:', response);
             }
         });
 
-        // Load messages after joining
+        // Load messages
         setTimeout(() => {
             console.log('📜 Loading message history...');
-            socket.emit('load_message', { room: roomId });
+            socket.emit('load_message', { room: currentRoomId });
 
             console.log('\n' + '='.repeat(80));
-            console.log('📺 LIVE CHAT FEED');
+            console.log('📺 LIVE CHAT FEED & AUTO-GREETING');
             console.log('='.repeat(80));
             console.log('Listening for new messages... (Press Ctrl+C to stop)\n');
         }, 1000);
@@ -139,15 +172,63 @@ function connectAndJoin(room) {
         }
     });
 
+    // NEW: Auto-greet new participants
+    socket.on('participant_changed', (data) => {
+        const timestamp = new Date().toLocaleTimeString();
+        const participants = Array.isArray(data) ? data : [];
+
+        console.log(`[${timestamp}] 👥 Participants updated (${participants.length} total)`);
+
+        // Check for new participants
+        const newParticipants = [];
+        const currentUUIDs = new Set();
+
+        participants.forEach(p => {
+            currentUUIDs.add(p.uuid);
+
+            // New participant detected!
+            if (!currentParticipants.has(p.uuid) && p.uuid !== UUID) {
+                newParticipants.push(p);
+            }
+        });
+
+        // Update current list
+        currentParticipants = currentUUIDs;
+
+        // Greet new participants
+        newParticipants.forEach(participant => {
+            const name = participant.pin_name || 'User';
+            const greeting = `สวัสดี ${name}`;
+
+            console.log(`[${timestamp}] 👋 New participant: ${name}`);
+            console.log(`[${timestamp}] 🤖 Auto-sending: "${greeting}"`);
+
+            // Send greeting with 1 second delay to not spam
+            setTimeout(() => {
+                sendMessage(greeting);
+            }, 1000);
+        });
+    });
+
     socket.on('speaker_changed', (data) => {
         const timestamp = new Date().toLocaleTimeString();
         const user = data.pin_name || 'User';
-        console.log(`[${timestamp}] 🎤 ${user} speaker status changed`);
-    });
+        const userUuid = data.uuid;
 
-    socket.on('participant_changed', (data) => {
-        const timestamp = new Date().toLocaleTimeString();
-        console.log(`[${timestamp}] 👥 Participants updated (${Array.isArray(data) ? data.length : '?'} total)`);
+        console.log(`[${timestamp}] 🎤 ${user} speaker status changed`);
+
+        // Optional: Also greet new speakers
+        if (userUuid && !currentParticipants.has(userUuid) && userUuid !== UUID) {
+            currentParticipants.add(userUuid);
+
+            const greeting = `สวัสดี ${user}`;
+            console.log(`[${timestamp}] 👋 New speaker: ${user}`);
+            console.log(`[${timestamp}] 🤖 Auto-sending: "${greeting}"`);
+
+            setTimeout(() => {
+                sendMessage(greeting);
+            }, 1500);
+        }
     });
 
     socket.on('new_gift', (data) => {
@@ -169,7 +250,7 @@ function connectAndJoin(room) {
     // Handle exit
     process.on('SIGINT', () => {
         console.log('\n\n👋 Disconnecting...');
-        socket.disconnect();
+        if (socket) socket.disconnect();
 
         console.log('\n' + '='.repeat(80));
         console.log('📊 Session Summary');
@@ -185,7 +266,7 @@ function connectAndJoin(room) {
 // Main
 (async () => {
     console.log('='.repeat(80));
-    console.log('🤖 YelloTalk Chat Bot');
+    console.log('🤖 YelloTalk Chat Bot - Auto-Greeting Edition');
     console.log('='.repeat(80));
 
     // Fetch rooms
