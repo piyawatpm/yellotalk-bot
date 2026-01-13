@@ -434,8 +434,10 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
         }
 
         // Find participants who LEFT
+        let leftCount = 0;
         previousParticipants.forEach((prevName, prevUuid) => {
             if (prevUuid !== UUID && !currentParticipants.has(prevUuid)) {
+                leftCount++;
                 // This participant left!
                 const joinInfo = participantJoinTimes.get(prevUuid);
                 if (joinInfo) {
@@ -457,9 +459,17 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
 
                     // Clean up
                     participantJoinTimes.delete(prevUuid);
+                } else {
+                    console.log(`[${timestamp}] 🐛 ${prevName} left but no join time found (UUID: ${prevUuid.substring(0, 20)}...)`);
                 }
             }
         });
+
+        // Debug: Show if someone should have left
+        if (leftCount === 0 && participants.length < previousParticipants.size) {
+            console.log(`[${timestamp}] 🐛 DEBUG: Count decreased but no one detected as leaving`);
+            console.log(`           Previous: ${previousParticipants.size}, Current: ${participants.length}`);
+        }
 
         // Update previous participants list
         const oldSize = previousParticipants.size;
