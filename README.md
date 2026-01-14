@@ -53,3 +53,4 @@ Edit `config.json`:
 ---
 
 **Ready to use!** Just run `node bot.js`
+# yellotalk-bot
