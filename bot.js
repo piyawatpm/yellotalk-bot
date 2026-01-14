@@ -74,10 +74,8 @@ function lockSpeaker(position, room_id = null) {
         return;
     }
 
-    const roomId = room_id || currentRoomId;
-
+    // Try WITHOUT room ID (server might infer from session)
     const lockData = {
-        room: roomId,
         position: position
     };
 
@@ -94,7 +92,7 @@ function lockSpeaker(position, room_id = null) {
                 console.log(`[${timestamp}] ⚠️  Lock failed:`, response.message || response.error || 'Unknown error');
             }
         } else {
-            console.log(`[${timestamp}] ⚠️  No response from server (might not be owner)`);
+            console.log(`[${timestamp}] ⚠️  No response from server`);
         }
     });
 }
@@ -106,10 +104,8 @@ function unlockSpeaker(position, room_id = null) {
         return;
     }
 
-    const roomId = room_id || currentRoomId;
-
+    // Try WITHOUT room ID (server might infer from session)
     const unlockData = {
-        room: roomId,
         position: position
     };
 
@@ -126,7 +122,7 @@ function unlockSpeaker(position, room_id = null) {
                 console.log(`[${timestamp}] ⚠️  Unlock failed:`, response.message || response.error || 'Unknown error');
             }
         } else {
-            console.log(`[${timestamp}] ⚠️  No response from server (might not be owner)`);
+            console.log(`[${timestamp}] ⚠️  No response from server`);
         }
     });
 }
