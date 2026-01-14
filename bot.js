@@ -349,6 +349,11 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
 
         console.log(`[${timestamp}] 👥 Participants updated (${participants.length} total)`);
 
+        // Log participant UUIDs for debugging
+        if (participants.length <= 5) {
+            console.log(`           👤 Participants:`, participants.map(p => p.pin_name).join(', '));
+        }
+
         // Build current participant map
         const currentParticipants = new Map();
         participants.forEach(p => {
@@ -496,7 +501,39 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
     socket.on('speaker_changed', (data) => {
         const timestamp = new Date().toLocaleTimeString();
         const speakers = Array.isArray(data) ? data : [data];
+
         console.log(`[${timestamp}] 🎤 Speaker changed (${speakers.length} speakers)`);
+
+        // Log locked slots
+        const lockedSlots = speakers.filter(s => s.role === 'locked' || s.pin_name === '🔒');
+        if (lockedSlots.length > 0) {
+            console.log(`           🔒 Locked slots: ${lockedSlots.map(s => s.position).join(', ')}`);
+        }
+
+        // Log empty slots
+        const emptySlots = speakers.filter(s => !s.pin_name || s.pin_name === '');
+        if (emptySlots.length > 0) {
+            console.log(`           ⭕ Empty slots: ${emptySlots.map(s => s.position).join(', ')}`);
+        }
+
+        // Full data dump for debugging
+        console.log(`           📋 Full speaker data:`, JSON.stringify(speakers).substring(0, 300));
+    });
+
+    // Catch ALL other events (might reveal botyoi's method)
+    const knownEvents = new Set([
+        'connect', 'disconnect', 'connect_error',
+        'new_message', 'load_message', 'participant_changed',
+        'speaker_changed', 'new_gift', 'new_reaction',
+        'room_info', 'live_end', 'end_live', 'user_changed'
+    ]);
+
+    socket.onAny((eventName, data) => {
+        if (!knownEvents.has(eventName)) {
+            const timestamp = new Date().toLocaleTimeString();
+            console.log(`[${timestamp}] 🔍 UNKNOWN EVENT: [${eventName}]`);
+            console.log(`           Data:`, JSON.stringify(data).substring(0, 200));
+        }
     });
 
     socket.on('new_gift', (data) => {
