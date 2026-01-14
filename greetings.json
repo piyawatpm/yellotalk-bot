@@ -1,0 +1,18 @@
+{
+  "customGreetings": {
+    "botyoi": "สวัสดีพี่ชาย",
+    "rose": "สวัสดีคนสวย",
+    "baby": "สวัสดีคนสวย",
+    "somesome": "Hi"
+  },
+  "defaultGreeting": "สวัสดีสุดหล่อ",
+  "keywords": {
+    "listUsers": [
+      "ใครบ้าง",
+      "มีใครบ้าง",
+      "list",
+      "users",
+      "who"
+    ]
+  }
+}

@@ -4,7 +4,10 @@
   "description": "YelloTalk room chat monitor",
   "main": "bot.js",
   "dependencies": {
-    "socket.io-client": "^4.7.4",
-    "axios": "^1.6.5"
+    "axios": "^1.6.5",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.7.4"
   }
 }

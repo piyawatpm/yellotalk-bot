@@ -127,6 +127,54 @@ function unlockSpeaker(position, room_id = null) {
     });
 }
 
+// Mute speaker slot
+function muteSpeaker(position) {
+    if (!socket || !socket.connected) {
+        console.log('❌ Not connected to room');
+        return;
+    }
+
+    const muteData = {
+        position: position
+    };
+
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[${timestamp}] 🔇 Muting speaker slot ${position + 1}...`);
+    console.log(`           Sending:`, JSON.stringify(muteData));
+
+    socket.emit('mute_speaker', muteData, (response) => {
+        if (response) {
+            console.log(`[${timestamp}] ✅ Mute response:`, JSON.stringify(response).substring(0, 200));
+        } else {
+            console.log(`[${timestamp}] ⚠️  No response from server`);
+        }
+    });
+}
+
+// Unmute speaker slot
+function unmuteSpeaker(position) {
+    if (!socket || !socket.connected) {
+        console.log('❌ Not connected to room');
+        return;
+    }
+
+    const unmuteData = {
+        position: position
+    };
+
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[${timestamp}] 🔊 Unmuting speaker slot ${position + 1}...`);
+    console.log(`           Sending:`, JSON.stringify(unmuteData));
+
+    socket.emit('unmute_speaker', unmuteData, (response) => {
+        if (response) {
+            console.log(`[${timestamp}] ✅ Unmute response:`, JSON.stringify(response).substring(0, 200));
+        } else {
+            console.log(`[${timestamp}] ⚠️  No response from server`);
+        }
+    });
+}
+
 // Command interface for interactive control
 function startCommandInterface() {
     const readline = require('readline');
@@ -162,6 +210,20 @@ function startCommandInterface() {
             } else {
                 console.log('❌ Position must be 1-10');
             }
+        } else if (cmd === 'mute' && parts.length === 2) {
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                muteSpeaker(position - 1);  // 0-indexed
+            } else {
+                console.log('❌ Position must be 1-10');
+            }
+        } else if (cmd === 'unmute' && parts.length === 2) {
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                unmuteSpeaker(position - 1);  // 0-indexed
+            } else {
+                console.log('❌ Position must be 1-10');
+            }
         } else if (cmd === 'test' && parts.length === 3) {
             // Test alternative event names: test speaker_action 5
             const eventName = parts[1];
@@ -190,15 +252,19 @@ function startCommandInterface() {
 
             if (!isNaN(position) && position >= 1 && position <= 10) {
                 const timestamp = new Date().toLocaleTimeString();
-                console.log(`[${timestamp}] 🧪 Testing COMBO: unlock + get_participant`);
+                console.log(`[${timestamp}] 🧪 Testing COMBO: unlock then get_participant`);
 
                 // Send unlock
-                socket.emit('unlock_speaker', { position: position - 1 });
-
-                // Immediately send get_participant (force refresh)
-                socket.emit('get_participant', { room: currentRoomId }, (resp) => {
-                    console.log(`[${timestamp}] get_participant response:`, resp);
+                socket.emit('unlock_speaker', { position: position - 1 }, (unlockResp) => {
+                    console.log(`[${timestamp}] Unlock response:`, unlockResp);
                 });
+
+                // Wait 100ms, then send get_participant (force refresh)
+                setTimeout(() => {
+                    socket.emit('get_participant', { room: currentRoomId }, (resp) => {
+                        console.log(`[${timestamp}] get_participant response:`, resp);
+                    });
+                }, 100);
 
                 console.log(`           Watch for participant_changed event!`);
             } else {
@@ -221,10 +287,58 @@ function startCommandInterface() {
                     }
                 });
             }
+        } else if (cmd === 'sys' && parts.length === 2) {
+            // Try unlock with targetUser: "system"
+            const position = parseInt(parts[1]);
+
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`[${timestamp}] 🧪 Testing unlock with targetUser: "system"`);
+
+                socket.emit('unlock_speaker', {
+                    position: position - 1,
+                    targetUser: "system",
+                    targetUuid: "system"
+                }, (resp) => {
+                    if (resp) {
+                        console.log(`[${timestamp}] ✅ Response:`, resp);
+                    }
+                });
+            }
+        } else if (cmd === 'fullstate' && parts.length === 2) {
+            // Try sending full room state update
+            const position = parseInt(parts[1]);
+
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`[${timestamp}] 🧪 Testing full state update (unlock position ${position})`);
+
+                // Create speakers array with modified lock state
+                const speakers = [];
+                for (let i = 0; i < 10; i++) {
+                    if (i === position - 1) {
+                        // Unlocked position
+                        speakers.push({ position: i, locked: false, role: 'speaker' });
+                    } else {
+                        // Keep others locked
+                        speakers.push({ position: i, locked: true, role: 'locked' });
+                    }
+                }
+
+                socket.emit('update_room_state', {
+                    room: currentRoomId,
+                    speakers: speakers
+                }, (resp) => {
+                    if (resp) {
+                        console.log(`[${timestamp}] ✅ Response:`, resp);
+                    }
+                });
+            }
         } else if (cmd === 'quit' || cmd === 'exit') {
             process.kill(process.pid, 'SIGINT');
         } else {
-            console.log('❌ Unknown command. Try: msg, lock, unlock, test, combo, withroom, quit');
+            console.log('❌ Unknown command');
+            console.log('Try: msg, lock, unlock, mute, unmute, test, combo, sys, fullstate, quit');
         }
     });
 }
@@ -297,12 +411,13 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('='.repeat(80));
             console.log('Listening for new messages...\n');
             console.log('Commands:');
-            console.log('  msg <text>         - Send message');
-            console.log('  lock <1-10>        - Lock speaker slot');
-            console.log('  unlock <1-10>      - Unlock speaker slot');
-            console.log('  test <event> <pos> - Test alternative event name');
-            console.log('  combo <pos>        - Unlock + get_participant (triggers both events)');
-            console.log('  quit               - Exit bot');
+            console.log('  msg <text>    - Send message');
+            console.log('  mute <1-10>   - Mute speaker slot');
+            console.log('  unmute <1-10> - Unmute speaker slot');
+            console.log('  sys <pos>     - Test unlock with system target');
+            console.log('  fullstate <pos> - Test full room state update');
+            console.log('  test <event> <pos> - Test event name');
+            console.log('  quit          - Exit bot');
             console.log();
 
             // Start command input handler
@@ -460,7 +575,26 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
                     const joinTime = new Date();
                     participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
 
-                    const greeting = `สวัสดี ${userName}`;
+                    // Custom greetings
+                    let greeting;
+
+                                        if (userName.includes('botyoi')) {
+                        greeting = `สวัสดีพี่ชาย ${userName}`;
+                    }
+                    else if (userName.includes('rose')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('baby')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('somesome')) {
+                        greeting = `Hi ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
 
                     console.log(`[${timestamp}] 👋 ${userName} joined (new participant #${newCount})`);
                     console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
