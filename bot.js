@@ -170,12 +170,15 @@ function startCommandInterface() {
             if (!isNaN(position) && position >= 1 && position <= 10) {
                 const timestamp = new Date().toLocaleTimeString();
                 console.log(`[${timestamp}] 🧪 Testing event: ${eventName}`);
+                console.log(`           Sending: ${eventName} with {action: 'unlock', position: ${position-1}}`);
 
                 socket.emit(eventName, { action: 'unlock', position: position - 1 }, (resp) => {
                     if (resp) {
                         console.log(`[${timestamp}] ✅ Response:`, resp);
                     } else {
-                        console.log(`[${timestamp}] ⚠️  No response`);
+                        setTimeout(() => {
+                            console.log(`[${timestamp}] ⚠️  No response after 2s`);
+                        }, 2000);
                     }
                 });
             } else {
