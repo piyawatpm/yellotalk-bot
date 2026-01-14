@@ -184,6 +184,26 @@ function startCommandInterface() {
             } else {
                 console.log('❌ Position must be 1-10');
             }
+        } else if (cmd === 'combo' && parts.length === 2) {
+            // Test sending unlock + get_participant together
+            const position = parseInt(parts[1]);
+
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`[${timestamp}] 🧪 Testing COMBO: unlock + get_participant`);
+
+                // Send unlock
+                socket.emit('unlock_speaker', { position: position - 1 });
+
+                // Immediately send get_participant (force refresh)
+                socket.emit('get_participant', { room: currentRoomId }, (resp) => {
+                    console.log(`[${timestamp}] get_participant response:`, resp);
+                });
+
+                console.log(`           Watch for participant_changed event!`);
+            } else {
+                console.log('❌ Position must be 1-10');
+            }
         } else if (cmd === 'quit' || cmd === 'exit') {
             process.kill(process.pid, 'SIGINT');
         } else {
@@ -264,6 +284,7 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('  lock <1-10>        - Lock speaker slot');
             console.log('  unlock <1-10>      - Unlock speaker slot');
             console.log('  test <event> <pos> - Test alternative event name');
+            console.log('  combo <pos>        - Unlock + get_participant (triggers both events)');
             console.log('  quit               - Exit bot');
             console.log();
 
