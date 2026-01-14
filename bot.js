@@ -204,10 +204,27 @@ function startCommandInterface() {
             } else {
                 console.log('❌ Position must be 1-10');
             }
+        } else if (cmd === 'withroom' && parts.length === 2) {
+            // Test unlock WITH room ID (original way)
+            const position = parseInt(parts[1]);
+
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`[${timestamp}] 🧪 Testing unlock WITH room ID`);
+
+                socket.emit('unlock_speaker', {
+                    room: currentRoomId,
+                    position: position - 1
+                }, (resp) => {
+                    if (resp) {
+                        console.log(`[${timestamp}] ✅ Response:`, resp);
+                    }
+                });
+            }
         } else if (cmd === 'quit' || cmd === 'exit') {
             process.kill(process.pid, 'SIGINT');
         } else {
-            console.log('❌ Unknown command. Try: msg <text>, lock <1-10>, unlock <1-10>, test <event> <pos>, quit');
+            console.log('❌ Unknown command. Try: msg, lock, unlock, test, combo, withroom, quit');
         }
     });
 }
