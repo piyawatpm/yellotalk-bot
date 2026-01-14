@@ -162,10 +162,29 @@ function startCommandInterface() {
             } else {
                 console.log('❌ Position must be 1-10');
             }
+        } else if (cmd === 'test' && parts.length === 3) {
+            // Test alternative event names: test speaker_action 5
+            const eventName = parts[1];
+            const position = parseInt(parts[2]);
+
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`[${timestamp}] 🧪 Testing event: ${eventName}`);
+
+                socket.emit(eventName, { action: 'unlock', position: position - 1 }, (resp) => {
+                    if (resp) {
+                        console.log(`[${timestamp}] ✅ Response:`, resp);
+                    } else {
+                        console.log(`[${timestamp}] ⚠️  No response`);
+                    }
+                });
+            } else {
+                console.log('❌ Position must be 1-10');
+            }
         } else if (cmd === 'quit' || cmd === 'exit') {
             process.kill(process.pid, 'SIGINT');
         } else {
-            console.log('❌ Unknown command. Try: msg <text>, lock <1-10>, unlock <1-10>, quit');
+            console.log('❌ Unknown command. Try: msg <text>, lock <1-10>, unlock <1-10>, test <event> <pos>, quit');
         }
     });
 }
@@ -238,10 +257,11 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('='.repeat(80));
             console.log('Listening for new messages...\n');
             console.log('Commands:');
-            console.log('  msg <text>    - Send message');
-            console.log('  lock <1-10>   - Lock speaker slot');
-            console.log('  unlock <1-10> - Unlock speaker slot');
-            console.log('  quit          - Exit bot');
+            console.log('  msg <text>         - Send message');
+            console.log('  lock <1-10>        - Lock speaker slot');
+            console.log('  unlock <1-10>      - Unlock speaker slot');
+            console.log('  test <event> <pos> - Test alternative event name');
+            console.log('  quit               - Exit bot');
             console.log();
 
             // Start command input handler
