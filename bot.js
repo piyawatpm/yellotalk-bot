@@ -504,14 +504,14 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
 
         console.log(`[${timestamp}] 🎤 Speaker changed (${speakers.length} speakers)`);
 
-        // Log locked slots
-        const lockedSlots = speakers.filter(s => s.role === 'locked' || s.pin_name === '🔒');
+        // Log locked slots (with null check)
+        const lockedSlots = speakers.filter(s => s && (s.role === 'locked' || s.pin_name === '🔒'));
         if (lockedSlots.length > 0) {
             console.log(`           🔒 Locked slots: ${lockedSlots.map(s => s.position).join(', ')}`);
         }
 
-        // Log empty slots
-        const emptySlots = speakers.filter(s => !s.pin_name || s.pin_name === '');
+        // Log empty slots (with null check)
+        const emptySlots = speakers.filter(s => s && (!s.pin_name || s.pin_name === ''));
         if (emptySlots.length > 0) {
             console.log(`           ⭕ Empty slots: ${emptySlots.map(s => s.position).join(', ')}`);
         }
