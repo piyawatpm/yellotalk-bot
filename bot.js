@@ -478,7 +478,12 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
         previousParticipants = new Map(currentParticipants);
         const newSize = previousParticipants.size;
 
-        console.log(`[${timestamp}] 📊 Updated previousParticipants: ${oldSize} → ${newSize}`);
+        // Debug: If same count but event fired, what changed?
+        if (oldSize === newSize && oldSize > 0) {
+            console.log(`[${timestamp}] 📊 Updated previousParticipants: ${oldSize} → ${newSize} (same count - refresh?)`);
+        } else {
+            console.log(`[${timestamp}] 📊 Updated previousParticipants: ${oldSize} → ${newSize}`);
+        }
 
         // Update current participants list for keyword responses
         currentParticipantsList = participants;
