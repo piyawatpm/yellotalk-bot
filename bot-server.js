@@ -184,8 +184,52 @@ app.post('/api/bot/start', async (req, res) => {
       });
 
       yellotalkSocket.on('new_message', (data) => {
-        console.log('💬 New message from:', data.pin_name);
-        addMessage(data.pin_name || 'Unknown', data.message || '');
+        const timestamp = new Date().toLocaleTimeString();
+        const sender = data.pin_name || 'Unknown';
+        const message = data.message || '';
+        const senderUuid = data.uuid;
+
+        console.log(`\n[${timestamp}] 💬 ${sender}:`);
+        console.log(`           ${message}`);
+        addMessage(sender, message);
+
+        // Keyword detection (don't respond to our own messages)
+        if (senderUuid !== botUUID) {
+          const messageLower = message.toLowerCase();
+
+          // IMPORTANT: Don't respond to bot responses (prevent infinite loop)
+          if (message.includes('คนในห้องตอนนี้') && message.includes('คน):')) {
+            // This is a bot's user list response, ignore it
+            return;
+          }
+
+          // Check for "list users" keywords from greetings.json
+          const listUsersKeywords = greetingsConfig.keywords?.listUsers || [];
+          if (listUsersKeywords.some(keyword => messageLower.includes(keyword.toLowerCase()))) {
+            console.log(`[${timestamp}] 🔍 Detected keyword: List users request`);
+
+            // Filter out bot from list
+            const usersWithoutBot = botState.participants.filter(p => p.uuid !== botUUID);
+
+            if (usersWithoutBot.length === 0) {
+              console.log(`[${timestamp}] ⚠️  Participant list not loaded yet`);
+              return;
+            }
+
+            // Build numbered user list
+            const userList = usersWithoutBot
+              .map((p, i) => `${i + 1}. ${p.pin_name}`)
+              .join('\n');
+
+            const response = `คนในห้องตอนนี้ (${usersWithoutBot.length} คน):\n${userList}`;
+
+            console.log(`[${timestamp}] 🤖 Auto-responding with user list (${usersWithoutBot.length} users)`);
+
+            setTimeout(() => {
+              sendMessage(response);
+            }, 800);
+          }
+        }
       });
 
       yellotalkSocket.on('load_message', (data) => {
