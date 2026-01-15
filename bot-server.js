@@ -234,9 +234,21 @@ app.post('/api/bot/start', async (req, res) => {
               return;
             }
 
-            // Build numbered user list
+            // Build numbered user list with time
             const userList = usersWithoutBot
-              .map((p, i) => `${i + 1}. ${p.pin_name}`)
+              .map((p, i) => {
+                const joinInfo = participantJoinTimes.get(p.uuid);
+                if (joinInfo) {
+                  const now = new Date();
+                  const duration = now - joinInfo.joinTime;
+                  const minutes = Math.floor(duration / 60000);
+                  const seconds = Math.floor((duration % 60000) / 1000);
+                  const timeStr = minutes > 0 ? `${minutes}นาที ${seconds}วินาที` : `${seconds}วินาที`;
+                  return `${i + 1}. ${p.pin_name} (${timeStr})`;
+                } else {
+                  return `${i + 1}. ${p.pin_name}`;
+                }
+              })
               .join('\n');
 
             const response = `คนในห้องตอนนี้ (${usersWithoutBot.length} คน):\n${userList}`;
@@ -375,7 +387,7 @@ app.post('/api/bot/start', async (req, res) => {
 
               const userName = joinInfo.name;
               const timeStr = minutes > 0 ? `${minutes}นาที ${seconds}วินาที` : `${seconds}วินาที`;
-              const goodbye = `bye~ ${userName} (อยู่ ${timeStr})`;
+              const goodbye = `ลาก่อน ${userName} (อยู่ ${timeStr})`;
 
               console.log(`[${timestamp}] 👋 ${userName} left after ${timeStr}`);
               console.log(`[${timestamp}] 🤖 Sending: "${goodbye}"`);
