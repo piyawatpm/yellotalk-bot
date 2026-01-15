@@ -20,12 +20,17 @@ import {
 import Link from 'next/link'
 import io from 'socket.io-client'
 
+const getApiUrl = () => {
+  if (typeof window === 'undefined') return 'http://localhost:5353'
+  return `http://${window.location.hostname}:5353`
+}
+
 export default function DashboardPage() {
   const [botState, setBotState] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const socket = io('http://localhost:5353')
+    const socket = io(getApiUrl())
 
     socket.on('connect', () => {
       setLoading(false)

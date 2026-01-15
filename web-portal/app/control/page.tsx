@@ -31,6 +31,11 @@ import {
 import io from 'socket.io-client'
 import { useToast } from '@/hooks/use-toast'
 
+const getApiUrl = () => {
+  if (typeof window === 'undefined') return 'http://localhost:5353'
+  return `http://${window.location.hostname}:5353`
+}
+
 // Avatar component with fallback
 function UserAvatar({ user, size = 'md' }: { user: any; size?: 'sm' | 'md' | 'lg' }) {
   const sizeClasses = {
@@ -87,7 +92,7 @@ export default function ControlPage() {
 
   const connectToServer = () => {
     try {
-      const newSocket = io('http://localhost:5353', {
+      const newSocket = io(getApiUrl(), {
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionAttempts: 5
@@ -155,7 +160,7 @@ export default function ControlPage() {
 
   const fetchRooms = async () => {
     try {
-      const res = await fetch('http://localhost:5353/api/bot/rooms')
+      const res = await fetch(`${getApiUrl()}/api/bot/rooms`)
       const data = await res.json()
       setRooms(data.rooms || [])
     } catch (error) {
@@ -187,7 +192,7 @@ export default function ControlPage() {
     }, 10000)
 
     try {
-      const res = await fetch('http://localhost:5353/api/bot/start', {
+      const res = await fetch(`${getApiUrl()}/api/bot/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -222,7 +227,7 @@ export default function ControlPage() {
 
   const stopBot = async () => {
     try {
-      await fetch('http://localhost:5353/api/bot/stop', { method: 'POST' })
+      await fetch(`${getApiUrl()}/api/bot/stop`, { method: 'POST' })
       toast({ title: 'Bot Stopped', description: 'Bot has been disconnected' })
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to stop bot', variant: 'destructive' })
