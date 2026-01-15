@@ -54,6 +54,7 @@ let botState = {
 
 let yellotalkSocket = null;
 let followInterval = null;
+let botUUID = null; // Bot's own UUID to skip greeting itself
 
 // Load greetings configuration
 let greetingsConfig = { customGreetings: {}, defaultGreeting: 'สวัสดี' };
@@ -137,6 +138,9 @@ app.post('/api/bot/start', async (req, res) => {
   try {
     const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
 
+    // Set bot UUID to skip greeting itself
+    botUUID = config.user_uuid;
+
     botState.status = 'starting';
     botState.mode = mode;
     botState.startTime = Date.now();
@@ -215,6 +219,17 @@ app.post('/api/bot/start', async (req, res) => {
         // FIRST TIME: Save existing participants, DON'T greet anyone
         if (!hasJoinedRoom) {
           previousParticipants = new Map(currentParticipants);
+
+          // Record join times for everyone currently in room (for future bye messages)
+          participants.forEach(p => {
+            if (p.uuid !== botUUID) {
+              participantJoinTimes.set(p.uuid, {
+                name: p.pin_name || 'User',
+                joinTime: new Date()
+              });
+            }
+          });
+
           hasJoinedRoom = true;
           console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
           io.emit('participant-update', participants);
@@ -230,6 +245,10 @@ app.post('/api/bot/start', async (req, res) => {
         participants.forEach((p, index) => {
           const uuid = p.uuid;
           const userName = p.pin_name || 'User';
+
+          // Skip bot itself
+          if (uuid === botUUID) return;
+
           console.log(`[${timestamp}] 🔎 Checking ${userName} (${uuid})`);
 
           // New participant detected!
@@ -272,6 +291,12 @@ app.post('/api/bot/start', async (req, res) => {
             }
           }
         });
+
+        // Debug: Show if we should have detected someone
+        if (newCount === 0 && participants.length > previousParticipants.size) {
+          console.log(`[${timestamp}] 🐛 DEBUG: Participant count increased but no new UUIDs detected`);
+          console.log(`           Previous: ${previousParticipants.size}, Current: ${participants.length}`);
+        }
 
         // Update previous participants for next comparison
         previousParticipants = new Map(currentParticipants);
