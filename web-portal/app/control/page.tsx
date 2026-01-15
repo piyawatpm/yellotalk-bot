@@ -620,7 +620,7 @@ export default function ControlPage() {
                       variant="outline"
                       className="w-full h-10 border-2 border-blue-500/50 hover:bg-blue-500/10 hover:border-blue-500 transition-all duration-300"
                     >
-                      <Settings className="mr-2 h-4 w-4" />
+                      <RefreshCw className="mr-2 h-4 w-4" />
                       Reload Greetings
                     </Button>
 
