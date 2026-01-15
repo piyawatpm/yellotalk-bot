@@ -342,6 +342,44 @@ app.post('/api/bot/start', async (req, res) => {
           console.log(`           Previous: ${previousParticipants.size}, Current: ${participants.length}`);
         }
 
+        // Find participants who LEFT
+        let leftCount = 0;
+        previousParticipants.forEach((prevName, prevUuid) => {
+          if (prevUuid !== botUUID && !currentParticipants.has(prevUuid)) {
+            leftCount++;
+            // This participant left!
+            const joinInfo = participantJoinTimes.get(prevUuid);
+            if (joinInfo) {
+              const leaveTime = new Date();
+              const duration = leaveTime - joinInfo.joinTime;
+              const minutes = Math.floor(duration / 60000);
+              const seconds = Math.floor((duration % 60000) / 1000);
+
+              const userName = joinInfo.name;
+              const timeStr = minutes > 0 ? `${minutes}นาที ${seconds}วินาที` : `${seconds}วินาที`;
+              const goodbye = `bye~ ${userName} (อยู่ ${timeStr})`;
+
+              console.log(`[${timestamp}] 👋 ${userName} left after ${timeStr}`);
+              console.log(`[${timestamp}] 🤖 Sending: "${goodbye}"`);
+
+              setTimeout(() => {
+                sendMessage(goodbye);
+              }, 800);
+
+              // Clean up
+              participantJoinTimes.delete(prevUuid);
+            } else {
+              console.log(`[${timestamp}] 🐛 ${prevName} left but no join time found (UUID: ${prevUuid.substring(0, 20)}...)`);
+            }
+          }
+        });
+
+        // Debug: Show if someone should have left
+        if (leftCount === 0 && participants.length < previousParticipants.size) {
+          console.log(`[${timestamp}] 🐛 DEBUG: Count decreased but no one detected as leaving`);
+          console.log(`           Previous: ${previousParticipants.size}, Current: ${participants.length}`);
+        }
+
         // Update previous participants for next comparison
         previousParticipants = new Map(currentParticipants);
 
