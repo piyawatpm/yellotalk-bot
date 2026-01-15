@@ -25,7 +25,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const socket = io('http://localhost:3002')
+    const socket = io('http://localhost:5353')
 
     socket.on('connect', () => {
       setLoading(false)

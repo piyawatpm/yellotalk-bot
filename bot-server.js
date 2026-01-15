@@ -566,7 +566,7 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = 3002;
+const PORT = 5353;
 server.listen(PORT, () => {
   console.log('='.repeat(70));
   console.log('🚀 YelloTalk Bot Control Server');
