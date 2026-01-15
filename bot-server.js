@@ -340,8 +340,14 @@ app.post('/api/bot/start', async (req, res) => {
 
               // Check custom greetings
               let matched = false;
-              for (const [key, greetingText] of Object.entries(greetingsConfig.customGreetings)) {
-                if (lowerUserName.includes(key.toLowerCase())) {
+              const customKeys = Object.keys(greetingsConfig.customGreetings || {});
+              console.log(`[${timestamp}] 🔎 Matching "${lowerUserName}" against ${customKeys.length} keys: [${customKeys.join(', ')}]`);
+              
+              for (const [key, greetingText] of Object.entries(greetingsConfig.customGreetings || {})) {
+                const keyLower = key.toLowerCase();
+                const isMatch = lowerUserName.includes(keyLower);
+                if (isMatch) {
+                  console.log(`[${timestamp}] ✅ MATCH "${keyLower}" in "${lowerUserName}" -> "${greetingText}"`);
                   greeting = `${greetingText} ${userName}`;
                   matched = true;
                   break;
@@ -350,6 +356,7 @@ app.post('/api/bot/start', async (req, res) => {
 
               // Use default greeting if no match
               if (!matched) {
+                console.log(`[${timestamp}] ⚪ No match found, using default: "${greetingsConfig.defaultGreeting}"`);
                 greeting = `${greetingsConfig.defaultGreeting} ${userName}`;
               }
 
