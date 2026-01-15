@@ -578,7 +578,7 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
                     // Custom greetings
                     let greeting;
 
-                                        if (userName.includes('botyoi')) {
+                    if (userName.includes('botyoi')) {
                         greeting = `สวัสดีพี่ชาย ${userName}`;
                     }
                     else if (userName.includes('rose')) {
@@ -593,7 +593,6 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
                     // Everyone else
                     else {
                         greeting = `สวัสดีสุดหล่อ ${userName}`;
-                    }
                     }
 
                     console.log(`[${timestamp}] 👋 ${userName} joined (new participant #${newCount})`);
