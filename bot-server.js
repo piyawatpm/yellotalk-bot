@@ -55,8 +55,32 @@ let botState = {
 let yellotalkSocket = null;
 let followInterval = null;
 
+// Load greetings configuration
+let greetingsConfig = { customGreetings: {}, defaultGreeting: 'สวัสดี' };
+try {
+  greetingsConfig = JSON.parse(fs.readFileSync('./greetings.json', 'utf8'));
+  console.log('✅ Loaded greetings.json:', greetingsConfig);
+} catch (err) {
+  console.log('⚠️  Could not load greetings.json, using defaults');
+}
+
+// Participant tracking for greetings
+let previousParticipants = new Map(); // uuid -> name
+let participantJoinTimes = new Map(); // uuid -> { name, joinTime }
+let hasJoinedRoom = false;
+
 function broadcastState() {
   io.emit('bot-state', botState);
+}
+
+function sendMessage(text) {
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    console.log('⚠️  Cannot send message - not connected');
+    return;
+  }
+  yellotalkSocket.emit('new_message', { message: text });
+  console.log(`📤 Sent: ${text}`);
+  addMessage('Bot', text);
 }
 
 function addMessage(sender, message) {
@@ -119,6 +143,12 @@ app.post('/api/bot/start', async (req, res) => {
     botState.messages = [];
     botState.participants = [];
     botState.messageCount = 0;
+
+    // Reset greeting tracking
+    previousParticipants = new Map();
+    participantJoinTimes = new Map();
+    hasJoinedRoom = false;
+
     broadcastState();
 
     // Fetch room details FIRST
@@ -170,10 +200,82 @@ app.post('/api/bot/start', async (req, res) => {
       });
 
       yellotalkSocket.on('participant_changed', (data) => {
+        const timestamp = new Date().toLocaleTimeString();
         const participants = Array.isArray(data) ? data : [];
         console.log(`👥 ${participants.length} participants:`, participants.map(p => p.pin_name).join(', '));
 
         botState.participants = participants;
+
+        // Build current participants map
+        const currentParticipants = new Map();
+        participants.forEach(p => {
+          currentParticipants.set(p.uuid, p.pin_name || 'User');
+        });
+
+        // FIRST TIME: Save existing participants, DON'T greet anyone
+        if (!hasJoinedRoom) {
+          previousParticipants = new Map(currentParticipants);
+          hasJoinedRoom = true;
+          console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
+          io.emit('participant-update', participants);
+          broadcastState();
+          return;  // Exit - don't greet anyone on initial join!
+        }
+
+        // Find NEW participants (joined)
+        let newCount = 0;
+        console.log(`[${timestamp}] 🔍 Checking for new participants...`);
+        console.log(`[${timestamp}] 📝 Previous participants:`, Array.from(previousParticipants.values()));
+
+        participants.forEach((p, index) => {
+          const uuid = p.uuid;
+          const userName = p.pin_name || 'User';
+          console.log(`[${timestamp}] 🔎 Checking ${userName} (${uuid})`);
+
+          // New participant detected!
+          if (!previousParticipants.has(uuid)) {
+            console.log(`[${timestamp}] ✨ ${userName} is NEW!`);
+            // Also check if we already have join time (prevent duplicate greets)
+            if (!participantJoinTimes.has(uuid)) {
+              newCount++;
+              const joinTime = new Date();
+              participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
+
+              // Generate greeting using greetings.json
+              let greeting;
+              const lowerUserName = userName.toLowerCase();
+
+              // Check custom greetings
+              let matched = false;
+              for (const [key, greetingText] of Object.entries(greetingsConfig.customGreetings)) {
+                if (lowerUserName.includes(key.toLowerCase())) {
+                  greeting = `${greetingText} ${userName}`;
+                  matched = true;
+                  break;
+                }
+              }
+
+              // Use default greeting if no match
+              if (!matched) {
+                greeting = `${greetingsConfig.defaultGreeting} ${userName}`;
+              }
+
+              console.log(`[${timestamp}] 👋 ${userName} joined (new participant #${newCount})`);
+              console.log(`[${timestamp}] 🤖 Sending: "${greeting}"`);
+
+              // Send greeting with delay
+              setTimeout(() => {
+                sendMessage(greeting);
+              }, 1000 + (index * 500));
+            } else {
+              console.log(`[${timestamp}] 🔄 ${userName} rejoined (skipping duplicate greet)`);
+            }
+          }
+        });
+
+        // Update previous participants for next comparison
+        previousParticipants = new Map(currentParticipants);
+
         io.emit('participant-update', participants);
         broadcastState();
       });
@@ -551,6 +653,11 @@ app.post('/api/bot/stop', (req, res) => {
     connected: false,
     startTime: null
   };
+
+  // Reset greeting tracking
+  previousParticipants = new Map();
+  participantJoinTimes = new Map();
+  hasJoinedRoom = false;
 
   console.log('✅ Bot fully stopped');
   broadcastState();
