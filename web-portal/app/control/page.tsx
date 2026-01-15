@@ -151,6 +151,14 @@ export default function ControlPage() {
         toast({ title: 'Disconnected', description: 'Lost connection to bot server' })
       })
 
+      newSocket.on('greetings-reloaded', (config) => {
+        toast({
+          title: 'Greetings Updated',
+          description: 'Greetings configuration has been reloaded',
+          duration: 3000
+        })
+      })
+
       setSocket(newSocket)
     } catch (error) {
       setServerError(true)
@@ -231,6 +239,27 @@ export default function ControlPage() {
       toast({ title: 'Bot Stopped', description: 'Bot has been disconnected' })
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to stop bot', variant: 'destructive' })
+    }
+  }
+
+  const reloadGreetings = async () => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/reload-greetings`, { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        toast({
+          title: 'Greetings Reloaded',
+          description: 'Successfully reloaded greetings.json configuration'
+        })
+      } else {
+        toast({
+          title: 'Reload Failed',
+          description: data.error || 'Could not reload greetings',
+          variant: 'destructive'
+        })
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to reload greetings', variant: 'destructive' })
     }
   }
 
@@ -584,6 +613,15 @@ export default function ControlPage() {
                     >
                       <Square className="mr-2 h-5 w-5" />
                       {isFollowMode ? 'Stop Following' : 'Stop Bot'}
+                    </Button>
+
+                    <Button
+                      onClick={reloadGreetings}
+                      variant="outline"
+                      className="w-full h-10 border-2 border-blue-500/50 hover:bg-blue-500/10 hover:border-blue-500 transition-all duration-300"
+                    >
+                      <Settings className="mr-2 h-4 w-4" />
+                      Reload Greetings
                     </Button>
 
                     {/* Additional info for follow mode */}

@@ -58,12 +58,30 @@ let botUUID = null; // Bot's own UUID to skip greeting itself
 
 // Load greetings configuration
 let greetingsConfig = { customGreetings: {}, defaultGreeting: 'สวัสดี' };
-try {
-  greetingsConfig = JSON.parse(fs.readFileSync('./greetings.json', 'utf8'));
-  console.log('✅ Loaded greetings.json:', greetingsConfig);
-} catch (err) {
-  console.log('⚠️  Could not load greetings.json, using defaults');
+
+function loadGreetings() {
+  try {
+    const data = fs.readFileSync('./greetings.json', 'utf8');
+    greetingsConfig = JSON.parse(data);
+    console.log('✅ Loaded greetings.json:', greetingsConfig);
+    return { success: true, config: greetingsConfig };
+  } catch (err) {
+    console.log('⚠️  Could not load greetings.json:', err.message);
+    return { success: false, error: err.message };
+  }
 }
+
+// Initial load
+loadGreetings();
+
+// Auto-reload when greetings.json changes
+fs.watch('./greetings.json', (eventType, filename) => {
+  if (eventType === 'change') {
+    console.log('🔄 greetings.json changed, reloading...');
+    loadGreetings();
+    io.emit('greetings-reloaded', greetingsConfig);
+  }
+});
 
 // Participant tracking for greetings
 let previousParticipants = new Map(); // uuid -> name
@@ -769,6 +787,23 @@ app.post('/api/bot/stop', (req, res) => {
   console.log('✅ Bot fully stopped');
   broadcastState();
   res.json({ success: true });
+});
+
+// Reload greetings
+app.post('/api/bot/reload-greetings', (req, res) => {
+  console.log('🔄 Manually reloading greetings.json...');
+  const result = loadGreetings();
+  if (result.success) {
+    io.emit('greetings-reloaded', result.config);
+    res.json({ success: true, config: result.config });
+  } else {
+    res.status(500).json({ success: false, error: result.error });
+  }
+});
+
+// Get current greetings
+app.get('/api/bot/greetings', (req, res) => {
+  res.json({ success: true, config: greetingsConfig });
 });
 
 // WebSocket from portal
