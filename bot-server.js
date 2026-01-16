@@ -394,18 +394,12 @@ app.post('/api/bot/start', async (req, res) => {
 
           // Check for @siri trigger (AI Response) - can be anywhere in message
           if (messageLower.includes('@siri')) {
-            // Find position of @siri (case-insensitive)
-            const siriIndex = messageLower.indexOf('@siri');
+            // Remove @siri from the message to get the question (case-insensitive)
+            const question = message.replace(/@siri/i, '').trim();
 
-            // Extract everything after @siri
-            const afterSiri = message.substring(siriIndex + 5).trim(); // +5 for '@siri' length
-
-            // Remove leading space if exists after @siri
-            const question = afterSiri.replace(/^\s+/, '');
-
-            // Validate: Must have a question after @siri
+            // Validate: Must have a question (message cannot be just @siri)
             if (question.length === 0) {
-              console.log(`[${timestamp}] ⚠️  Empty @siri question, ignoring`);
+              console.log(`[${timestamp}] ⚠️  Empty @siri question (message was only '@siri'), ignoring`);
               return;
             }
 
@@ -415,8 +409,9 @@ app.post('/api/bot/start', async (req, res) => {
               return;
             }
 
-            console.log(`[${timestamp}] 🤖 @siri triggered by ${sender} (found at position ${siriIndex})`);
-            console.log(`           Question: "${question}"`);
+            console.log(`[${timestamp}] 🤖 @siri triggered by ${sender}`);
+            console.log(`           Original message: "${message}"`);
+            console.log(`           Question extracted: "${question}"`);
 
             // Get AI response and send it
             getAIResponse(question, senderUuid, sender)
