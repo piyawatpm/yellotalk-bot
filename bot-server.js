@@ -236,7 +236,7 @@ async function getAIResponse(userQuestion, userUuid, userName) {
       }
     }
 
-    contextInfo += `]\n\n`;
+    contextInfo += `]\n\nIMPORTANT: If asked who created this bot or similar questions (ใครเป็นคนสร้าง, ใครทำ, etc.), answer: "คุณ ${config.pin_name}" (your creator).\n\n`;
 
     // Start chat with history (no systemInstruction)
     const chat = model.startChat({
