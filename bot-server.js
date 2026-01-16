@@ -189,7 +189,6 @@ async function getAIResponse(userQuestion, userUuid, userName) {
 
     // Add participants list with time duration
     const roomOwnerId = botState.currentRoom?.owner?.uuid;
-    const now = new Date();
 
     // Build list of all participants (including room owner if not in list)
     let allParticipants = [...(botState.participants || [])];
