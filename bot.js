@@ -8,6 +8,7 @@ const io = require('socket.io-client');
 const axios = require('axios');
 const https = require('https');
 const fs = require('fs');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Load config
 const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
@@ -17,8 +18,16 @@ const API_URL = config.api_base_url;
 const UUID = config.user_uuid;
 const PIN_NAME = config.pin_name;
 const AVATAR_ID = config.avatar_id;
+const GEMINI_API_KEY = config.gemini_api_key;
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+
+// Store conversation history per user (optional - for memory)
+const conversationHistory = new Map();
 
 let messageCount = 0;
 let socket = null;
@@ -65,6 +74,52 @@ function sendMessage(message, room_id = null) {
         const timestamp = new Date().toLocaleTimeString();
         console.log(`[${timestamp}] ✅ Message sent: "${message}"`);
     });
+}
+
+// AI Response Handler
+async function getAIResponse(userQuestion, userUuid, userName) {
+    try {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`[${timestamp}] 🤖 Asking AI: "${userQuestion}"`);
+
+        // Get or create conversation history for this user
+        if (!conversationHistory.has(userUuid)) {
+            conversationHistory.set(userUuid, []);
+        }
+        const history = conversationHistory.get(userUuid);
+
+        // Start chat with history
+        const chat = model.startChat({
+            history: history,
+            generationConfig: {
+                maxOutputTokens: 500, // Limit response length for chat
+            },
+        });
+
+        // Send message and get response
+        const result = await chat.sendMessage(userQuestion);
+        const response = result.response;
+        const aiReply = response.text();
+
+        // Update conversation history
+        history.push(
+            { role: 'user', parts: [{ text: userQuestion }] },
+            { role: 'model', parts: [{ text: aiReply }] }
+        );
+
+        // Keep only last 10 messages (5 exchanges) to manage token usage
+        if (history.length > 10) {
+            history.splice(0, history.length - 10);
+        }
+
+        console.log(`[${timestamp}] 🤖 AI Response: "${aiReply.substring(0, 100)}..."`);
+        return aiReply;
+
+    } catch (error) {
+        const timestamp = new Date().toLocaleTimeString();
+        console.error(`[${timestamp}] ❌ AI Error:`, error.message);
+        return `ขอโทษค่ะ เกิดข้อผิดพลาดในการประมวลผล: ${error.message}`;
+    }
 }
 
 // Lock speaker slot
@@ -470,6 +525,39 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             if (message.includes('คนในห้องตอนนี้') && message.includes('คน):')) {
                 // This is a bot's user list response, ignore it
                 return;
+            }
+
+            // Check for @siri trigger (AI Response)
+            if (messageLower.startsWith('@siri ')) {
+                const question = message.substring(6).trim(); // Remove '@siri ' prefix
+
+                // Validate: Must have a question after @siri
+                if (question.length === 0) {
+                    console.log(`[${timestamp}] ⚠️  Empty @siri question, ignoring`);
+                    return;
+                }
+
+                // Validate: Question should be at least 2 characters
+                if (question.length < 2) {
+                    console.log(`[${timestamp}] ⚠️  @siri question too short, ignoring`);
+                    return;
+                }
+
+                console.log(`[${timestamp}] 🤖 @siri triggered by ${sender}`);
+                console.log(`           Question: "${question}"`);
+
+                // Get AI response and send it
+                getAIResponse(question, senderUuid, sender)
+                    .then(aiReply => {
+                        setTimeout(() => {
+                            sendMessage(aiReply);
+                        }, 1000); // Small delay to seem more natural
+                    })
+                    .catch(err => {
+                        console.error(`[${timestamp}] ❌ Failed to get AI response:`, err);
+                    });
+
+                return; // Don't process other keywords
             }
 
             // Check for "list users" keywords

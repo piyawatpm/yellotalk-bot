@@ -4,6 +4,7 @@
   "description": "YelloTalk room chat monitor",
   "main": "bot.js",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "axios": "^1.6.5",
     "cors": "^2.8.5",
     "express": "^5.2.1",

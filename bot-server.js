@@ -11,6 +11,7 @@ const http = require('http');
 const fs = require('fs');
 const axios = require('axios');
 const https = require('https');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Import bot logic from bot.js
 const socketClient = require('socket.io-client');
@@ -55,6 +56,31 @@ let botState = {
 let yellotalkSocket = null;
 let followInterval = null;
 let botUUID = null; // Bot's own UUID to skip greeting itself
+
+// Load config for Gemini API keys
+const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+const GEMINI_API_KEYS = config.gemini_api_keys || [];
+
+// Dual API Key Load Balancer
+let currentApiKeyIndex = 0;
+const geminiModels = GEMINI_API_KEYS.map(key => {
+  const genAI = new GoogleGenerativeAI(key);
+  return genAI.getGenerativeModel({ model: 'gemini-pro' });
+});
+
+// Round-robin API key selection
+function getNextModel() {
+  if (geminiModels.length === 0) {
+    throw new Error('No Gemini API keys configured');
+  }
+  const model = geminiModels[currentApiKeyIndex];
+  currentApiKeyIndex = (currentApiKeyIndex + 1) % geminiModels.length;
+  console.log(`🔄 Using API key ${currentApiKeyIndex} of ${geminiModels.length}`);
+  return model;
+}
+
+// Store conversation history per user (for memory)
+const conversationHistory = new Map();
 
 // Load greetings configuration
 let greetingsConfig = { customGreetings: {}, defaultGreeting: 'สวัสดี' };
@@ -117,6 +143,71 @@ function addMessage(sender, message) {
 
   io.emit('new-message', { sender, message, time: new Date().toLocaleTimeString() });
   broadcastState();
+}
+
+// AI Response Handler with Dual API Key Support
+async function getAIResponse(userQuestion, userUuid, userName) {
+  try {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[${timestamp}] 🤖 ${userName} asking AI: "${userQuestion}"`);
+
+    // Get or create conversation history for this user
+    if (!conversationHistory.has(userUuid)) {
+      conversationHistory.set(userUuid, []);
+    }
+    const history = conversationHistory.get(userUuid);
+
+    // Get next model from load balancer
+    const model = getNextModel();
+
+    // Start chat with history
+    const chat = model.startChat({
+      history: history,
+      generationConfig: {
+        maxOutputTokens: 500, // Limit response length for chat
+      },
+    });
+
+    // Send message and get response
+    const result = await chat.sendMessage(userQuestion);
+    const response = result.response;
+    const aiReply = response.text();
+
+    // Update conversation history
+    history.push(
+      { role: 'user', parts: [{ text: userQuestion }] },
+      { role: 'model', parts: [{ text: aiReply }] }
+    );
+
+    // Keep only last 10 messages (5 exchanges) to manage token usage
+    if (history.length > 10) {
+      history.splice(0, history.length - 10);
+    }
+
+    console.log(`[${timestamp}] 🤖 AI Response (${aiReply.length} chars): "${aiReply.substring(0, 100)}..."`);
+
+    // Emit AI response event to web portal
+    io.emit('ai-response', {
+      user: userName,
+      question: userQuestion,
+      answer: aiReply,
+      timestamp: timestamp
+    });
+
+    return aiReply;
+
+  } catch (error) {
+    const timestamp = new Date().toLocaleTimeString();
+    console.error(`[${timestamp}] ❌ AI Error:`, error.message);
+
+    // Emit error event to web portal
+    io.emit('ai-error', {
+      error: error.message,
+      timestamp: timestamp
+    });
+
+    return `ขอโทษค่ะ เกิดข้อผิดพลาดในการประมวลผล: ${error.message}`;
+  }
 }
 
 // Fetch rooms
@@ -219,6 +310,39 @@ app.post('/api/bot/start', async (req, res) => {
           if (message.includes('คนในห้องตอนนี้') && message.includes('คน):')) {
             // This is a bot's user list response, ignore it
             return;
+          }
+
+          // Check for @siri trigger (AI Response)
+          if (messageLower.startsWith('@siri ')) {
+            const question = message.substring(6).trim(); // Remove '@siri ' prefix
+
+            // Validate: Must have a question after @siri
+            if (question.length === 0) {
+              console.log(`[${timestamp}] ⚠️  Empty @siri question, ignoring`);
+              return;
+            }
+
+            // Validate: Question should be at least 2 characters
+            if (question.length < 2) {
+              console.log(`[${timestamp}] ⚠️  @siri question too short, ignoring`);
+              return;
+            }
+
+            console.log(`[${timestamp}] 🤖 @siri triggered by ${sender}`);
+            console.log(`           Question: "${question}"`);
+
+            // Get AI response and send it
+            getAIResponse(question, senderUuid, sender)
+              .then(aiReply => {
+                setTimeout(() => {
+                  sendMessage(aiReply);
+                }, 1000); // Small delay to seem more natural
+              })
+              .catch(err => {
+                console.error(`[${timestamp}] ❌ Failed to get AI response:`, err);
+              });
+
+            return; // Don't process other keywords
           }
 
           // Check for "list users" keywords from greetings.json
