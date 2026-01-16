@@ -11,7 +11,7 @@ const http = require('http');
 const fs = require('fs');
 const axios = require('axios');
 const https = require('https');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
 // Import bot logic from bot.js
 const socketClient = require('socket.io-client');
@@ -57,26 +57,25 @@ let yellotalkSocket = null;
 let followInterval = null;
 let botUUID = null; // Bot's own UUID to skip greeting itself
 
-// Load config for Gemini API keys
+// Load config for Groq API keys
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
-const GEMINI_API_KEYS = config.gemini_api_keys || [];
+const GROQ_API_KEYS = config.groq_api_keys || [];
 
 // Dual API Key Load Balancer
 let currentApiKeyIndex = 0;
-const geminiModels = GEMINI_API_KEYS.map(key => {
-  const genAI = new GoogleGenerativeAI(key);
-  return genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+const groqClients = GROQ_API_KEYS.map(key => {
+  return new Groq({ apiKey: key });
 });
 
 // Round-robin API key selection
-function getNextModel() {
-  if (geminiModels.length === 0) {
-    throw new Error('No Gemini API keys configured');
+function getNextClient() {
+  if (groqClients.length === 0) {
+    throw new Error('No Groq API keys configured');
   }
-  const model = geminiModels[currentApiKeyIndex];
-  currentApiKeyIndex = (currentApiKeyIndex + 1) % geminiModels.length;
-  console.log(`🔄 Using API key ${currentApiKeyIndex} of ${geminiModels.length}`);
-  return model;
+  const client = groqClients[currentApiKeyIndex];
+  currentApiKeyIndex = (currentApiKeyIndex + 1) % groqClients.length;
+  console.log(`🔄 Using Groq API key ${currentApiKeyIndex + 1} of ${groqClients.length}`);
+  return client;
 }
 
 // Store conversation history per user (for memory)
@@ -157,8 +156,8 @@ async function getAIResponse(userQuestion, userUuid, userName) {
     }
     const history = conversationHistory.get(userUuid);
 
-    // Get next model from load balancer
-    const model = getNextModel();
+    // Get next client from load balancer
+    const groqClient = getNextClient();
 
     // Get current date/time for context
     const now = new Date();
@@ -257,23 +256,36 @@ OTHER INSTRUCTIONS:
 
 `;
 
-    // Start chat with history (no systemInstruction)
-    const chat = model.startChat({
-      history: history,
-      generationConfig: {
-        maxOutputTokens: 500, // Limit response length for chat
+    // Build messages array for Groq (convert Gemini history format to Groq format)
+    const messages = [
+      // Add context as system message
+      {
+        role: 'system',
+        content: contextInfo
       },
+      // Add conversation history
+      ...history.map(msg => ({
+        role: msg.role === 'model' ? 'assistant' : 'user',
+        content: msg.parts ? msg.parts[0].text : msg.content
+      })),
+      // Add current user question
+      {
+        role: 'user',
+        content: userQuestion
+      }
+    ];
+
+    // Call Groq API
+    const chatCompletion = await groqClient.chat.completions.create({
+      messages: messages,
+      model: 'llama-3.3-70b-versatile',
+      max_tokens: 500, // Limit response length for chat
+      temperature: 0.7,
     });
 
-    // Prepend context to user question
-    const questionWithContext = contextInfo + userQuestion;
+    const aiReply = chatCompletion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
 
-    // Send message with context and get response
-    const result = await chat.sendMessage(questionWithContext);
-    const response = result.response;
-    const aiReply = response.text();
-
-    // Update conversation history (save original question without context)
+    // Update conversation history (save original question without context in Gemini format for compatibility)
     history.push(
       { role: 'user', parts: [{ text: userQuestion }] },
       { role: 'model', parts: [{ text: aiReply }] }
