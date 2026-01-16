@@ -188,12 +188,24 @@ async function getAIResponse(userQuestion, userUuid, userName) {
     }
 
     // Add participants list with time duration
-    if (botState.participants && botState.participants.length > 0) {
-      const roomOwnerId = botState.currentRoom?.owner?.uuid;
-      const now = new Date();
+    const roomOwnerId = botState.currentRoom?.owner?.uuid;
+    const now = new Date();
 
-      const participantDetails = botState.participants
-        .filter(p => p.uuid !== botUUID) // Exclude bot itself
+    // Build list of all participants (including room owner if not in list)
+    let allParticipants = [...(botState.participants || [])];
+
+    // Check if room owner is in participants list, if not add them
+    if (roomOwnerId && !allParticipants.some(p => p.uuid === roomOwnerId)) {
+      const owner = botState.currentRoom.owner;
+      allParticipants.push({
+        uuid: owner.uuid,
+        pin_name: owner.pin_name || owner.name || 'Unknown'
+      });
+    }
+
+    if (allParticipants.length > 0) {
+      const participantDetails = allParticipants
+        .filter(p => p.uuid !== botUUID && p.uuid !== config.user_uuid) // Exclude bot by UUID
         .map(p => {
           let name = p.pin_name || 'Unknown';
 
@@ -219,7 +231,9 @@ async function getAIResponse(userQuestion, userUuid, userName) {
           return name;
         });
 
-      contextInfo += ` | People in room (${participantDetails.length}): ${participantDetails.join(', ')}`;
+      if (participantDetails.length > 0) {
+        contextInfo += ` | People in room (${participantDetails.length}): ${participantDetails.join(', ')}`;
+      }
     }
 
     contextInfo += `]\n\n`;
