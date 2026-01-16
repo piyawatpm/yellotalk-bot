@@ -430,6 +430,14 @@ app.post('/api/bot/start', async (req, res) => {
 
           hasJoinedRoom = true;
           console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
+
+          // Send welcome message explaining @siri feature
+          setTimeout(() => {
+            const welcomeMessage = 'สวัสดีค่ะ! 🤖 ถ้าอยากถามอะไรกับ AI สามารถพิมพ์ @siri [ข้อความ] ได้เลยนะคะ\nตัวอย่าง: @siri สวัสดี หรือ @siri อธิบายเรื่อง AI ให้หน่อย';
+            sendMessage(welcomeMessage);
+            console.log(`[${timestamp}] 👋 Sent @siri welcome message`);
+          }, 2000); // 2 second delay to let room fully load
+
           io.emit('participant-update', participants);
           broadcastState();
           return;  // Exit - don't greet anyone on initial join!
