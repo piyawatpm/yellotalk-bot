@@ -174,16 +174,16 @@ async function getAIResponse(userQuestion, userUuid, userName) {
       timeZoneName: 'short'
     });
 
-    // Build room context
-    let roomContext = '';
+    // Build context information
+    let contextInfo = `[Context: Current date/time: ${dateStr} at ${timeStr}`;
 
     // Add room owner info (หัวห้อง)
     if (botState.currentRoom && botState.currentRoom.owner) {
       const owner = botState.currentRoom.owner;
       const ownerName = owner.pin_name || owner.name || 'Unknown';
-      roomContext += `\nRoom Owner (หัวห้อง/หห): ${ownerName}`;
+      contextInfo += ` | Room Owner (หัวห้อง/หห): ${ownerName}`;
       if (botState.currentRoom.topic) {
-        roomContext += `\nRoom Topic: ${botState.currentRoom.topic}`;
+        contextInfo += ` | Room Topic: ${botState.currentRoom.topic}`;
       }
     }
 
@@ -193,32 +193,28 @@ async function getAIResponse(userQuestion, userUuid, userName) {
         .filter(p => p.uuid !== botUUID) // Exclude bot itself
         .map(p => p.pin_name || 'Unknown')
         .join(', ');
-      roomContext += `\nCurrent participants in room (${botState.participants.length - 1}): ${participantNames}`;
+      contextInfo += ` | People in room (${botState.participants.length - 1}): ${participantNames}`;
     }
 
-    // Start chat with history and system instruction
+    contextInfo += `]\n\n`;
+
+    // Start chat with history (no systemInstruction)
     const chat = model.startChat({
       history: history,
       generationConfig: {
         maxOutputTokens: 500, // Limit response length for chat
       },
-      systemInstruction: `You are a helpful AI assistant in a YelloTalk chat room. Current date and time: ${dateStr} at ${timeStr}. Always use this as the current date/time when answering questions about "today", "now", or current events.${roomContext}
-
-When users ask about people in the room, the room owner (หห/หัวห้อง), or who's here, use the participant information provided above.
-
-SPECIAL ABILITIES:
-- Random assignments: When asked to randomly assign numbers (e.g., "สุ่มเลข 1-12 จากทุกคนในห้อง"), assign unique random numbers to each participant
-- Random selection: When asked to pick someone randomly (e.g., "สุ่มคนในห้อง"), randomly select from the participant list
-- You can perform random tasks like dice rolls, coin flips, or any randomization requests
-- Always show clear results with each person's assigned number/selection`,
     });
 
-    // Send message and get response
-    const result = await chat.sendMessage(userQuestion);
+    // Prepend context to user question
+    const questionWithContext = contextInfo + userQuestion;
+
+    // Send message with context and get response
+    const result = await chat.sendMessage(questionWithContext);
     const response = result.response;
     const aiReply = response.text();
 
-    // Update conversation history
+    // Update conversation history (save original question without context)
     history.push(
       { role: 'user', parts: [{ text: userQuestion }] },
       { role: 'model', parts: [{ text: aiReply }] }
