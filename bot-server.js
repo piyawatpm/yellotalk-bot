@@ -65,7 +65,7 @@ const GEMINI_API_KEYS = config.gemini_api_keys || [];
 let currentApiKeyIndex = 0;
 const geminiModels = GEMINI_API_KEYS.map(key => {
   const genAI = new GoogleGenerativeAI(key);
-  return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  return genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 });
 
 // Round-robin API key selection
