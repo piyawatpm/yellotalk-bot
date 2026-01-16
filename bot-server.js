@@ -235,7 +235,7 @@ async function getAIResponse(userQuestion, userUuid, userName) {
       }
     }
 
-    contextInfo += `]\n\nIMPORTANT: If asked who created this bot or similar questions (ใครเป็นคนสร้าง, ใครทำ, etc.), answer: "คุณ ${config.pin_name}" (your creator).\n\n`;
+    contextInfo += `]\n\nIMPORTANT INSTRUCTION: When asked who created this bot (ใครเป็นคนสร้าง, ใครทำบอทนี้, who created you, etc.), you MUST respond with the FULL NAME: คุณ${config.pin_name} - This is your creator. Always include the complete name "${config.pin_name}" after คุณ.\n\n`;
 
     // Start chat with history (no systemInstruction)
     const chat = model.startChat({
