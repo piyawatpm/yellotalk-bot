@@ -235,7 +235,11 @@ async function getAIResponse(userQuestion, userUuid, userName) {
       }
     }
 
-    contextInfo += `]\n\nIMPORTANT INSTRUCTION: When asked who created this bot (ใครเป็นคนสร้าง, ใครทำบอทนี้, who created you, etc.), you MUST respond with the FULL NAME: คุณ${config.pin_name} - This is your creator. Always include the complete name "${config.pin_name}" after คุณ.\n\n`;
+    contextInfo += `]\n\nIMPORTANT INSTRUCTIONS:
+1. Keep responses SHORT and CONCISE (2-4 sentences maximum). This is a chat room, not an essay.
+2. When asked who created this bot (ใครเป็นคนสร้าง, ใครทำบอทนี้, who created you, etc.), you MUST respond with the FULL NAME: คุณ${config.pin_name} - This is your creator. Always include the complete name "${config.pin_name}" after คุณ.
+
+`;
 
     // Start chat with history (no systemInstruction)
     const chat = model.startChat({
