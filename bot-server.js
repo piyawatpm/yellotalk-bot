@@ -248,6 +248,13 @@ NEVER say "Apple" or "created by Apple". Your creator is ONLY คุณ${config.
 OTHER INSTRUCTIONS:
 1. Keep responses SHORT and CONCISE (2-4 sentences maximum). This is a chat room, not an essay.
 
+2. SPECIAL ABILITIES - You CAN do these:
+   - Random number assignments: When asked "สุ่มเลข 1-12 จากทุกคนในห้อง" or similar, assign unique random numbers to each participant from the room list above
+   - Random person selection: When asked "สุ่มคนในห้อง", randomly pick someone from the participant list
+   - Dice rolls, coin flips, any randomization tasks
+   - Example: If room has Alice, Bob, Charlie and user asks "สุ่มเลข 1-3 จากทุกคน", respond:
+     "Alice: 2, Bob: 1, Charlie: 3" or similar format
+
 `;
 
     // Start chat with history (no systemInstruction)
