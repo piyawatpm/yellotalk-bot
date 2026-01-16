@@ -424,24 +424,37 @@ app.post('/api/bot/start', async (req, res) => {
             return;
           }
 
-          // Check for @siri trigger (AI Response) - can be anywhere in message
-          if (messageLower.includes('@siri')) {
-            // Remove @siri from the message to get the question (case-insensitive)
-            const question = message.replace(/@siri/i, '').trim();
+          // Check for Siri trigger (AI Response) - @siri, siri, or สิริ anywhere in message
+          if (messageLower.includes('@siri') || messageLower.includes('siri') || message.includes('สิริ')) {
+            // Remove trigger word from the message to get the question
+            // Check multiple patterns: @siri, siri, or สิริ (Thai)
+            let question = message;
+            let triggerFound = '';
 
-            // Validate: Must have a question (message cannot be just @siri)
+            if (messageLower.includes('@siri')) {
+              question = message.replace(/@siri/i, '').trim();
+              triggerFound = '@siri';
+            } else if (message.includes('สิริ')) {
+              question = message.replace(/สิริ/g, '').trim();
+              triggerFound = 'สิริ';
+            } else if (messageLower.includes('siri')) {
+              question = message.replace(/siri/gi, '').trim();
+              triggerFound = 'siri';
+            }
+
+            // Validate: Must have a question (message cannot be just the trigger word)
             if (question.length === 0) {
-              console.log(`[${timestamp}] ⚠️  Empty @siri question (message was only '@siri'), ignoring`);
+              console.log(`[${timestamp}] ⚠️  Empty question (message was only '${triggerFound}'), ignoring`);
               return;
             }
 
             // Validate: Question should be at least 2 characters
             if (question.length < 2) {
-              console.log(`[${timestamp}] ⚠️  @siri question too short, ignoring`);
+              console.log(`[${timestamp}] ⚠️  Question too short, ignoring`);
               return;
             }
 
-            console.log(`[${timestamp}] 🤖 @siri triggered by ${sender}`);
+            console.log(`[${timestamp}] 🤖 Siri triggered by ${sender} (trigger: ${triggerFound})`);
             console.log(`           Original message: "${message}"`);
             console.log(`           Question extracted: "${question}"`);
 
@@ -545,11 +558,11 @@ app.post('/api/bot/start', async (req, res) => {
           hasJoinedRoom = true;
           console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
 
-          // Send welcome message explaining @siri feature
+          // Send welcome message explaining Siri feature
           setTimeout(() => {
-            const welcomeMessage = 'สวัสดีค่ะ! 🤖 สามารถถามคำถามทั่วไปกับ AI ได้ด้วย @siri [ข้อความ]\n⚠️ ตอบได้เฉพาะคำถามทั่วไป ไม่รวมข่าวล่าสุดหรือข้อมูลเรียลไทม์\n\nตัวอย่าง:\n• @siri สวัสดี\n• @siri อธิบาย AI คืออะไร\n• @siri สุ่มเลข 1-12 จากทุกคนในห้อง\n• @siri ใครคือหห?';
+            const welcomeMessage = 'สวัสดีค่ะ! 🤖 สามารถถามคำถามทั่วไปกับ AI ได้ด้วย @siri, siri หรือ สิริ\n⚠️ ตอบได้เฉพาะคำถามทั่วไป ไม่รวมข่าวล่าสุดหรือข้อมูลเรียลไทม์\n\nตัวอย่าง:\n• @siri สวัสดี\n• siri อธิบาย AI คืออะไร\n• สิริ สุ่มเลข 1-12 จากทุกคนในห้อง\n• ใครคือหห? siri';
             sendMessage(welcomeMessage);
-            console.log(`[${timestamp}] 👋 Sent @siri welcome message`);
+            console.log(`[${timestamp}] 👋 Sent Siri welcome message`);
           }, 2000); // 2 second delay to let room fully load
 
           io.emit('participant-update', participants);
