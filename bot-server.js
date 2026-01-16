@@ -187,13 +187,39 @@ async function getAIResponse(userQuestion, userUuid, userName) {
       }
     }
 
-    // Add participants list
+    // Add participants list with time duration
     if (botState.participants && botState.participants.length > 0) {
-      const participantNames = botState.participants
+      const roomOwnerId = botState.currentRoom?.owner?.uuid;
+      const now = new Date();
+
+      const participantDetails = botState.participants
         .filter(p => p.uuid !== botUUID) // Exclude bot itself
-        .map(p => p.pin_name || 'Unknown')
-        .join(', ');
-      contextInfo += ` | People in room (${botState.participants.length - 1}): ${participantNames}`;
+        .map(p => {
+          let name = p.pin_name || 'Unknown';
+
+          // Mark room owner with (หห) tag
+          if (p.uuid === roomOwnerId) {
+            name += ' (หห)';
+          }
+
+          // Add time duration if available
+          const joinInfo = participantJoinTimes.get(p.uuid);
+          if (joinInfo) {
+            const duration = now - joinInfo.joinTime;
+            const minutes = Math.floor(duration / 60000);
+            const seconds = Math.floor((duration % 60000) / 1000);
+
+            if (minutes > 0) {
+              name += ` [${minutes}m ${seconds}s]`;
+            } else {
+              name += ` [${seconds}s]`;
+            }
+          }
+
+          return name;
+        });
+
+      contextInfo += ` | People in room (${participantDetails.length}): ${participantDetails.join(', ')}`;
     }
 
     contextInfo += `]\n\n`;
