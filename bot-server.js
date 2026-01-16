@@ -174,13 +174,37 @@ async function getAIResponse(userQuestion, userUuid, userName) {
       timeZoneName: 'short'
     });
 
+    // Build room context
+    let roomContext = '';
+
+    // Add room owner info (หัวห้อง)
+    if (botState.currentRoom && botState.currentRoom.owner) {
+      const owner = botState.currentRoom.owner;
+      const ownerName = owner.pin_name || owner.name || 'Unknown';
+      roomContext += `\nRoom Owner (หัวห้อง/หห): ${ownerName}`;
+      if (botState.currentRoom.topic) {
+        roomContext += `\nRoom Topic: ${botState.currentRoom.topic}`;
+      }
+    }
+
+    // Add participants list
+    if (botState.participants && botState.participants.length > 0) {
+      const participantNames = botState.participants
+        .filter(p => p.uuid !== botUUID) // Exclude bot itself
+        .map(p => p.pin_name || 'Unknown')
+        .join(', ');
+      roomContext += `\nCurrent participants in room (${botState.participants.length - 1}): ${participantNames}`;
+    }
+
     // Start chat with history and system instruction
     const chat = model.startChat({
       history: history,
       generationConfig: {
         maxOutputTokens: 500, // Limit response length for chat
       },
-      systemInstruction: `You are a helpful AI assistant. Current date and time: ${dateStr} at ${timeStr}. Always use this as the current date/time when answering questions about "today", "now", or current events.`,
+      systemInstruction: `You are a helpful AI assistant in a YelloTalk chat room. Current date and time: ${dateStr} at ${timeStr}. Always use this as the current date/time when answering questions about "today", "now", or current events.${roomContext}
+
+When users ask about people in the room, the room owner (หห/หัวห้อง), or who's here, use the participant information provided above.`,
     });
 
     // Send message and get response
