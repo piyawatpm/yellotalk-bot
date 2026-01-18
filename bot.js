@@ -561,11 +561,75 @@ function startCommandInterface() {
                     console.log(`${'='.repeat(80)}\n`);
                 });
             }
+        } else if (cmd === 'joinspeaker' && parts.length === 2) {
+            // Try to join bot as a speaker at position
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`\n${'='.repeat(80)}`);
+                console.log(`[${timestamp}] 🎤 TESTING: Join as speaker at position ${position}`);
+                console.log(`${'='.repeat(80)}`);
+
+                const speakerData = {
+                    room: currentRoomId,
+                    uuid: UUID,
+                    position: position - 1
+                };
+
+                console.log(`📤 Sending 'join_speaker' event: ${JSON.stringify(speakerData, null, 2)}`);
+                socket.emit('join_speaker', speakerData, (resp) => {
+                    console.log(`📥 Response: ${JSON.stringify(resp, null, 2)}`);
+                    if (resp?.result === 200 || resp?.success) {
+                        console.log(`✅ Successfully joined as speaker at position ${position}!`);
+                    }
+                    console.log(`${'='.repeat(80)}\n`);
+                });
+            }
+        } else if (cmd === 'movespeaker' && parts.length === 3) {
+            // Try to move someone to a speaker position (by UUID or name)
+            const targetIdentifier = parts[1]; // UUID or name
+            const position = parseInt(parts[2]);
+
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`\n${'='.repeat(80)}`);
+                console.log(`[${timestamp}] 🔄 TESTING: Move user to speaker position ${position}`);
+                console.log(`${'='.repeat(80)}`);
+
+                // Find participant by name or UUID
+                const participant = currentParticipantsList.find(p =>
+                    p.uuid === targetIdentifier ||
+                    p.pin_name?.toLowerCase().includes(targetIdentifier.toLowerCase())
+                );
+
+                if (participant) {
+                    console.log(`👤 Target: ${participant.pin_name} (${participant.uuid})`);
+
+                    const speakerData = {
+                        room: currentRoomId,
+                        uuid: participant.uuid,
+                        position: position - 1
+                    };
+
+                    console.log(`📤 Sending 'join_speaker' event: ${JSON.stringify(speakerData, null, 2)}`);
+                    socket.emit('join_speaker', speakerData, (resp) => {
+                        console.log(`📥 Response: ${JSON.stringify(resp, null, 2)}`);
+                        if (resp?.result === 200 || resp?.success) {
+                            console.log(`✅ Successfully moved ${participant.pin_name} to position ${position}!`);
+                            console.log(`🎉 THIS IS THE DANCE FEATURE!`);
+                        }
+                        console.log(`${'='.repeat(80)}\n`);
+                    });
+                } else {
+                    console.log(`❌ Participant not found: ${targetIdentifier}`);
+                    console.log(`Available: ${currentParticipantsList.map(p => p.pin_name).join(', ')}`);
+                }
+            }
         } else if (cmd === 'quit' || cmd === 'exit') {
             process.kill(process.pid, 'SIGINT');
         } else {
             console.log('❌ Unknown command');
-            console.log('Try: msg, lock, unlock, mute, unmute, lockhost, lockadmin, lockroom, test, quit');
+            console.log('Try: joinspeaker, movespeaker, unlock, lock, mute, unmute, quit');
         }
     });
 }
@@ -639,20 +703,23 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('Listening for new messages...\n');
             console.log('Commands:');
             console.log('  msg <text>    - Send message');
-            console.log('\n🔓 UNLOCK Tests (Focus on these - might work without owner!):');
-            console.log('  unlock <1-10>       - Basic unlock (no extra params)');
-            console.log('  unlockhost <1-10>   - Unlock with role="host" param');
-            console.log('  unlockadmin <1-10>  - Unlock with is_admin=true param');
-            console.log('  unlockroom <1-10>   - Unlock with room ID param');
-            console.log('\n🔒 LOCK Tests (Probably won\'t work without owner):');
+            console.log('\n🎤 SPEAKER CONTROL (THE KEY - Try these!):');
+            console.log('  joinspeaker <1-10>      - Join bot as speaker at position');
+            console.log('  movespeaker <name> <pos> - Move any user to speaker position (DANCE!)');
+            console.log('\n🔓 UNLOCK Tests:');
+            console.log('  unlock <1-10>       - Basic unlock');
+            console.log('  unlockhost <1-10>   - Unlock with role="host"');
+            console.log('  unlockadmin <1-10>  - Unlock with is_admin=true');
+            console.log('  unlockroom <1-10>   - Unlock with room ID');
+            console.log('\n🔒 LOCK Tests:');
             console.log('  lock <1-10>         - Basic lock');
-            console.log('  lockhost <1-10>     - Lock with role="host" param');
-            console.log('  lockadmin <1-10>    - Lock with is_admin=true param');
-            console.log('  lockroom <1-10>     - Lock with room ID param');
+            console.log('  lockhost <1-10>     - Lock with role="host"');
+            console.log('  lockadmin <1-10>    - Lock with is_admin=true');
+            console.log('  lockroom <1-10>     - Lock with room ID');
             console.log('\nOther:');
-            console.log('  mute <1-10>   - Mute speaker slot');
-            console.log('  unmute <1-10> - Unmute speaker slot');
-            console.log('  quit          - Exit bot');
+            console.log('  mute <1-10>   - Mute speaker');
+            console.log('  unmute <1-10> - Unmute speaker');
+            console.log('  quit          - Exit');
             console.log();
 
             // Start command input handler
