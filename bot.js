@@ -467,6 +467,8 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('Listening for new messages...\n');
             console.log('Commands:');
             console.log('  msg <text>    - Send message');
+            console.log('  lock <1-10>   - Lock speaker slot (TEST if works without being owner!)');
+            console.log('  unlock <1-10> - Unlock speaker slot (TEST if works without being owner!)');
             console.log('  mute <1-10>   - Mute speaker slot');
             console.log('  unmute <1-10> - Unmute speaker slot');
             console.log('  sys <pos>     - Test unlock with system target');
