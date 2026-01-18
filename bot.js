@@ -129,26 +129,48 @@ function lockSpeaker(position, room_id = null) {
         return;
     }
 
+    const timestamp = new Date().toLocaleTimeString();
+
+    // DEBUG: Show context
+    console.log('\n' + '='.repeat(80));
+    console.log(`[${timestamp}] 🔒 LOCK SPEAKER SLOT ${position + 1} - DEBUG INFO`);
+    console.log('='.repeat(80));
+    console.log(`🎯 Target slot: ${position + 1} (0-indexed: ${position})`);
+    console.log(`🏠 Current room ID: ${currentRoomId}`);
+    console.log(`🤖 Bot UUID: ${UUID}`);
+    console.log(`👤 Bot name: ${PIN_NAME}`);
+
     // Try WITHOUT room ID (server might infer from session)
     const lockData = {
         position: position
     };
 
-    const timestamp = new Date().toLocaleTimeString();
-    console.log(`[${timestamp}] 🔒 Locking speaker slot ${position + 1}...`);
-    console.log(`           Sending:`, JSON.stringify(lockData));
+    console.log(`📤 Sending 'lock_speaker' event with data:`);
+    console.log(`   ${JSON.stringify(lockData, null, 2)}`);
+    console.log(`⏱️  Waiting for response...`);
 
     socket.emit('lock_speaker', lockData, (response) => {
+        console.log(`\n📥 RESPONSE RECEIVED:`);
         if (response) {
-            console.log(`[${timestamp}] ✅ Lock response:`, JSON.stringify(response).substring(0, 200));
+            console.log(`   Full response: ${JSON.stringify(response, null, 2)}`);
+            console.log(`   Response type: ${typeof response}`);
+            console.log(`   Result code: ${response.result}`);
+            console.log(`   Success: ${response.success}`);
+            console.log(`   Message: ${response.message || 'N/A'}`);
+            console.log(`   Error: ${response.error || 'N/A'}`);
+
             if (response.result === 200 || response.success) {
-                console.log(`[${timestamp}] ✅ Slot ${position + 1} locked successfully!`);
+                console.log(`\n✅✅✅ LOCK SUCCESSFUL! Slot ${position + 1} is now locked!`);
+                console.log(`🎉 This means: Permission check PASSED or DOESN'T EXIST!`);
             } else {
-                console.log(`[${timestamp}] ⚠️  Lock failed:`, response.message || response.error || 'Unknown error');
+                console.log(`\n❌❌❌ LOCK FAILED!`);
+                console.log(`⚠️  Reason: ${response.message || response.error || 'Unknown error'}`);
+                console.log(`🔍 This might indicate: Permission denied (not room owner)`);
             }
         } else {
-            console.log(`[${timestamp}] ⚠️  No response from server`);
+            console.log(`   ⚠️  No response from server (timeout or no acknowledgment)`);
         }
+        console.log('='.repeat(80) + '\n');
     });
 }
 
@@ -159,26 +181,48 @@ function unlockSpeaker(position, room_id = null) {
         return;
     }
 
+    const timestamp = new Date().toLocaleTimeString();
+
+    // DEBUG: Show context
+    console.log('\n' + '='.repeat(80));
+    console.log(`[${timestamp}] 🔓 UNLOCK SPEAKER SLOT ${position + 1} - DEBUG INFO`);
+    console.log('='.repeat(80));
+    console.log(`🎯 Target slot: ${position + 1} (0-indexed: ${position})`);
+    console.log(`🏠 Current room ID: ${currentRoomId}`);
+    console.log(`🤖 Bot UUID: ${UUID}`);
+    console.log(`👤 Bot name: ${PIN_NAME}`);
+
     // Try WITHOUT room ID (server might infer from session)
     const unlockData = {
         position: position
     };
 
-    const timestamp = new Date().toLocaleTimeString();
-    console.log(`[${timestamp}] 🔓 Unlocking speaker slot ${position + 1}...`);
-    console.log(`           Sending:`, JSON.stringify(unlockData));
+    console.log(`📤 Sending 'unlock_speaker' event with data:`);
+    console.log(`   ${JSON.stringify(unlockData, null, 2)}`);
+    console.log(`⏱️  Waiting for response...`);
 
     socket.emit('unlock_speaker', unlockData, (response) => {
+        console.log(`\n📥 RESPONSE RECEIVED:`);
         if (response) {
-            console.log(`[${timestamp}] ✅ Unlock response:`, JSON.stringify(response).substring(0, 200));
+            console.log(`   Full response: ${JSON.stringify(response, null, 2)}`);
+            console.log(`   Response type: ${typeof response}`);
+            console.log(`   Result code: ${response.result}`);
+            console.log(`   Success: ${response.success}`);
+            console.log(`   Message: ${response.message || 'N/A'}`);
+            console.log(`   Error: ${response.error || 'N/A'}`);
+
             if (response.result === 200 || response.success) {
-                console.log(`[${timestamp}] ✅ Slot ${position + 1} unlocked successfully!`);
+                console.log(`\n✅✅✅ UNLOCK SUCCESSFUL! Slot ${position + 1} is now unlocked!`);
+                console.log(`🎉 This means: Permission check PASSED or DOESN'T EXIST!`);
             } else {
-                console.log(`[${timestamp}] ⚠️  Unlock failed:`, response.message || response.error || 'Unknown error');
+                console.log(`\n❌❌❌ UNLOCK FAILED!`);
+                console.log(`⚠️  Reason: ${response.message || response.error || 'Unknown error'}`);
+                console.log(`🔍 This might indicate: Permission denied (not room owner)`);
             }
         } else {
-            console.log(`[${timestamp}] ⚠️  No response from server`);
+            console.log(`   ⚠️  No response from server (timeout or no acknowledgment)`);
         }
+        console.log('='.repeat(80) + '\n');
     });
 }
 
