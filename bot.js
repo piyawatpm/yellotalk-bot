@@ -497,6 +497,70 @@ function startCommandInterface() {
                     console.log(`${'='.repeat(80)}\n`);
                 });
             }
+        } else if (cmd === 'unlockhost' && parts.length === 2) {
+            // Try unlock with role: "host" parameter
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`\n${'='.repeat(80)}`);
+                console.log(`[${timestamp}] 🧪 TESTING: Unlock with role='host' parameter`);
+                console.log(`${'='.repeat(80)}`);
+
+                const unlockData = {
+                    position: position - 1,
+                    role: 'host',
+                    gme_role: 'host',
+                    user_role: 'host'
+                };
+
+                console.log(`📤 Sending: ${JSON.stringify(unlockData, null, 2)}`);
+                socket.emit('unlock_speaker', unlockData, (resp) => {
+                    console.log(`📥 Response: ${JSON.stringify(resp, null, 2)}`);
+                    console.log(`${'='.repeat(80)}\n`);
+                });
+            }
+        } else if (cmd === 'unlockadmin' && parts.length === 2) {
+            // Try unlock with is_admin parameter
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`\n${'='.repeat(80)}`);
+                console.log(`[${timestamp}] 🧪 TESTING: Unlock with is_admin=true parameter`);
+                console.log(`${'='.repeat(80)}`);
+
+                const unlockData = {
+                    position: position - 1,
+                    is_admin: true,
+                    admin: true,
+                    permission: 'admin'
+                };
+
+                console.log(`📤 Sending: ${JSON.stringify(unlockData, null, 2)}`);
+                socket.emit('unlock_speaker', unlockData, (resp) => {
+                    console.log(`📥 Response: ${JSON.stringify(resp, null, 2)}`);
+                    console.log(`${'='.repeat(80)}\n`);
+                });
+            }
+        } else if (cmd === 'unlockroom' && parts.length === 2) {
+            // Try unlock WITH room ID included
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`\n${'='.repeat(80)}`);
+                console.log(`[${timestamp}] 🧪 TESTING: Unlock WITH room ID parameter`);
+                console.log(`${'='.repeat(80)}`);
+
+                const unlockData = {
+                    room: currentRoomId,
+                    position: position - 1
+                };
+
+                console.log(`📤 Sending: ${JSON.stringify(unlockData, null, 2)}`);
+                socket.emit('unlock_speaker', unlockData, (resp) => {
+                    console.log(`📥 Response: ${JSON.stringify(resp, null, 2)}`);
+                    console.log(`${'='.repeat(80)}\n`);
+                });
+            }
         } else if (cmd === 'quit' || cmd === 'exit') {
             process.kill(process.pid, 'SIGINT');
         } else {
@@ -575,19 +639,19 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('Listening for new messages...\n');
             console.log('Commands:');
             console.log('  msg <text>    - Send message');
-            console.log('\nBasic lock/unlock:');
-            console.log('  lock <1-10>   - Lock speaker slot (TEST if works without being owner!)');
-            console.log('  unlock <1-10> - Unlock speaker slot (TEST if works without being owner!)');
-            console.log('\nExperimental GME role/permission tests:');
-            console.log('  lockhost <1-10>  - Try lock with role="host" parameter');
-            console.log('  lockadmin <1-10> - Try lock with is_admin=true parameter');
-            console.log('  lockroom <1-10>  - Try lock with room ID parameter');
+            console.log('\n🔓 UNLOCK Tests (Focus on these - might work without owner!):');
+            console.log('  unlock <1-10>       - Basic unlock (no extra params)');
+            console.log('  unlockhost <1-10>   - Unlock with role="host" param');
+            console.log('  unlockadmin <1-10>  - Unlock with is_admin=true param');
+            console.log('  unlockroom <1-10>   - Unlock with room ID param');
+            console.log('\n🔒 LOCK Tests (Probably won\'t work without owner):');
+            console.log('  lock <1-10>         - Basic lock');
+            console.log('  lockhost <1-10>     - Lock with role="host" param');
+            console.log('  lockadmin <1-10>    - Lock with is_admin=true param');
+            console.log('  lockroom <1-10>     - Lock with room ID param');
             console.log('\nOther:');
             console.log('  mute <1-10>   - Mute speaker slot');
             console.log('  unmute <1-10> - Unmute speaker slot');
-            console.log('  sys <pos>     - Test unlock with system target');
-            console.log('  fullstate <pos> - Test full room state update');
-            console.log('  test <event> <pos> - Test event name');
             console.log('  quit          - Exit bot');
             console.log();
 
