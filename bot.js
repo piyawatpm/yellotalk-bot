@@ -585,6 +585,59 @@ function startCommandInterface() {
                     console.log(`${'='.repeat(80)}\n`);
                 });
             }
+        } else if (cmd === 'unlockwatch' && parts.length === 2) {
+            // Unlock and watch for speaker_changed event to verify it worked
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`\n${'='.repeat(80)}`);
+                console.log(`[${timestamp}] 🧪 UNLOCK + WATCH speaker_changed event`);
+                console.log(`${'='.repeat(80)}`);
+                console.log(`📌 Watching for speaker_changed event for 10 seconds...`);
+                console.log(`   Look for slot ${position} to change from locked to unlocked!\n`);
+
+                // Set up one-time listener for speaker_changed
+                let watchTimeout = setTimeout(() => {
+                    console.log(`⏱️  10 seconds passed - no speaker_changed event received`);
+                    console.log(`${'='.repeat(80)}\n`);
+                }, 10000);
+
+                const watchHandler = (data) => {
+                    clearTimeout(watchTimeout);
+                    console.log(`\n📡 speaker_changed EVENT RECEIVED!`);
+                    console.log(`   Data: ${JSON.stringify(data, null, 2)}`);
+
+                    if (Array.isArray(data)) {
+                        const targetSlot = data.find(s => s.position === position - 1);
+                        if (targetSlot) {
+                            console.log(`\n🎯 Slot ${position} status:`);
+                            console.log(`   Locked: ${targetSlot.locked || targetSlot.role === 'locked'}`);
+                            console.log(`   Role: ${targetSlot.role}`);
+                            console.log(`   Pin name: ${targetSlot.pin_name}`);
+
+                            if (!targetSlot.locked && targetSlot.role !== 'locked') {
+                                console.log(`\n✅✅✅ UNLOCK WORKED! Slot ${position} is now UNLOCKED!`);
+                                console.log(`🎉 Permission check BYPASSED or DOESN'T EXIST!`);
+                            }
+                        }
+                    }
+                    console.log(`${'='.repeat(80)}\n`);
+
+                    // Remove listener after first event
+                    socket.off('speaker_changed', watchHandler);
+                };
+
+                socket.on('speaker_changed', watchHandler);
+
+                // Now send unlock
+                console.log(`📤 Sending basic unlock_speaker (no extra params):`);
+                const unlockData = { position: position - 1 };
+                console.log(`   ${JSON.stringify(unlockData, null, 2)}\n`);
+
+                socket.emit('unlock_speaker', unlockData, (resp) => {
+                    console.log(`📥 Callback response: ${resp ? JSON.stringify(resp, null, 2) : 'null/undefined (NO RESPONSE)'}`);
+                });
+            }
         } else if (cmd === 'movespeaker' && parts.length === 3) {
             // Try to move someone to a speaker position (by UUID or name)
             const targetIdentifier = parts[1]; // UUID or name
@@ -703,23 +756,20 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('Listening for new messages...\n');
             console.log('Commands:');
             console.log('  msg <text>    - Send message');
-            console.log('\n🎤 SPEAKER CONTROL (THE KEY - Try these!):');
-            console.log('  joinspeaker <1-10>      - Join bot as speaker at position');
-            console.log('  movespeaker <name> <pos> - Move any user to speaker position (DANCE!)');
-            console.log('\n🔓 UNLOCK Tests:');
+            console.log('\n⭐ PRIMARY TEST - Try this first in non-owner room:');
+            console.log('  unlockwatch <1-10>  - Unlock + watch speaker_changed to verify');
+            console.log('\n🔓 Other UNLOCK Tests:');
             console.log('  unlock <1-10>       - Basic unlock');
-            console.log('  unlockhost <1-10>   - Unlock with role="host"');
-            console.log('  unlockadmin <1-10>  - Unlock with is_admin=true');
-            console.log('  unlockroom <1-10>   - Unlock with room ID');
+            console.log('  unlockhost <1-10>   - With role="host"');
+            console.log('  unlockadmin <1-10>  - With is_admin=true');
+            console.log('  unlockroom <1-10>   - With room ID');
+            console.log('  unlockgme <1-10>    - With gme_role="host"');
+            console.log('\n🎤 Speaker Join/Move:');
+            console.log('  joinspeaker <1-10>      - Join bot as speaker');
+            console.log('  movespeaker <name> <pos> - Move user to speaker slot');
             console.log('\n🔒 LOCK Tests:');
-            console.log('  lock <1-10>         - Basic lock');
-            console.log('  lockhost <1-10>     - Lock with role="host"');
-            console.log('  lockadmin <1-10>    - Lock with is_admin=true');
-            console.log('  lockroom <1-10>     - Lock with room ID');
-            console.log('\nOther:');
-            console.log('  mute <1-10>   - Mute speaker');
-            console.log('  unmute <1-10> - Unmute speaker');
-            console.log('  quit          - Exit');
+            console.log('  lock/lockhost/lockadmin/lockroom <1-10>');
+            console.log('\nOther: mute, unmute, quit');
             console.log();
 
             // Start command input handler
