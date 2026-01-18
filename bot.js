@@ -433,11 +433,75 @@ function startCommandInterface() {
                     }
                 });
             }
+        } else if (cmd === 'lockhost' && parts.length === 2) {
+            // Try lock with role: "host" parameter
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`\n${'='.repeat(80)}`);
+                console.log(`[${timestamp}] 🧪 TESTING: Lock with role='host' parameter`);
+                console.log(`${'='.repeat(80)}`);
+
+                const lockData = {
+                    position: position - 1,
+                    role: 'host',
+                    gme_role: 'host',
+                    user_role: 'host'
+                };
+
+                console.log(`📤 Sending: ${JSON.stringify(lockData, null, 2)}`);
+                socket.emit('lock_speaker', lockData, (resp) => {
+                    console.log(`📥 Response: ${JSON.stringify(resp, null, 2)}`);
+                    console.log(`${'='.repeat(80)}\n`);
+                });
+            }
+        } else if (cmd === 'lockadmin' && parts.length === 2) {
+            // Try lock with is_admin parameter
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`\n${'='.repeat(80)}`);
+                console.log(`[${timestamp}] 🧪 TESTING: Lock with is_admin=true parameter`);
+                console.log(`${'='.repeat(80)}`);
+
+                const lockData = {
+                    position: position - 1,
+                    is_admin: true,
+                    admin: true,
+                    permission: 'admin'
+                };
+
+                console.log(`📤 Sending: ${JSON.stringify(lockData, null, 2)}`);
+                socket.emit('lock_speaker', lockData, (resp) => {
+                    console.log(`📥 Response: ${JSON.stringify(resp, null, 2)}`);
+                    console.log(`${'='.repeat(80)}\n`);
+                });
+            }
+        } else if (cmd === 'lockroom' && parts.length === 2) {
+            // Try lock WITH room ID included
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`\n${'='.repeat(80)}`);
+                console.log(`[${timestamp}] 🧪 TESTING: Lock WITH room ID parameter`);
+                console.log(`${'='.repeat(80)}`);
+
+                const lockData = {
+                    room: currentRoomId,
+                    position: position - 1
+                };
+
+                console.log(`📤 Sending: ${JSON.stringify(lockData, null, 2)}`);
+                socket.emit('lock_speaker', lockData, (resp) => {
+                    console.log(`📥 Response: ${JSON.stringify(resp, null, 2)}`);
+                    console.log(`${'='.repeat(80)}\n`);
+                });
+            }
         } else if (cmd === 'quit' || cmd === 'exit') {
             process.kill(process.pid, 'SIGINT');
         } else {
             console.log('❌ Unknown command');
-            console.log('Try: msg, lock, unlock, mute, unmute, test, combo, sys, fullstate, quit');
+            console.log('Try: msg, lock, unlock, mute, unmute, lockhost, lockadmin, lockroom, test, quit');
         }
     });
 }
@@ -511,8 +575,14 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('Listening for new messages...\n');
             console.log('Commands:');
             console.log('  msg <text>    - Send message');
+            console.log('\nBasic lock/unlock:');
             console.log('  lock <1-10>   - Lock speaker slot (TEST if works without being owner!)');
             console.log('  unlock <1-10> - Unlock speaker slot (TEST if works without being owner!)');
+            console.log('\nExperimental GME role/permission tests:');
+            console.log('  lockhost <1-10>  - Try lock with role="host" parameter');
+            console.log('  lockadmin <1-10> - Try lock with is_admin=true parameter');
+            console.log('  lockroom <1-10>  - Try lock with room ID parameter');
+            console.log('\nOther:');
             console.log('  mute <1-10>   - Mute speaker slot');
             console.log('  unmute <1-10> - Unmute speaker slot');
             console.log('  sys <pos>     - Test unlock with system target');
