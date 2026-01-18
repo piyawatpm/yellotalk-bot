@@ -585,6 +585,75 @@ function startCommandInterface() {
                     console.log(`${'='.repeat(80)}\n`);
                 });
             }
+        } else if (cmd === 'setrole' && parts.length === 2) {
+            // Try to set GME role to 'host' to gain unlock permissions
+            const role = parts[1]; // host or listener
+            const timestamp = new Date().toLocaleTimeString();
+            console.log(`\n${'='.repeat(80)}`);
+            console.log(`[${timestamp}] 🧪 TESTING: Set GME role to '${role}'`);
+            console.log(`${'='.repeat(80)}`);
+
+            const roleData = {
+                room: currentRoomId,
+                uuid: UUID,
+                role: role,
+                gme_role: role,
+                audio_role: role
+            };
+
+            console.log(`📤 Trying event: set_role`);
+            console.log(`   ${JSON.stringify(roleData, null, 2)}`);
+            socket.emit('set_role', roleData, (resp) => {
+                console.log(`📥 set_role response: ${JSON.stringify(resp, null, 2)}`);
+            });
+
+            setTimeout(() => {
+                console.log(`📤 Trying event: change_role`);
+                socket.emit('change_role', roleData, (resp) => {
+                    console.log(`📥 change_role response: ${JSON.stringify(resp, null, 2)}`);
+                });
+            }, 1000);
+
+            setTimeout(() => {
+                console.log(`📤 Trying event: update_role`);
+                socket.emit('update_role', roleData, (resp) => {
+                    console.log(`📥 update_role response: ${JSON.stringify(resp, null, 2)}`);
+                    console.log(`${'='.repeat(80)}\n`);
+                    console.log(`💡 Now try: unlock 3 or unlockwatch 3`);
+                });
+            }, 2000);
+        } else if (cmd === 'rejoinhost') {
+            // Disconnect and rejoin with role: 'host'
+            const timestamp = new Date().toLocaleTimeString();
+            console.log(`\n${'='.repeat(80)}`);
+            console.log(`[${timestamp}] 🔄 Re-joining room with role='host'`);
+            console.log(`${'='.repeat(80)}`);
+
+            console.log(`📤 Leaving room first...`);
+            socket.emit('leave_room', { room: currentRoomId });
+
+            setTimeout(() => {
+                const joinData = {
+                    room: currentRoomId,
+                    uuid: UUID,
+                    avatar_id: AVATAR_ID,
+                    gme_id: socket.gmeId || '',
+                    campus: socket.campus || '',
+                    pin_name: PIN_NAME,
+                    role: 'host',
+                    gme_role: 'host',
+                    audio_role: 'host'
+                };
+
+                console.log(`📤 Rejoining with role='host':`);
+                console.log(`   ${JSON.stringify(joinData, null, 2)}`);
+
+                socket.emit('join_room', joinData, (resp) => {
+                    console.log(`📥 Join response: ${JSON.stringify(resp, null, 2)}`);
+                    console.log(`${'='.repeat(80)}\n`);
+                    console.log(`💡 Now try: unlockwatch 3`);
+                });
+            }, 2000);
         } else if (cmd === 'unlockwatch' && parts.length === 2) {
             // Unlock and watch for speaker_changed event to verify it worked
             const position = parseInt(parts[1]);
@@ -756,20 +825,19 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('Listening for new messages...\n');
             console.log('Commands:');
             console.log('  msg <text>    - Send message');
-            console.log('\n⭐ PRIMARY TEST - Try this first in non-owner room:');
-            console.log('  unlockwatch <1-10>  - Unlock + watch speaker_changed to verify');
-            console.log('\n🔓 Other UNLOCK Tests:');
+            console.log('\n⭐ GME ROLE TESTS (Try these FIRST!):');
+            console.log('  setrole <host|listener> - Set GME role (might grant permissions!)');
+            console.log('  rejoinhost              - Leave + rejoin as role="host"');
+            console.log('\n⭐ PRIMARY UNLOCK TEST:');
+            console.log('  unlockwatch <1-10>  - Unlock + watch for speaker_changed event');
+            console.log('\n🔓 Other UNLOCK variants:');
             console.log('  unlock <1-10>       - Basic unlock');
-            console.log('  unlockhost <1-10>   - With role="host"');
+            console.log('  unlockhost <1-10>   - With role="host" param');
             console.log('  unlockadmin <1-10>  - With is_admin=true');
             console.log('  unlockroom <1-10>   - With room ID');
-            console.log('  unlockgme <1-10>    - With gme_role="host"');
-            console.log('\n🎤 Speaker Join/Move:');
-            console.log('  joinspeaker <1-10>      - Join bot as speaker');
-            console.log('  movespeaker <name> <pos> - Move user to speaker slot');
-            console.log('\n🔒 LOCK Tests:');
-            console.log('  lock/lockhost/lockadmin/lockroom <1-10>');
-            console.log('\nOther: mute, unmute, quit');
+            console.log('\n🎤 Speaker control:');
+            console.log('  joinspeaker <pos> / movespeaker <name> <pos>');
+            console.log('\nOther: lock, mute, unmute, quit');
             console.log();
 
             // Start command input handler
