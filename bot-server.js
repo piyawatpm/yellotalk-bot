@@ -138,12 +138,12 @@ function lockSpeaker(position) {
   }
 
   return new Promise((resolve, reject) => {
-    console.log(`🔒 Locking speaker slot ${position + 1}...`);
+    console.log(`🔒 Locking speaker position=${position} (display as Slot ${position + 1})...`);
     yellotalkSocket.emit('lock_speaker', {
       room: botState.currentRoom?.id,
       position
     }, (response) => {
-      console.log(`📥 Lock response:`, response);
+      console.log(`📥 Lock response for position ${position}:`, response);
       if (response?.result === 200) {
         console.log(`✅ Slot ${position + 1} locked!`);
 

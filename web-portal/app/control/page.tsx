@@ -942,7 +942,7 @@ export default function ControlPage() {
                           <div className="flex items-center gap-2">
                             <Crown className={`h-5 w-5 ${isLocked ? 'text-red-500' : 'text-amber-500'}`} />
                             <div>
-                              <div className="font-bold text-base">Slot 0 - Room Owner</div>
+                              <div className="font-bold text-base">Slot 1 - Room Owner</div>
                               {speaker && !isLocked && (
                                 <div className="text-sm mt-0.5">
                                   <span className="font-semibold">{speaker.pin_name}</span>
@@ -1006,7 +1006,7 @@ export default function ControlPage() {
                             : 'border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700'
                         }`}>
                           <div className="text-center mb-2">
-                            <div className="font-semibold text-sm">Slot {position}</div>
+                            <div className="font-semibold text-sm">Slot {position + 1}</div>
                             <div className="text-xs mt-1 h-10">
                               {isLocked ? (
                                 <div className="text-red-600 font-semibold">🔒 Locked</div>
@@ -1066,7 +1066,7 @@ export default function ControlPage() {
                             : 'border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700'
                         }`}>
                           <div className="text-center mb-2">
-                            <div className="font-semibold text-sm">Slot {position}</div>
+                            <div className="font-semibold text-sm">Slot {position + 1}</div>
                             <div className="text-xs mt-1 h-10">
                               {isLocked ? (
                                 <div className="text-red-600 font-semibold">🔒 Locked</div>
