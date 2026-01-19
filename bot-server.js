@@ -914,14 +914,20 @@ app.post('/api/bot/start', async (req, res) => {
           });
         }
 
-        // Map speakers with CONSISTENT LOGIC
+        // Map speakers BY POSITION FIELD (not array index!)
         const speakers = Array.isArray(data) ? data : [];
-        botState.speakers = speakers.map((speaker, index) => {
-          console.log(`\n   🔄 Mapping slot ${index}...`);
 
-          // 1. If null/undefined -> Empty slot (not locked)
-          if (speaker === null || speaker === undefined) {
-            console.log(`      ✅ -> EMPTY SLOT (not locked)`);
+        // Create array of 11 slots (positions 0-10, displayed as Slots 1-11)
+        botState.speakers = Array(11).fill(null).map((_, index) => {
+          // Find speaker with matching position field (YelloTalk uses 1-indexed)
+          const yellotalkPosition = index + 1;
+          const speaker = speakers.find(s => s && s.position === yellotalkPosition);
+
+          console.log(`\n   🔄 Mapping UI slot ${index} (looking for YelloTalk position ${yellotalkPosition})...`);
+
+          // 1. If no speaker found at this position -> Empty slot
+          if (!speaker) {
+            console.log(`      ✅ -> EMPTY SLOT (no speaker with position ${yellotalkPosition})`);
             return {
               position: index,
               locked: false,
@@ -949,7 +955,7 @@ app.post('/api/bot/start', async (req, res) => {
             locked: false,
             pin_name: speaker.pin_name || 'Unknown',
             uuid: speaker.uuid,
-            mic_muted: speaker.mic_muted !== false, // Default to muted if undefined
+            mic_muted: speaker.mic_muted !== false,
             avatar_suit: speaker.avatar_suit,
             gift_amount: speaker.gift_amount || 0
           };
@@ -1270,29 +1276,38 @@ function setupSocketListeners(socket, roomId, config) {
     console.log(JSON.stringify(data, null, 2));
     console.log(`${'='.repeat(80)}\n`);
 
-    // Update speaker state with DETAILED logging per slot
-    botState.speakers = speakers.map((speaker, index) => {
-      console.log(`\n🔍 Analyzing Slot ${index}:`);
-      console.log(`   Raw value:`, JSON.stringify(speaker, null, 2));
-      console.log(`   Type checks:`);
-      console.log(`      is null: ${speaker === null}`);
-      console.log(`      is undefined: ${speaker === undefined}`);
-      console.log(`      typeof: ${typeof speaker}`);
+    // Map speakers BY POSITION FIELD (not array index!)
+    // Create array of 11 slots (positions 0-10, displayed as Slots 1-11)
+    botState.speakers = Array(11).fill(null).map((_, index) => {
+      // Find speaker with matching position field (YelloTalk uses 1-indexed)
+      const yellotalkPosition = index + 1;
+      const speaker = speakers.find(s => s && s.position === yellotalkPosition);
 
-      if (speaker && typeof speaker === 'object') {
-        console.log(`   Object fields:`);
-        console.log(`      ALL keys: [${Object.keys(speaker).join(', ')}]`);
-        console.log(`      pin_name: "${speaker.pin_name}"`);
-        console.log(`      uuid: "${speaker.uuid}"`);
-        console.log(`      role: "${speaker.role}"`);
-        console.log(`      campus: "${speaker.campus}"`);
-        console.log(`      mic_muted: ${speaker.mic_muted}`);
+      console.log(`\n🔍 Analyzing UI slot ${index} (YelloTalk position ${yellotalkPosition}):`);
+
+      if (!speaker) {
+        console.log(`   No speaker found at position ${yellotalkPosition}`);
+      } else {
+        console.log(`   Raw value:`, JSON.stringify(speaker, null, 2));
+        console.log(`   Type checks:`);
+        console.log(`      is null: ${speaker === null}`);
+        console.log(`      is undefined: ${speaker === undefined}`);
+        console.log(`      typeof: ${typeof speaker}`);
+
+        if (speaker && typeof speaker === 'object') {
+          console.log(`   Object fields:`);
+          console.log(`      ALL keys: [${Object.keys(speaker).join(', ')}]`);
+          console.log(`      pin_name: "${speaker.pin_name}"`);
+          console.log(`      uuid: "${speaker.uuid}"`);
+          console.log(`      role: "${speaker.role}"`);
+          console.log(`      campus: "${speaker.campus}"`);
+          console.log(`      mic_muted: ${speaker.mic_muted}`);
+        }
       }
 
-      // FIXED LOGIC: Match the first handler (lines 858-891)
-      // 1. If null/undefined -> Empty slot (not locked)
-      if (speaker === null || speaker === undefined) {
-        console.log(`   ✅ Decision: EMPTY SLOT (not locked)`);
+      // 1. If no speaker found at this position -> Empty slot
+      if (!speaker) {
+        console.log(`   ✅ Decision: EMPTY SLOT`);
         return {
           position: index,
           locked: false,
@@ -1320,7 +1335,7 @@ function setupSocketListeners(socket, roomId, config) {
         locked: false,
         pin_name: speaker.pin_name || 'Unknown',
         uuid: speaker.uuid || null,
-        mic_muted: speaker.mic_muted !== false, // Default muted if undefined
+        mic_muted: speaker.mic_muted !== false,
         avatar_suit: speaker.avatar_suit,
         gift_amount: speaker.gift_amount || 0
       };
