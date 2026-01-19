@@ -1045,6 +1045,29 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('🔓 Can now lock/unlock speaker slots!');
                   console.log('⚠️  Note: Room will close if bot disconnects');
 
+                  // ULTRA-FAST: Trigger first action and restore in parallel burst
+                  const savedStates = botState.speakers.map(s => ({
+                    position: s.position,
+                    locked: s.locked
+                  }));
+
+                  console.log('💾🔥🔧 Triggering sync + restore burst...');
+
+                  // Send unlock position 1 (triggers weird lock-all)
+                  yellotalkSocket.emit('unlock_speaker', { room: roomId, position: 1 });
+
+                  // Immediately send unlock for all slots that should be unlocked
+                  savedStates.forEach((saved, index) => {
+                    if (!saved.locked) {
+                      yellotalkSocket.emit('unlock_speaker', {
+                        room: roomId,
+                        position: index + 1
+                      });
+                    }
+                  });
+
+                  console.log('✅ Sync commands sent! Dual control enabled.');
+
                   io.emit('room-hijacked', { success: true });
                 } else {
                   console.log('⚠️  Hijack might have failed');
