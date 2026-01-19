@@ -909,54 +909,15 @@ app.post('/api/bot/start', async (req, res) => {
       });
 
       yellotalkSocket.on('speaker_changed', (data) => {
-        const timestamp = new Date().toLocaleTimeString();
-        console.log(`\n${'='.repeat(80)}`);
-        console.log(`[${timestamp}] 🎤 SPEAKER_CHANGED EVENT (regular mode)`);
-        console.log(`${'='.repeat(80)}`);
-
-        // Log COMPLETE raw data - NO TRUNCATION
-        console.log(`📋 COMPLETE RAW DATA (all fields, no truncation):`);
-        console.log(JSON.stringify(data, null, 2));
-        console.log(`\n📊 Data structure:`);
-        console.log(`   Type: ${typeof data}`);
-        console.log(`   isArray: ${Array.isArray(data)}`);
-        console.log(`   Length: ${data?.length}`);
-
-        if (Array.isArray(data)) {
-          console.log(`\n🔍 Analyzing each slot in detail:`);
-          data.forEach((speaker, index) => {
-            console.log(`\n   === Slot ${index} ===`);
-            if (speaker === null) {
-              console.log(`      Type: NULL`);
-            } else if (speaker === undefined) {
-              console.log(`      Type: UNDEFINED`);
-            } else {
-              console.log(`      Type: Object with ${Object.keys(speaker).length} fields`);
-              console.log(`      ALL keys: [${Object.keys(speaker).join(', ')}]`);
-              console.log(`      pin_name: "${speaker.pin_name}"`);
-              console.log(`      uuid: "${speaker.uuid}"`);
-              console.log(`      role: "${speaker.role}"`);
-              console.log(`      mic_muted: ${speaker.mic_muted}`);
-              console.log(`      campus: "${speaker.campus}"`);
-              console.log(`      avatar_suit: ${speaker.avatar_suit}`);
-            }
-          });
-        }
-
-        // Map speakers BY POSITION FIELD (not array index!)
         const speakers = Array.isArray(data) ? data : [];
 
+        // Map speakers BY POSITION FIELD (not array index!)
         // Create array of 10 slots (indices 0-9, for YelloTalk positions 1-10)
         botState.speakers = Array(10).fill(null).map((_, index) => {
-          // Find speaker with matching position field (YelloTalk uses 1-indexed: 1-10)
           const yellotalkPosition = index + 1;
           const speaker = speakers.find(s => s && s.position === yellotalkPosition);
 
-          console.log(`\n   🔄 Mapping UI slot ${index} (YelloTalk position ${yellotalkPosition}, displays as Slot ${index + 2})...`);
-
-          // 1. If no speaker found at this position -> Empty slot
           if (!speaker) {
-            console.log(`      ✅ -> EMPTY SLOT (no speaker with position ${yellotalkPosition})`);
             return {
               position: index,
               locked: false,
@@ -966,9 +927,7 @@ app.post('/api/bot/start', async (req, res) => {
             };
           }
 
-          // 2. If has lock indicators -> Locked slot
           if (speaker.pin_name === '🔒' || speaker.role === 'locked' || speaker.campus === 'Locked') {
-            console.log(`      ✅ -> LOCKED SLOT (pin_name="${speaker.pin_name}", role="${speaker.role}", campus="${speaker.campus}")`);
             return {
               position: index,
               locked: true,
@@ -978,8 +937,7 @@ app.post('/api/bot/start', async (req, res) => {
             };
           }
 
-          // 3. Otherwise -> Occupied slot with speaker
-          const result = {
+          return {
             position: index,
             locked: false,
             pin_name: speaker.pin_name || 'Unknown',
@@ -988,21 +946,24 @@ app.post('/api/bot/start', async (req, res) => {
             avatar_suit: speaker.avatar_suit,
             gift_amount: speaker.gift_amount || 0
           };
-          console.log(`      ✅ -> OCCUPIED SLOT: ${result.pin_name} (mic: ${result.mic_muted ? 'muted' : 'live'})`);
-          return result;
         });
 
-        console.log(`\n📊 FINAL MAPPED SPEAKERS (${botState.speakers.length} total):`);
-        botState.speakers.forEach(s => {
-          const status = s.locked ? '🔒 LOCKED' : s.pin_name === 'Empty' ? '⭕ EMPTY' : `👤 ${s.pin_name}`;
-          const mic = s.mic_muted ? '🔇 Muted' : '🔊 Live';
-          console.log(`   Slot ${s.position}: ${status} | ${mic}`);
-        });
-        console.log(`${'='.repeat(80)}\n`);
+        console.log(`🎤 Speaker update: ${botState.speakers.filter(s => !s.locked && s.pin_name !== 'Empty').length} occupied, ${botState.speakers.filter(s => s.locked).length} locked, ${botState.speakers.filter(s => !s.locked && s.pin_name === 'Empty').length} empty`);
 
         // Emit speaker update to web portal
         io.emit('speakers-update', botState.speakers);
         broadcastState();
+      });
+
+      yellotalkSocket.on('owner_changed', (data) => {
+        console.log('👑 OWNER_CHANGED:', data);
+        console.log(`   New owner: ${data.pin_name} (${data.uuid})`);
+
+        // Update room owner in state
+        if (botState.currentRoom) {
+          botState.currentRoom.owner = data;
+          broadcastState();
+        }
       });
 
       yellotalkSocket.on('disconnect', () => {
@@ -1309,48 +1270,15 @@ function setupSocketListeners(socket, roomId, config) {
   });
 
   socket.on('speaker_changed', (data) => {
-    const timestamp = new Date().toLocaleTimeString();
     const speakers = Array.isArray(data) ? data : [];
-    console.log(`\n${'='.repeat(80)}`);
-    console.log(`[${timestamp}] 🎤 SPEAKER_CHANGED EVENT RECEIVED (setupSocketListeners)`);
-    console.log(`${'='.repeat(80)}`);
-    console.log(`📋 Raw data type: ${typeof data}, isArray: ${Array.isArray(data)}, length: ${speakers.length}`);
-    console.log(`📋 COMPLETE RAW DATA (no truncation):`);
-    console.log(JSON.stringify(data, null, 2));
-    console.log(`${'='.repeat(80)}\n`);
 
     // Map speakers BY POSITION FIELD (not array index!)
     // Create array of 10 slots (indices 0-9, for YelloTalk positions 1-10)
     botState.speakers = Array(10).fill(null).map((_, index) => {
-      // Find speaker with matching position field (YelloTalk uses 1-indexed: 1-10)
       const yellotalkPosition = index + 1;
       const speaker = speakers.find(s => s && s.position === yellotalkPosition);
 
-      console.log(`\n🔍 Analyzing UI slot ${index} (YelloTalk position ${yellotalkPosition}, displays as Slot ${index + 2}):`);
-
       if (!speaker) {
-        console.log(`   No speaker found at position ${yellotalkPosition}`);
-      } else {
-        console.log(`   Raw value:`, JSON.stringify(speaker, null, 2));
-        console.log(`   Type checks:`);
-        console.log(`      is null: ${speaker === null}`);
-        console.log(`      is undefined: ${speaker === undefined}`);
-        console.log(`      typeof: ${typeof speaker}`);
-
-        if (speaker && typeof speaker === 'object') {
-          console.log(`   Object fields:`);
-          console.log(`      ALL keys: [${Object.keys(speaker).join(', ')}]`);
-          console.log(`      pin_name: "${speaker.pin_name}"`);
-          console.log(`      uuid: "${speaker.uuid}"`);
-          console.log(`      role: "${speaker.role}"`);
-          console.log(`      campus: "${speaker.campus}"`);
-          console.log(`      mic_muted: ${speaker.mic_muted}`);
-        }
-      }
-
-      // 1. If no speaker found at this position -> Empty slot
-      if (!speaker) {
-        console.log(`   ✅ Decision: EMPTY SLOT`);
         return {
           position: index,
           locked: false,
@@ -1360,9 +1288,7 @@ function setupSocketListeners(socket, roomId, config) {
         };
       }
 
-      // 2. If has lock indicators -> Locked slot
       if (speaker.pin_name === '🔒' || speaker.role === 'locked' || speaker.campus === 'Locked') {
-        console.log(`   ✅ Decision: LOCKED SLOT (pin_name=${speaker.pin_name}, role=${speaker.role}, campus=${speaker.campus})`);
         return {
           position: index,
           locked: true,
@@ -1372,26 +1298,18 @@ function setupSocketListeners(socket, roomId, config) {
         };
       }
 
-      // 3. Otherwise -> Occupied slot with speaker
-      const result = {
+      return {
         position: index,
         locked: false,
         pin_name: speaker.pin_name || 'Unknown',
-        uuid: speaker.uuid || null,
+        uuid: speaker.uuid,
         mic_muted: speaker.mic_muted !== false,
         avatar_suit: speaker.avatar_suit,
         gift_amount: speaker.gift_amount || 0
       };
-      console.log(`   ✅ Decision: OCCUPIED SLOT`);
-      console.log(`   Final mapping:`, result);
-      return result;
     });
 
-    console.log(`\n📊 FINAL MAPPED SPEAKERS (${botState.speakers.length} total):`);
-    botState.speakers.forEach(s => {
-      console.log(`   Slot ${s.position}: ${s.pin_name} | Locked: ${s.locked} | Mic: ${s.mic_muted ? 'Muted' : 'Live'}`);
-    });
-    console.log(`${'='.repeat(80)}\n`);
+    console.log(`🎤 Speaker update: ${botState.speakers.filter(s => !s.locked && s.pin_name !== 'Empty').length} occupied, ${botState.speakers.filter(s => s.locked).length} locked, ${botState.speakers.filter(s => !s.locked && s.pin_name === 'Empty').length} empty`);
 
     // Emit speaker update to web portal
     io.emit('speakers-update', botState.speakers);
