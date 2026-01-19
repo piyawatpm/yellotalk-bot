@@ -723,6 +723,38 @@ export default function ControlPage() {
                       />
                     </div>
 
+                    {/* Auto-Hijack Toggle */}
+                    <div className="flex items-center justify-between p-3 border-2 border-rose-500/50 rounded-xl bg-rose-50/50 dark:bg-rose-950/20">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <Zap className="h-4 w-4 text-rose-500" />
+                          <Label htmlFor="hijack-toggle" className="text-sm font-medium cursor-pointer">
+                            Auto-Hijack (UUID Spoofing)
+                          </Label>
+                        </div>
+                        <p className="text-xs text-gray-500 pl-6">Join as room owner to control slots</p>
+                      </div>
+                      <Switch
+                        id="hijack-toggle"
+                        checked={botState?.autoHijackRooms ?? false}
+                        onCheckedChange={async (checked) => {
+                          try {
+                            await fetch(`${getApiUrl()}/api/bot/toggle-hijack`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ enabled: checked })
+                            })
+                            toast({
+                              title: checked ? 'Auto-Hijack Enabled' : 'Auto-Hijack Disabled',
+                              description: checked ? 'Bot will join as room owner' : 'Bot joins normally'
+                            })
+                          } catch (error) {
+                            toast({ title: 'Error', description: 'Failed to toggle hijack', variant: 'destructive' })
+                          }
+                        }}
+                      />
+                    </div>
+
                     <Button
                       onClick={startBot}
                       className="w-full h-12 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25 transition-all duration-300"

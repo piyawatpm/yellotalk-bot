@@ -142,13 +142,8 @@ function lockSpeaker(position) {
     const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
     console.log(`🔒 Locking slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
 
-    // Use original owner's UUID for permission (no hijack needed!)
-    const ownerUuid = originalRoomOwner?.uuid || config.user_uuid;
-    console.log(`   Using UUID: ${ownerUuid === originalRoomOwner?.uuid ? 'original owner' : 'bot'} (${ownerUuid})`);
-
     yellotalkSocket.emit('lock_speaker', {
       room: botState.currentRoom?.id,
-      uuid: ownerUuid,  // Send with owner's UUID
       position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Lock response for position ${position}:`, response);
@@ -189,13 +184,8 @@ function unlockSpeaker(position) {
     const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
     console.log(`🔓 Unlocking slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
 
-    // Use original owner's UUID for permission (no hijack needed!)
-    const ownerUuid = originalRoomOwner?.uuid || config.user_uuid;
-    console.log(`   Using UUID: ${ownerUuid === originalRoomOwner?.uuid ? 'original owner' : 'bot'} (${ownerUuid})`);
-
     yellotalkSocket.emit('unlock_speaker', {
       room: botState.currentRoom?.id,
-      uuid: ownerUuid,  // Send with owner's UUID
       position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Unlock response:`, response);
@@ -236,12 +226,8 @@ function muteSpeaker(position) {
     const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
     console.log(`🔇 Muting slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
 
-    // Use original owner's UUID for permission (no hijack needed!)
-    const ownerUuid = originalRoomOwner?.uuid || config.user_uuid;
-
     yellotalkSocket.emit('mute_speaker', {
       room: botState.currentRoom?.id,
-      uuid: ownerUuid,  // Send with owner's UUID
       position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Mute response:`, response);
@@ -278,12 +264,8 @@ function unmuteSpeaker(position) {
     const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
     console.log(`🔊 Unmuting slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
 
-    // Use original owner's UUID for permission (no hijack needed!)
-    const ownerUuid = originalRoomOwner?.uuid || config.user_uuid;
-
     yellotalkSocket.emit('unmute_speaker', {
       room: botState.currentRoom?.id,
-      uuid: ownerUuid,  // Send with owner's UUID
       position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Unmute response:`, response);
@@ -1030,24 +1012,30 @@ app.post('/api/bot/start', async (req, res) => {
 
         console.log(`🎯 Joining room: ${room.topic}`);
 
-        // Join room with ALL data
+        // Join room - use owner's UUID if auto-hijack enabled
+        const joinUuid = botState.autoHijackRooms ? originalRoomOwner.uuid : config.user_uuid;
+        const joinName = botState.autoHijackRooms ? config.pin_name : config.pin_name;
+
+        console.log(`🔑 Join strategy: ${botState.autoHijackRooms ? 'AS OWNER (spoofing UUID)' : 'AS BOT (normal)'}`);
+        console.log(`   UUID: ${joinUuid}`);
+        console.log(`   Name: ${joinName}`);
+
         yellotalkSocket.emit('join_room', {
           room: roomId,
-          uuid: config.user_uuid,
+          uuid: joinUuid,  // Use owner's UUID if hijack enabled!
           avatar_id: config.avatar_id,
           gme_id: String(room.gme_id),
           campus: room.owner.group_shortname || 'No Group',
-          pin_name: config.pin_name
+          pin_name: joinName
         }, (joinResponse) => {
           console.log('📥 Join ACK:', joinResponse);
 
           if (joinResponse?.result === 200) {
             if (botState.autoHijackRooms) {
-              console.log('ℹ️  Auto-hijack ENABLED but using UUID-based permission instead');
-              console.log('💡 Commands will be sent with original owner UUID');
+              console.log('✅ Joined AS OWNER (using owner UUID)');
+              console.log('🔓 Should have owner permissions immediately!');
             } else {
-              console.log('ℹ️  Auto-hijack DISABLED - Using UUID-based permission');
-              console.log('💡 Commands will be sent with original owner UUID');
+              console.log('✅ Joined as regular bot');
             }
           }
         });
