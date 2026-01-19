@@ -747,11 +747,40 @@ function startCommandInterface() {
                     console.log(`Available: ${currentParticipantsList.map(p => p.pin_name).join(', ')}`);
                 }
             }
+        } else if (cmd === 'createroom') {
+            // Try to create a room via REST API
+            const timestamp = new Date().toLocaleTimeString();
+            console.log(`\n${'='.repeat(80)}`);
+            console.log(`[${timestamp}] 🧪 TESTING: Create room via REST API`);
+            console.log(`${'='.repeat(80)}`);
+
+            const roomData = {
+                topic: 'Test Room - Bot Created',
+                uuid: UUID,
+                pin_name: PIN_NAME,
+                avatar_id: AVATAR_ID
+            };
+
+            console.log(`📤 Trying POST /v1/rooms`);
+            axios.post(`${API_URL}/v1/rooms`, roomData, {
+                headers: { 'Authorization': `Bearer ${TOKEN}` },
+                httpsAgent
+            }).then(resp => {
+                console.log(`✅ CREATE SUCCESS! Response:`);
+                console.log(JSON.stringify(resp.data, null, 2));
+                console.log(`\n🔍 Look for: owner_token, session_id, permissions, etc.`);
+                console.log(`${'='.repeat(80)}\n`);
+            }).catch(err => {
+                console.log(`❌ Create failed: ${err.response?.status} ${err.response?.statusText}`);
+                console.log(`   Message: ${err.message}`);
+                console.log(`   Response: ${JSON.stringify(err.response?.data)}`);
+                console.log(`${'='.repeat(80)}\n`);
+            });
         } else if (cmd === 'quit' || cmd === 'exit') {
             process.kill(process.pid, 'SIGINT');
         } else {
             console.log('❌ Unknown command');
-            console.log('Try: joinspeaker, movespeaker, unlock, lock, mute, unmute, quit');
+            console.log('Try: createroom, unlockwatch, setrole, rejoinhost, unlock, quit');
         }
     });
 }
@@ -791,6 +820,24 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
         rejectUnauthorized: false
     });
 
+    // LOG ALL OUTGOING WEBSOCKET MESSAGES
+    const originalEmit = socket.emit.bind(socket);
+    socket.emit = function(event, ...args) {
+        console.log(`\n📤 [WEBSOCKET OUT] Event: ${event}`);
+        if (args.length > 0 && typeof args[0] === 'object') {
+            console.log(`   Data: ${JSON.stringify(args[0], null, 2)}`);
+        }
+        return originalEmit(event, ...args);
+    };
+
+    // LOG ALL INCOMING WEBSOCKET MESSAGES
+    socket.onAny((event, data) => {
+        console.log(`\n📥 [WEBSOCKET IN] Event: ${event}`);
+        if (typeof data === 'object') {
+            console.log(`   Data: ${JSON.stringify(data).substring(0, 300)}...`);
+        }
+    });
+
     socket.on('connect', () => {
         console.log('✅ Connected!');
 
@@ -807,14 +854,21 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             audio_role: 'host'      // Audio permission role
         };
 
+        console.log('\n' + '='.repeat(80));
         console.log('📥 Joining room AS HOST ROLE...');
-        console.log(`   Role parameters: role='host', gme_role='host', audio_role='host'`);
+        console.log('='.repeat(80));
+        console.log(`   Full join_room data: ${JSON.stringify(joinData, null, 2)}`);
+        console.log('='.repeat(80));
+
         socket.emit('join_room', joinData, (response) => {
+            console.log('\n📥 JOIN_ROOM RESPONSE:');
+            console.log(`   ${JSON.stringify(response, null, 2)}`);
             if (response?.result === 200) {
-                console.log('✅ Successfully joined room!');
+                console.log('✅ Successfully joined room AS HOST!');
+                console.log('💡 You should now have unlock permissions. Try: unlockwatch 3');
                 // DON'T set hasJoinedRoom here - let participant_changed handle it
             } else {
-                console.log('⚠️  Join response:', response);
+                console.log('⚠️  Join failed or no response');
             }
         });
 
@@ -829,19 +883,18 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('Listening for new messages...\n');
             console.log('Commands:');
             console.log('  msg <text>    - Send message');
-            console.log('\n⭐ GME ROLE TESTS (Try these FIRST!):');
-            console.log('  setrole <host|listener> - Set GME role (might grant permissions!)');
-            console.log('  rejoinhost              - Leave + rejoin as role="host"');
-            console.log('\n⭐ PRIMARY UNLOCK TEST:');
-            console.log('  unlockwatch <1-10>  - Unlock + watch for speaker_changed event');
-            console.log('\n🔓 Other UNLOCK variants:');
-            console.log('  unlock <1-10>       - Basic unlock');
-            console.log('  unlockhost <1-10>   - With role="host" param');
-            console.log('  unlockadmin <1-10>  - With is_admin=true');
-            console.log('  unlockroom <1-10>   - With room ID');
-            console.log('\n🎤 Speaker control:');
+            console.log('\n🔬 REVERSE ENGINEERING:');
+            console.log('  createroom  - Try to create room & see owner token/params');
+            console.log('\n⭐ GME ROLE TESTS:');
+            console.log('  setrole <host|listener> - Set GME role');
+            console.log('  rejoinhost              - Rejoin as role="host"');
+            console.log('\n⭐ PRIMARY TEST:');
+            console.log('  unlockwatch <1-10>  - Unlock + watch speaker_changed event');
+            console.log('\n🔓 UNLOCK variants:');
+            console.log('  unlock/unlockhost/unlockadmin/unlockroom <1-10>');
+            console.log('\n🎤 Speaker:');
             console.log('  joinspeaker <pos> / movespeaker <name> <pos>');
-            console.log('\nOther: lock, mute, unmute, quit');
+            console.log('\nOther: lock, mute, quit');
             console.log();
 
             // Start command input handler
