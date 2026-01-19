@@ -1448,6 +1448,7 @@ app.post('/api/bot/stop', (req, res) => {
 
   // Try to un-hijack and leave without closing room
   if (yellotalkSocket && yellotalkSocket.connected && botState.currentRoom) {
+    const roomId = botState.currentRoom.id; // Save room ID before state reset
     console.log('🚪 Attempting to leave room without closing it...');
 
     if (originalRoomOwner && originalRoomOwner.uuid !== config.user_uuid) {
@@ -1456,7 +1457,7 @@ app.post('/api/bot/stop', (req, res) => {
 
       // Try to un-hijack by sending create_room with original owner's UUID
       yellotalkSocket.emit('create_room', {
-        room: botState.currentRoom.id,
+        room: roomId,
         uuid: originalRoomOwner.uuid,  // Transfer back to original owner
         limit_speaker: 0
       }, (transferResp) => {
@@ -1472,7 +1473,7 @@ app.post('/api/bot/stop', (req, res) => {
         setTimeout(() => {
           console.log('🔄 Step 2: Leaving room as participant...');
           yellotalkSocket.emit('leave_room', {
-            room: botState.currentRoom.id,
+            room: roomId,
             uuid: config.user_uuid
           }, (leaveResp) => {
             console.log('📥 leave_room response:', leaveResp);
@@ -1492,7 +1493,7 @@ app.post('/api/bot/stop', (req, res) => {
       console.log('⚠️  No original owner saved - room will likely close on leave');
 
       yellotalkSocket.emit('leave_room', {
-        room: botState.currentRoom.id,
+        room: roomId,
         uuid: config.user_uuid
       }, (leaveResp) => {
         console.log('📥 leave_room response:', leaveResp);
