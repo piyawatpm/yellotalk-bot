@@ -53,7 +53,7 @@ let botState = {
   connected: false,
   startTime: null,
   enableWelcomeMessage: true, // Toggle for welcome message on room join
-  autoHijackRooms: true // Toggle for automatic room hijacking
+  autoHijackRooms: false // Toggle for automatic room hijacking (default: false)
 };
 
 let yellotalkSocket = null;
@@ -141,8 +141,14 @@ function lockSpeaker(position) {
   return new Promise((resolve, reject) => {
     const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
     console.log(`🔒 Locking slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
+
+    // Use original owner's UUID for permission (no hijack needed!)
+    const ownerUuid = originalRoomOwner?.uuid || config.user_uuid;
+    console.log(`   Using UUID: ${ownerUuid === originalRoomOwner?.uuid ? 'original owner' : 'bot'} (${ownerUuid})`);
+
     yellotalkSocket.emit('lock_speaker', {
       room: botState.currentRoom?.id,
+      uuid: ownerUuid,  // Send with owner's UUID
       position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Lock response for position ${position}:`, response);
@@ -182,8 +188,14 @@ function unlockSpeaker(position) {
   return new Promise((resolve, reject) => {
     const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
     console.log(`🔓 Unlocking slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
+
+    // Use original owner's UUID for permission (no hijack needed!)
+    const ownerUuid = originalRoomOwner?.uuid || config.user_uuid;
+    console.log(`   Using UUID: ${ownerUuid === originalRoomOwner?.uuid ? 'original owner' : 'bot'} (${ownerUuid})`);
+
     yellotalkSocket.emit('unlock_speaker', {
       room: botState.currentRoom?.id,
+      uuid: ownerUuid,  // Send with owner's UUID
       position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Unlock response:`, response);
@@ -223,8 +235,13 @@ function muteSpeaker(position) {
   return new Promise((resolve, reject) => {
     const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
     console.log(`🔇 Muting slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
+
+    // Use original owner's UUID for permission (no hijack needed!)
+    const ownerUuid = originalRoomOwner?.uuid || config.user_uuid;
+
     yellotalkSocket.emit('mute_speaker', {
       room: botState.currentRoom?.id,
+      uuid: ownerUuid,  // Send with owner's UUID
       position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Mute response:`, response);
@@ -260,8 +277,13 @@ function unmuteSpeaker(position) {
   return new Promise((resolve, reject) => {
     const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
     console.log(`🔊 Unmuting slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
+
+    // Use original owner's UUID for permission (no hijack needed!)
+    const ownerUuid = originalRoomOwner?.uuid || config.user_uuid;
+
     yellotalkSocket.emit('unmute_speaker', {
       room: botState.currentRoom?.id,
+      uuid: ownerUuid,  // Send with owner's UUID
       position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Unmute response:`, response);
@@ -301,9 +323,12 @@ function kickSpeaker(position, targetUuid) {
   return new Promise((resolve, reject) => {
     const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
     console.log(`👢 Kicking speaker from slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
+
+    // Note: kick_speaker needs target UUID, not owner UUID
+    // Server checks if requester (from auth token) is owner
     yellotalkSocket.emit('kick_speaker', {
       room: botState.currentRoom?.id,
-      uuid: targetUuid,
+      uuid: targetUuid,  // Target to kick
       position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Kick response:`, response);
@@ -330,9 +355,12 @@ function kickFromRoom(targetUuid) {
 
   return new Promise((resolve, reject) => {
     console.log(`👢 Kicking user from room: ${targetUuid}`);
+
+    // Note: kick_room target UUID is who to kick
+    // Server checks requester permission from auth token
     yellotalkSocket.emit('kick_room', {
       room: botState.currentRoom?.id,
-      uuid: targetUuid
+      uuid: targetUuid  // Target to kick from room
     }, (response) => {
       console.log(`📥 Kick from room response:`, response);
       if (response?.result === 200) {
@@ -1013,56 +1041,14 @@ app.post('/api/bot/start', async (req, res) => {
         }, (joinResponse) => {
           console.log('📥 Join ACK:', joinResponse);
 
-          // 🔥 AUTOMATIC ROOM HIJACK - Claim ownership immediately (if enabled)!
-          if (joinResponse?.result === 200 && botState.autoHijackRooms) {
-            setTimeout(() => {
-              console.log('\n🔥 AUTO-HIJACKING ROOM (Claiming ownership...)');
-
-              yellotalkSocket.emit('create_room', {
-                room: roomId,
-                uuid: config.user_uuid,
-                limit_speaker: 0
-              }, (createResp) => {
-                console.log('📥 create_room Response:', createResp);
-
-                if (createResp?.result === 200) {
-                  console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
-                  console.log('🔓 Can now lock/unlock speaker slots!');
-
-                  // ULTRA-FAST: Send unlock + all restores in one burst
-                  const savedStates = botState.speakers.map(s => ({
-                    position: s.position,
-                    locked: s.locked
-                  }));
-
-                  console.log('💾🔥🔧 Instant burst: unlock + restore in parallel...');
-
-                  // Send unlock position 1 (triggers weird lock-all)
-                  yellotalkSocket.emit('unlock_speaker', { room: roomId, position: 1 });
-
-                  // Immediately send unlock for all slots that should be unlocked
-                  // Server will process these AFTER the lock-all happens
-                  savedStates.forEach((saved, index) => {
-                    if (!saved.locked) {
-                      yellotalkSocket.emit('unlock_speaker', {
-                        room: roomId,
-                        position: index + 1
-                      });
-                    }
-                  });
-
-                  console.log('✅ All commands sent! Server will process in order.');
-
-                  io.emit('room-hijacked', { success: true });
-                } else {
-                  console.log('⚠️  Hijack might have failed');
-                  io.emit('room-hijacked', { success: false });
-                }
-              });
-            }, 1000);
-          } else if (joinResponse?.result === 200 && !botState.autoHijackRooms) {
-            console.log('ℹ️  Auto-hijack DISABLED - Not claiming ownership');
-            console.log('💡 Enable auto-hijack or use manual hijack button for speaker control');
+          if (joinResponse?.result === 200) {
+            if (botState.autoHijackRooms) {
+              console.log('ℹ️  Auto-hijack ENABLED but using UUID-based permission instead');
+              console.log('💡 Commands will be sent with original owner UUID');
+            } else {
+              console.log('ℹ️  Auto-hijack DISABLED - Using UUID-based permission');
+              console.log('💡 Commands will be sent with original owner UUID');
+            }
           }
         });
 
@@ -1446,66 +1432,25 @@ app.post('/api/bot/stop', (req, res) => {
   console.log(`Socket connected: ${yellotalkSocket?.connected}`);
   console.log('='.repeat(80) + '\n');
 
-  // Try to un-hijack and leave without closing room
+  // Leave room gracefully (no hijack to un-do!)
   if (yellotalkSocket && yellotalkSocket.connected && botState.currentRoom) {
-    const roomId = botState.currentRoom.id; // Save room ID before state reset
-    console.log('🚪 Attempting to leave room without closing it...');
+    const roomId = botState.currentRoom.id;
+    console.log('🚪 Leaving room as participant...');
 
-    if (originalRoomOwner && originalRoomOwner.uuid !== config.user_uuid) {
-      console.log('🔄 Step 1: Un-hijacking - transfer ownership back to original owner...');
-      console.log(`   Original owner: ${originalRoomOwner.pin_name} (${originalRoomOwner.uuid})`);
+    yellotalkSocket.emit('leave_room', {
+      room: roomId,
+      uuid: config.user_uuid
+    }, (leaveResp) => {
+      console.log('📥 leave_room response:', leaveResp);
 
-      // Try to un-hijack by sending create_room with original owner's UUID
-      yellotalkSocket.emit('create_room', {
-        room: roomId,
-        uuid: originalRoomOwner.uuid,  // Transfer back to original owner
-        limit_speaker: 0
-      }, (transferResp) => {
-        console.log('📥 Un-hijack response:', transferResp);
-
-        if (transferResp?.result === 200) {
-          console.log('✅ Ownership transferred back!');
-        } else {
-          console.log('⚠️  Transfer might have failed, trying to leave anyway...');
-        }
-
-        // Now leave as regular participant
-        setTimeout(() => {
-          console.log('🔄 Step 2: Leaving room as participant...');
-          yellotalkSocket.emit('leave_room', {
-            room: roomId,
-            uuid: config.user_uuid
-          }, (leaveResp) => {
-            console.log('📥 leave_room response:', leaveResp);
-
-            // Disconnect
-            setTimeout(() => {
-              console.log('🔌 Disconnecting...');
-              yellotalkSocket.removeAllListeners();
-              yellotalkSocket.disconnect();
-              yellotalkSocket = null;
-              console.log('✅ Left room - should NOT have closed!');
-            }, 300);
-          });
-        }, 300);
-      });
-    } else {
-      console.log('⚠️  No original owner saved - room will likely close on leave');
-
-      yellotalkSocket.emit('leave_room', {
-        room: roomId,
-        uuid: config.user_uuid
-      }, (leaveResp) => {
-        console.log('📥 leave_room response:', leaveResp);
-
-        setTimeout(() => {
-          yellotalkSocket.removeAllListeners();
-          yellotalkSocket.disconnect();
-          yellotalkSocket = null;
-          console.log('✅ Disconnected');
-        }, 300);
-      });
-    }
+      setTimeout(() => {
+        console.log('🔌 Disconnecting...');
+        yellotalkSocket.removeAllListeners();
+        yellotalkSocket.disconnect();
+        yellotalkSocket = null;
+        console.log('✅ Left room cleanly - room should stay open!');
+      }, 300);
+    });
   } else {
     console.log('ℹ️  No active connection to leave');
   }
