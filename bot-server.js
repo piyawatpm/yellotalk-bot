@@ -1443,41 +1443,28 @@ app.post('/api/bot/stop', (req, res) => {
   console.log(`Socket connected: ${yellotalkSocket?.connected}`);
   console.log('='.repeat(80) + '\n');
 
-  // CRITICAL: DON'T DISCONNECT AT ALL!
-  // Keep the hijacked "owner" connection alive in the background
-  // Just stop responding to events
-  if (yellotalkSocket && yellotalkSocket.connected) {
-    console.log('⚠️  CRITICAL: We hijacked this room as "owner"');
-    console.log('⚠️  If we disconnect, room will close and kick everyone!');
-    console.log('\n💡 SOLUTION: Keep connection alive, just stop listening to events\n');
+  // Leave room properly without closing it
+  if (yellotalkSocket && yellotalkSocket.connected && botState.currentRoom) {
+    console.log('🚪 Attempting to leave room gracefully...');
 
-    // Remove ALL our event listeners but keep socket alive
-    console.log('📋 Step 1: Removing event listeners...');
-    yellotalkSocket.off('new_message');
-    yellotalkSocket.off('participant_changed');
-    yellotalkSocket.off('speaker_changed');
-    yellotalkSocket.off('load_message');
-    yellotalkSocket.off('new_gift');
-    yellotalkSocket.off('new_reaction');
-    yellotalkSocket.off('live_end');
-    yellotalkSocket.off('end_live');
-    console.log('✅ Event listeners removed');
+    // Try to leave as participant (not owner disconnect)
+    yellotalkSocket.emit('leave_room', {
+      room: botState.currentRoom.id,
+      uuid: config.user_uuid
+    }, (leaveResp) => {
+      console.log('📥 leave_room response:', leaveResp);
 
-    console.log('\n📋 Step 2: Socket status:');
-    console.log(`   Connected: ${yellotalkSocket.connected}`);
-    console.log(`   Alive: YES (keeping connection open!)`);
-    console.log('   Action: NONE (not disconnecting!)');
-
-    console.log('\n✅✅✅ BOT STOPPED - Room connection PRESERVED');
-    console.log('🎉 Room will NOT close!');
-    console.log('💡 Socket remains connected in background to prevent room closure');
-    console.log('⚠️  Note: To fully disconnect, restart the bot-server process\n');
-    console.log('='.repeat(80) + '\n');
-
-    // Keep yellotalkSocket alive! Don't set to null!
-    // yellotalkSocket = null; ← NEVER DO THIS!
+      // After leaving, disconnect socket
+      setTimeout(() => {
+        console.log('🔌 Disconnecting socket...');
+        yellotalkSocket.removeAllListeners();
+        yellotalkSocket.disconnect();
+        yellotalkSocket = null;
+        console.log('✅ Left room and disconnected');
+      }, 500);
+    });
   } else {
-    console.log('ℹ️  No active connection to preserve');
+    console.log('ℹ️  No active connection to leave');
   }
 
   // Clear follow interval
