@@ -1009,40 +1009,35 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // FAST SAVE-RESTORE: Minimal delays, parallel restoration
-                  setTimeout(() => {
-                    // Save current state
-                    const savedStates = botState.speakers.map(s => ({
-                      position: s.position,
-                      locked: s.locked,
-                      pin_name: s.pin_name
-                    }));
+                  // INSTANT SAVE-RESTORE: No delays, all parallel
+                  // Save current state
+                  const savedStates = botState.speakers.map(s => ({
+                    position: s.position,
+                    locked: s.locked,
+                    pin_name: s.pin_name
+                  }));
 
-                    console.log('💾 Saved → 🔥 Triggering sync → 🔧 Restoring...');
+                  console.log('💾 Saved → 🔥 Sync → 🔧 Restore');
 
-                    // Trigger first action
-                    yellotalkSocket.emit('unlock_speaker', {
-                      room: roomId,
-                      position: 1
-                    }, (resp) => {
-                      // Immediately restore after response (don't wait for speaker_changed)
-                      setTimeout(() => {
-                        // Restore ALL in parallel (no stagger)
-                        savedStates.forEach((saved, index) => {
-                          const current = botState.speakers[index];
+                  // Trigger first action immediately
+                  yellotalkSocket.emit('unlock_speaker', {
+                    room: roomId,
+                    position: 1
+                  }, (resp) => {
+                    // Restore ALL immediately in parallel
+                    savedStates.forEach((saved, index) => {
+                      const current = botState.speakers[index];
 
-                          if (saved.locked !== current?.locked) {
-                            if (saved.locked && !current?.locked) {
-                              lockSpeaker(index).catch(() => {});
-                            } else if (!saved.locked && current?.locked) {
-                              unlockSpeaker(index).catch(() => {});
-                            }
-                          }
-                        });
-                        console.log('✅ Sync complete! Dual control enabled.');
-                      }, 500);
+                      if (saved.locked !== current?.locked) {
+                        if (saved.locked && !current?.locked) {
+                          lockSpeaker(index).catch(() => {});
+                        } else if (!saved.locked && current?.locked) {
+                          unlockSpeaker(index).catch(() => {});
+                        }
+                      }
                     });
-                  }, 500);
+                    console.log('✅ Instant sync done!');
+                  });
 
                   io.emit('room-hijacked', { success: true });
                 } else {
