@@ -1048,35 +1048,38 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // Try different NON-SPEAKER events to trigger permission refresh
-                  console.log('\n🔄 Trying NON-SPEAKER events to trigger permission refresh...');
+                  // Try PARTICIPANT events to trigger sync without locking slots
+                  console.log('\n🔄 Trying PARTICIPANT events to trigger first action sync...');
 
-                  // Try 1: Resend create_room (might refresh permissions without side effects)
-                  yellotalkSocket.emit('create_room', {
+                  // Try 1: join_speaker to invalid position
+                  yellotalkSocket.emit('join_speaker', {
                     room: roomId,
                     uuid: config.user_uuid,
-                    limit_speaker: 0
+                    position: 11  // Non-existent position
                   }, (resp1) => {
-                    console.log('📥 [Test 1] Resend create_room response:', resp1);
+                    console.log('📥 [Test 1] join_speaker position 11 response:', resp1);
                   });
 
-                  // Try 2: Update room settings with same values
+                  // Try 2: leave_speaker from position we're not in
                   setTimeout(() => {
-                    yellotalkSocket.emit('update_room', {
+                    yellotalkSocket.emit('leave_speaker', {
                       room: roomId,
-                      limit_speaker: 0
+                      uuid: config.user_uuid,
+                      position: 10
                     }, (resp2) => {
-                      console.log('📥 [Test 2] Update room (same settings) response:', resp2);
+                      console.log('📥 [Test 2] leave_speaker position 10 response:', resp2);
                     });
                   }, 200);
 
-                  // Try 3: Request room info (read-only operation)
+                  // Try 3: send_reaction (might count as room interaction)
                   setTimeout(() => {
-                    yellotalkSocket.emit('get_room_info', {
-                      room: roomId
+                    yellotalkSocket.emit('new_reaction', {
+                      room: roomId,
+                      uuid: config.user_uuid,
+                      reaction: '👍'
                     }, (resp3) => {
-                      console.log('📥 [Test 3] Get room info response:', resp3);
-                      console.log('✅ All permission refresh attempts completed!');
+                      console.log('📥 [Test 3] new_reaction response:', resp3);
+                      console.log('✅ All sync trigger attempts completed!');
                     });
                   }, 400);
 
