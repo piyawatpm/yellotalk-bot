@@ -1009,18 +1009,48 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // Try unmuting position 0 (room owner slot) to enable dual control
-                  console.log('\n🔄 Triggering first action: unmute position 0 (room owner)...');
+                  // SAVE-RESTORE: Accept weird behavior, fix it automatically
+                  console.log('\n💾 Preparing to trigger first action and restore state...');
 
                   setTimeout(() => {
-                    yellotalkSocket.emit('unmute_speaker', {
+                    // Save current state
+                    const savedStates = botState.speakers.map(s => ({
+                      position: s.position,
+                      locked: s.locked,
+                      isEmpty: s.pin_name === 'Empty'
+                    }));
+
+                    console.log('📋 Saved states:', savedStates.filter(s => !s.locked && !s.isEmpty).length + ' occupied, ' + savedStates.filter(s => s.locked).length + ' locked, ' + savedStates.filter(s => !s.locked && s.isEmpty).length + ' empty');
+
+                    console.log('🔥 Triggering first action (unlock position 11) - this will lock all slots...');
+
+                    // Trigger first action
+                    yellotalkSocket.emit('unlock_speaker', {
                       room: roomId,
-                      position: 0  // Room owner slot
-                    }, (unmuteResp) => {
-                      console.log('📥 unmute_speaker position 0 response:', unmuteResp);
-                      console.log('✅ First action triggered - dual control should now be enabled');
+                      position: 11
+                    }, (resp) => {
+                      console.log('📥 First action response:', resp);
+
+                      // Wait for speaker_changed to reflect the locks
+                      setTimeout(() => {
+                        console.log('🔧 Restoring original empty slots...');
+
+                        savedStates.forEach((saved, index) => {
+                          const current = botState.speakers[index];
+
+                          // If slot was empty but is now locked, unlock it
+                          if (saved.isEmpty && current?.locked) {
+                            setTimeout(() => {
+                              console.log(`   🔓 Unlocking slot ${index} (was empty)...`);
+                              unlockSpeaker(index).catch(() => {});
+                            }, index * 150);
+                          }
+                        });
+
+                        console.log('✅ State restoration complete! Both bot and owner have control.');
+                      }, 2000);
                     });
-                  }, 1500); // Wait after initial speaker_changed
+                  }, 2000);
 
                   io.emit('room-hijacked', { success: true });
                 } else {
