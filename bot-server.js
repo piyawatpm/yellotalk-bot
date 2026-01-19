@@ -51,7 +51,8 @@ let botState = {
   speakers: [], // Speaker slot status (10 slots)
   messages: [],
   connected: false,
-  startTime: null
+  startTime: null,
+  enableWelcomeMessage: true // Toggle for welcome message on room join
 };
 
 let yellotalkSocket = null;
@@ -673,12 +674,16 @@ app.post('/api/bot/start', async (req, res) => {
           hasJoinedRoom = true;
           console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
 
-          // Send welcome message explaining Siri feature
-          setTimeout(() => {
-            const welcomeMessage = 'สวัสดีค่ะ! 🤖 สามารถถามคำถามทั่วไปกับ AI ได้ด้วย @siri, siri หรือ สิริ\n⚠️ ตอบได้เฉพาะคำถามทั่วไป ไม่รวมข่าวล่าสุดหรือข้อมูลเรียลไทม์\n\nตัวอย่าง:\n• @siri สวัสดี\n• siri อธิบาย AI คืออะไร\n• สิริ สุ่มเลข 1-12 จากทุกคนในห้อง\n• ใครคือหห? siri';
-            sendMessage(welcomeMessage);
-            console.log(`[${timestamp}] 👋 Sent Siri welcome message`);
-          }, 2000); // 2 second delay to let room fully load
+          // Send welcome message explaining Siri feature (if enabled)
+          if (botState.enableWelcomeMessage) {
+            setTimeout(() => {
+              const welcomeMessage = 'สวัสดีค่ะ! 🤖 สามารถถามคำถามทั่วไปกับ AI ได้ด้วย @siri, siri หรือ สิริ\n⚠️ ตอบได้เฉพาะคำถามทั่วไป ไม่รวมข่าวล่าสุดหรือข้อมูลเรียลไทม์\n\nตัวอย่าง:\n• @siri สวัสดี\n• siri อธิบาย AI คืออะไร\n• สิริ สุ่มเลข 1-12 จากทุกคนในห้อง\n• ใครคือหห? siri';
+              sendMessage(welcomeMessage);
+              console.log(`[${timestamp}] 👋 Sent Siri welcome message`);
+            }, 2000); // 2 second delay to let room fully load
+          } else {
+            console.log(`[${timestamp}] ⏭️  Welcome message disabled`);
+          }
 
           io.emit('participant-update', participants);
           broadcastState();
@@ -1249,6 +1254,21 @@ app.post('/api/bot/reload-greetings', (req, res) => {
 // Get current greetings
 app.get('/api/bot/greetings', (req, res) => {
   res.json({ success: true, config: greetingsConfig });
+});
+
+// Toggle welcome message
+app.post('/api/bot/toggle-welcome', (req, res) => {
+  const { enabled } = req.body;
+
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  }
+
+  botState.enableWelcomeMessage = enabled;
+  console.log(`🔄 Welcome message ${enabled ? 'enabled' : 'disabled'}`);
+
+  broadcastState();
+  res.json({ success: true, enableWelcomeMessage: botState.enableWelcomeMessage });
 });
 
 // Speaker control endpoints

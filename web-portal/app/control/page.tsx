@@ -10,6 +10,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import {
   Play,
   Square,
@@ -114,6 +116,11 @@ export default function ControlPage() {
       newSocket.on('bot-state', (state) => {
         setBotState(state)
 
+        // Initialize speakers from bot state
+        if (state.speakers && state.speakers.length > 0) {
+          setSpeakers(state.speakers)
+        }
+
         // Clear timeout and reset starting state when we get bot state update
         if (startTimeoutRef.current) {
           clearTimeout(startTimeoutRef.current)
@@ -139,6 +146,7 @@ export default function ControlPage() {
       })
 
       newSocket.on('speakers-update', (speakersData) => {
+        console.log('🎤 Speakers update received:', speakersData)
         setSpeakers(speakersData)
         setBotState((prev: any) => prev ? ({
           ...prev,
@@ -366,6 +374,25 @@ export default function ControlPage() {
       }
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to kick speaker', variant: 'destructive' })
+    }
+  }
+
+  const toggleWelcomeMessage = async (enabled: boolean) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/toggle-welcome`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({
+          title: enabled ? 'Welcome Message Enabled' : 'Welcome Message Disabled',
+          description: enabled ? 'Bot will send welcome message on room join' : 'Bot will not send welcome message'
+        })
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to toggle welcome message', variant: 'destructive' })
     }
   }
 
@@ -729,6 +756,21 @@ export default function ControlPage() {
                       <RefreshCw className="mr-2 h-4 w-4" />
                       Reload Greetings
                     </Button>
+
+                    {/* Welcome Message Toggle */}
+                    <div className="flex items-center justify-between p-3 border-2 border-purple-500/50 rounded-xl bg-purple-50/50 dark:bg-purple-950/20">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4 text-purple-500" />
+                        <Label htmlFor="welcome-toggle" className="text-sm font-medium cursor-pointer">
+                          Welcome Message on Join
+                        </Label>
+                      </div>
+                      <Switch
+                        id="welcome-toggle"
+                        checked={botState?.enableWelcomeMessage ?? true}
+                        onCheckedChange={toggleWelcomeMessage}
+                      />
+                    </div>
 
                     {/* Additional info for follow mode */}
                     {isFollowMode && (
