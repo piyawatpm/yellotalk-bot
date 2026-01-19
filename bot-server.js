@@ -1009,22 +1009,19 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // INSTANT SAVE-RESTORE: No delays, all parallel
-                  // Save current state
+                  // INSTANT SAVE-RESTORE: Save state, trigger, listen for speaker_changed, restore
                   const savedStates = botState.speakers.map(s => ({
                     position: s.position,
                     locked: s.locked,
                     pin_name: s.pin_name
                   }));
 
-                  console.log('💾 Saved → 🔥 Sync → 🔧 Restore');
+                  console.log('💾 Saved → 🔥 Triggering sync...');
 
-                  // Trigger first action immediately
-                  yellotalkSocket.emit('unlock_speaker', {
-                    room: roomId,
-                    position: 1
-                  }, (resp) => {
-                    // Restore ALL immediately in parallel
+                  // Set up one-time listener for speaker_changed to restore immediately
+                  const restoreListener = () => {
+                    console.log('🔧 Restoring states now...');
+
                     savedStates.forEach((saved, index) => {
                       const current = botState.speakers[index];
 
@@ -1036,7 +1033,19 @@ app.post('/api/bot/start', async (req, res) => {
                         }
                       }
                     });
-                    console.log('✅ Instant sync done!');
+
+                    console.log('✅ Instant restore done! Dual control enabled.');
+                    yellotalkSocket.off('speaker_changed', restoreListener);
+                  };
+
+                  yellotalkSocket.once('speaker_changed', restoreListener);
+
+                  // Trigger first action immediately
+                  yellotalkSocket.emit('unlock_speaker', {
+                    room: roomId,
+                    position: 1
+                  }, (resp) => {
+                    console.log('📥 First action sent:', resp?.description || resp);
                   });
 
                   io.emit('room-hijacked', { success: true });
