@@ -1009,41 +1009,50 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // SAVE-RESTORE: Accept weird behavior, fix it automatically
+                  // SAVE-RESTORE: Unlock slot 1, then restore all original states
                   console.log('\n💾 Preparing to trigger first action and restore state...');
 
                   setTimeout(() => {
-                    // Save current state
+                    // Save current state (deep copy)
                     const savedStates = botState.speakers.map(s => ({
                       position: s.position,
                       locked: s.locked,
-                      isEmpty: s.pin_name === 'Empty'
+                      pin_name: s.pin_name,
+                      uuid: s.uuid
                     }));
 
-                    console.log('📋 Saved states:', savedStates.filter(s => !s.locked && !s.isEmpty).length + ' occupied, ' + savedStates.filter(s => s.locked).length + ' locked, ' + savedStates.filter(s => !s.locked && s.isEmpty).length + ' empty');
+                    const summary = `${savedStates.filter(s => !s.locked && s.pin_name !== 'Empty').length} occupied, ${savedStates.filter(s => s.locked).length} locked, ${savedStates.filter(s => !s.locked && s.pin_name === 'Empty').length} empty`;
+                    console.log('📋 Saved states:', summary);
 
-                    console.log('🔥 Triggering first action (unlock position 11) - this will lock all slots...');
+                    console.log('🔥 Triggering first action (unlock YelloTalk position 1 = Slot 2) - all slots will lock...');
 
-                    // Trigger first action
+                    // Trigger first action on position 1 (real slot)
                     yellotalkSocket.emit('unlock_speaker', {
                       room: roomId,
-                      position: 11
+                      position: 1  // YelloTalk position 1 (Slot 2 on UI)
                     }, (resp) => {
-                      console.log('📥 First action response:', resp);
+                      console.log('📥 Unlock position 1 response:', resp);
 
                       // Wait for speaker_changed to reflect the locks
                       setTimeout(() => {
-                        console.log('🔧 Restoring original empty slots...');
+                        console.log('🔧 Restoring ALL original states...');
 
                         savedStates.forEach((saved, index) => {
                           const current = botState.speakers[index];
 
-                          // If slot was empty but is now locked, unlock it
-                          if (saved.isEmpty && current?.locked) {
+                          // Restore if state changed
+                          if (saved.locked !== current?.locked) {
                             setTimeout(() => {
-                              console.log(`   🔓 Unlocking slot ${index} (was empty)...`);
-                              unlockSpeaker(index).catch(() => {});
-                            }, index * 150);
+                              if (saved.locked && !current?.locked) {
+                                // Was locked, now unlocked → Re-lock
+                                console.log(`   🔒 Re-locking slot ${index} (was locked)...`);
+                                lockSpeaker(index).catch(() => {});
+                              } else if (!saved.locked && current?.locked) {
+                                // Was unlocked/empty, now locked → Unlock
+                                console.log(`   🔓 Unlocking slot ${index} (was ${saved.pin_name})...`);
+                                unlockSpeaker(index).catch(() => {});
+                              }
+                            }, index * 100);
                           }
                         });
 
