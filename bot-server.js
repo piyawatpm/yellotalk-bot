@@ -1285,16 +1285,27 @@ function setupSocketListeners(socket, roomId, config) {
 app.post('/api/bot/stop', (req, res) => {
   console.log('🛑 Stopping bot...');
 
-  // Disconnect socket
-  if (yellotalkSocket) {
-    // CRITICAL: Just disconnect silently - DON'T send leave_room!
-    // Since we hijacked as "owner", sending leave_room would end the room!
-    // Silent disconnect = server treats as connection drop, room stays open
-    console.log('⚠️  Disconnecting silently (to avoid ending hijacked room)...');
-    yellotalkSocket.removeAllListeners();
-    yellotalkSocket.disconnect();
-    yellotalkSocket = null;
-    console.log('✅ Disconnected (room should stay open for others)');
+  // CRITICAL: Try to leave as LISTENER/SPEAKER, not as owner
+  // Sequence from decompiled code for non-owners: leaveSpeaker → disconnect
+  if (yellotalkSocket && yellotalkSocket.connected) {
+    console.log('⚠️  Trying to leave as LISTENER (not owner) to avoid closing room...');
+
+    // Try leave_speaker first (if we're in a speaker slot)
+    yellotalkSocket.emit('leave_speaker', {
+      room: botState.currentRoom?.id,
+      uuid: config.user_uuid
+    }, (resp) => {
+      console.log('📥 leave_speaker response:', resp);
+    });
+
+    // Wait a moment, then just disconnect (don't send leave_room or end_live)
+    setTimeout(() => {
+      yellotalkSocket.removeAllListeners();
+      yellotalkSocket.disconnect();
+      yellotalkSocket = null;
+      console.log('✅ Disconnected after leave_speaker');
+      console.log('🤞 Room should stay open (we left as speaker, not as owner)');
+    }, 500);
   }
 
   // Clear follow interval
