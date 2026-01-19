@@ -48,7 +48,7 @@ let botState = {
   followUser: null,
   messageCount: 0,
   participants: [],
-  speakers: [], // Speaker slot status (11 slots: 1 owner + 10 user)
+  speakers: [], // Speaker slot status (10 slots: indices 0-9 map to YelloTalk positions 1-10)
   messages: [],
   connected: false,
   startTime: null,
@@ -917,13 +917,13 @@ app.post('/api/bot/start', async (req, res) => {
         // Map speakers BY POSITION FIELD (not array index!)
         const speakers = Array.isArray(data) ? data : [];
 
-        // Create array of 11 slots (positions 0-10, displayed as Slots 1-11)
-        botState.speakers = Array(11).fill(null).map((_, index) => {
-          // Find speaker with matching position field (YelloTalk uses 1-indexed)
+        // Create array of 10 slots (indices 0-9, for YelloTalk positions 1-10)
+        botState.speakers = Array(10).fill(null).map((_, index) => {
+          // Find speaker with matching position field (YelloTalk uses 1-indexed: 1-10)
           const yellotalkPosition = index + 1;
           const speaker = speakers.find(s => s && s.position === yellotalkPosition);
 
-          console.log(`\n   🔄 Mapping UI slot ${index} (looking for YelloTalk position ${yellotalkPosition})...`);
+          console.log(`\n   🔄 Mapping UI slot ${index} (YelloTalk position ${yellotalkPosition}, displays as Slot ${yellotalkPosition})...`);
 
           // 1. If no speaker found at this position -> Empty slot
           if (!speaker) {
@@ -1277,13 +1277,13 @@ function setupSocketListeners(socket, roomId, config) {
     console.log(`${'='.repeat(80)}\n`);
 
     // Map speakers BY POSITION FIELD (not array index!)
-    // Create array of 11 slots (positions 0-10, displayed as Slots 1-11)
-    botState.speakers = Array(11).fill(null).map((_, index) => {
-      // Find speaker with matching position field (YelloTalk uses 1-indexed)
+    // Create array of 10 slots (indices 0-9, for YelloTalk positions 1-10)
+    botState.speakers = Array(10).fill(null).map((_, index) => {
+      // Find speaker with matching position field (YelloTalk uses 1-indexed: 1-10)
       const yellotalkPosition = index + 1;
       const speaker = speakers.find(s => s && s.position === yellotalkPosition);
 
-      console.log(`\n🔍 Analyzing UI slot ${index} (YelloTalk position ${yellotalkPosition}):`);
+      console.log(`\n🔍 Analyzing UI slot ${index} (YelloTalk position ${yellotalkPosition}, displays as Slot ${yellotalkPosition}):`);
 
       if (!speaker) {
         console.log(`   No speaker found at position ${yellotalkPosition}`);
@@ -1596,8 +1596,8 @@ app.post('/api/bot/hijack-room', (req, res) => {
 app.post('/api/bot/speaker/lock', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 10) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-10, total 11 slots: 1 owner + 10 user)' });
+  if (position === undefined || position < 0 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots mapped to YelloTalk positions 1-10)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1615,8 +1615,8 @@ app.post('/api/bot/speaker/lock', async (req, res) => {
 app.post('/api/bot/speaker/unlock', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 10) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-10, total 11 slots: 1 owner + 10 user)' });
+  if (position === undefined || position < 0 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots mapped to YelloTalk positions 1-10)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1634,8 +1634,8 @@ app.post('/api/bot/speaker/unlock', async (req, res) => {
 app.post('/api/bot/speaker/mute', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 10) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-10, total 11 slots: 1 owner + 10 user)' });
+  if (position === undefined || position < 0 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots mapped to YelloTalk positions 1-10)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1653,8 +1653,8 @@ app.post('/api/bot/speaker/mute', async (req, res) => {
 app.post('/api/bot/speaker/unmute', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 10) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-10, total 11 slots: 1 owner + 10 user)' });
+  if (position === undefined || position < 0 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots mapped to YelloTalk positions 1-10)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1672,8 +1672,8 @@ app.post('/api/bot/speaker/unmute', async (req, res) => {
 app.post('/api/bot/speaker/kick', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 10) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-10, total 11 slots: 1 owner + 10 user)' });
+  if (position === undefined || position < 0 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots mapped to YelloTalk positions 1-10)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
