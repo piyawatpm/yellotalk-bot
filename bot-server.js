@@ -1009,44 +1009,29 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // INSTANT SAVE-RESTORE: Save state, trigger, listen for speaker_changed, restore
+                  // ULTRA-FAST: Send unlock + all restores in one burst
                   const savedStates = botState.speakers.map(s => ({
                     position: s.position,
-                    locked: s.locked,
-                    pin_name: s.pin_name
+                    locked: s.locked
                   }));
 
-                  console.log('💾 Saved → 🔥 Triggering sync...');
+                  console.log('💾🔥🔧 Instant burst: unlock + restore in parallel...');
 
-                  // Set up one-time listener for speaker_changed to restore immediately
-                  const restoreListener = () => {
-                    console.log('🔧 Restoring states now...');
+                  // Send unlock position 1 (triggers weird lock-all)
+                  yellotalkSocket.emit('unlock_speaker', { room: roomId, position: 1 });
 
-                    savedStates.forEach((saved, index) => {
-                      const current = botState.speakers[index];
-
-                      if (saved.locked !== current?.locked) {
-                        if (saved.locked && !current?.locked) {
-                          lockSpeaker(index).catch(() => {});
-                        } else if (!saved.locked && current?.locked) {
-                          unlockSpeaker(index).catch(() => {});
-                        }
-                      }
-                    });
-
-                    console.log('✅ Instant restore done! Dual control enabled.');
-                    yellotalkSocket.off('speaker_changed', restoreListener);
-                  };
-
-                  yellotalkSocket.once('speaker_changed', restoreListener);
-
-                  // Trigger first action immediately
-                  yellotalkSocket.emit('unlock_speaker', {
-                    room: roomId,
-                    position: 1
-                  }, (resp) => {
-                    console.log('📥 First action sent:', resp?.description || resp);
+                  // Immediately send unlock for all slots that should be unlocked
+                  // Server will process these AFTER the lock-all happens
+                  savedStates.forEach((saved, index) => {
+                    if (!saved.locked) {
+                      yellotalkSocket.emit('unlock_speaker', {
+                        room: roomId,
+                        position: index + 1
+                      });
+                    }
                   });
+
+                  console.log('✅ All commands sent! Server will process in order.');
 
                   io.emit('room-hijacked', { success: true });
                 } else {
