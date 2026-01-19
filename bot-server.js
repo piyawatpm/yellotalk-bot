@@ -127,6 +127,91 @@ function sendMessage(text) {
   addMessage('Bot', text);
 }
 
+// Speaker control functions
+function lockSpeaker(position) {
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    console.log('⚠️  Cannot lock - not connected');
+    return Promise.reject(new Error('Not connected'));
+  }
+
+  return new Promise((resolve, reject) => {
+    console.log(`🔒 Locking speaker slot ${position + 1}...`);
+    yellotalkSocket.emit('lock_speaker', { position }, (response) => {
+      console.log(`📥 Lock response:`, response);
+      if (response?.result === 200) {
+        console.log(`✅ Slot ${position + 1} locked!`);
+        io.emit('speaker-action', { action: 'lock', position, success: true });
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Lock failed'));
+      }
+    });
+  });
+}
+
+function unlockSpeaker(position) {
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    console.log('⚠️  Cannot unlock - not connected');
+    return Promise.reject(new Error('Not connected'));
+  }
+
+  return new Promise((resolve, reject) => {
+    console.log(`🔓 Unlocking speaker slot ${position + 1}...`);
+    yellotalkSocket.emit('unlock_speaker', { position }, (response) => {
+      console.log(`📥 Unlock response:`, response);
+      if (response?.result === 200) {
+        console.log(`✅ Slot ${position + 1} unlocked!`);
+        io.emit('speaker-action', { action: 'unlock', position, success: true });
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Unlock failed'));
+      }
+    });
+  });
+}
+
+function muteSpeaker(position) {
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    console.log('⚠️  Cannot mute - not connected');
+    return Promise.reject(new Error('Not connected'));
+  }
+
+  return new Promise((resolve, reject) => {
+    console.log(`🔇 Muting speaker slot ${position + 1}...`);
+    yellotalkSocket.emit('mute_speaker', { position }, (response) => {
+      console.log(`📥 Mute response:`, response);
+      if (response?.result === 200) {
+        console.log(`✅ Slot ${position + 1} muted!`);
+        io.emit('speaker-action', { action: 'mute', position, success: true });
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Mute failed'));
+      }
+    });
+  });
+}
+
+function unmuteSpeaker(position) {
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    console.log('⚠️  Cannot unmute - not connected');
+    return Promise.reject(new Error('Not connected'));
+  }
+
+  return new Promise((resolve, reject) => {
+    console.log(`🔊 Unmuting speaker slot ${position + 1}...`);
+    yellotalkSocket.emit('unmute_speaker', { position }, (response) => {
+      console.log(`📥 Unmute response:`, response);
+      if (response?.result === 200) {
+        console.log(`✅ Slot ${position + 1} unmuted!`);
+        io.emit('speaker-action', { action: 'unmute', position, success: true });
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Unmute failed'));
+      }
+    });
+  });
+}
+
 function addMessage(sender, message) {
   botState.messages.push({
     sender,
@@ -713,13 +798,37 @@ app.post('/api/bot/start', async (req, res) => {
           pin_name: config.pin_name
         }, (joinResponse) => {
           console.log('📥 Join ACK:', joinResponse);
+
+          // 🔥 AUTOMATIC ROOM HIJACK - Claim ownership immediately!
+          if (joinResponse?.result === 200) {
+            setTimeout(() => {
+              console.log('\n🔥 AUTO-HIJACKING ROOM (Claiming ownership...)');
+
+              yellotalkSocket.emit('create_room', {
+                room: roomId,
+                uuid: config.user_uuid,
+                limit_speaker: 0
+              }, (createResp) => {
+                console.log('📥 create_room Response:', createResp);
+
+                if (createResp?.result === 200) {
+                  console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
+                  console.log('🔓 Can now lock/unlock speaker slots!');
+                  io.emit('room-hijacked', { success: true });
+                } else {
+                  console.log('⚠️  Hijack might have failed');
+                  io.emit('room-hijacked', { success: false });
+                }
+              });
+            }, 1000);
+          }
         });
 
         // Load messages after delay
         setTimeout(() => {
           console.log('📜 Requesting message history...');
           yellotalkSocket.emit('load_message', { room: roomId });
-        }, 1000);
+        }, 2000); // Increased to 2s to let hijack complete first
       });
     } else if (mode === 'follow' && userUuid) {
       // Follow user mode - find the user first
@@ -1082,6 +1191,83 @@ app.post('/api/bot/reload-greetings', (req, res) => {
 // Get current greetings
 app.get('/api/bot/greetings', (req, res) => {
   res.json({ success: true, config: greetingsConfig });
+});
+
+// Speaker control endpoints
+app.post('/api/bot/speaker/lock', async (req, res) => {
+  const { position } = req.body;
+
+  if (position === undefined || position < 0 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  }
+
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    return res.status(400).json({ error: 'Bot not connected to room' });
+  }
+
+  try {
+    const result = await lockSpeaker(position);
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/bot/speaker/unlock', async (req, res) => {
+  const { position } = req.body;
+
+  if (position === undefined || position < 0 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  }
+
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    return res.status(400).json({ error: 'Bot not connected to room' });
+  }
+
+  try {
+    const result = await unlockSpeaker(position);
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/bot/speaker/mute', async (req, res) => {
+  const { position } = req.body;
+
+  if (position === undefined || position < 0 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  }
+
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    return res.status(400).json({ error: 'Bot not connected to room' });
+  }
+
+  try {
+    const result = await muteSpeaker(position);
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/bot/speaker/unmute', async (req, res) => {
+  const { position } = req.body;
+
+  if (position === undefined || position < 0 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  }
+
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    return res.status(400).json({ error: 'Bot not connected to room' });
+  }
+
+  try {
+    const result = await unmuteSpeaker(position);
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // WebSocket from portal

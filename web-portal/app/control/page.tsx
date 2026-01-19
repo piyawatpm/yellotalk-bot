@@ -26,7 +26,12 @@ import {
   WifiOff,
   CheckCircle2,
   Circle,
-  Crown
+  Crown,
+  Lock,
+  Unlock,
+  Volume2,
+  VolumeX,
+  Mic
 } from 'lucide-react'
 import io from 'socket.io-client'
 import { useToast } from '@/hooks/use-toast'
@@ -260,6 +265,79 @@ export default function ControlPage() {
       }
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to reload greetings', variant: 'destructive' })
+    }
+  }
+
+  // Speaker control handlers
+  const lockSlot = async (position: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/speaker/lock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({ title: 'Locked', description: `Speaker slot ${position + 1} locked` })
+      } else {
+        toast({ title: 'Lock Failed', description: data.error, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to lock speaker', variant: 'destructive' })
+    }
+  }
+
+  const unlockSlot = async (position: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/speaker/unlock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({ title: 'Unlocked', description: `Speaker slot ${position + 1} unlocked` })
+      } else {
+        toast({ title: 'Unlock Failed', description: data.error, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to unlock speaker', variant: 'destructive' })
+    }
+  }
+
+  const muteSlot = async (position: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/speaker/mute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({ title: 'Muted', description: `Speaker slot ${position + 1} muted` })
+      } else {
+        toast({ title: 'Mute Failed', description: data.error, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to mute speaker', variant: 'destructive' })
+    }
+  }
+
+  const unmuteSlot = async (position: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/speaker/unmute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({ title: 'Unmuted', description: `Speaker slot ${position + 1} unmuted` })
+      } else {
+        toast({ title: 'Unmute Failed', description: data.error, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to unmute speaker', variant: 'destructive' })
     }
   }
 
@@ -761,6 +839,69 @@ export default function ControlPage() {
                     </div>
                   )}
                 </ScrollArea>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Speaker Control Panel */}
+          {isRunning && (
+            <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Mic className="h-5 w-5 text-rose-500" />
+                  Speaker Control
+                  <Badge variant="destructive" className="ml-2">Auto-Hijacked</Badge>
+                </CardTitle>
+                <CardDescription>Control speaker slots (powered by room hijack exploit)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((position) => (
+                    <div key={position} className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-800">
+                      <div className="text-center mb-2">
+                        <span className="text-sm font-semibold">Slot {position + 1}</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => lockSlot(position)}
+                        >
+                          <Lock className="h-3 w-3 mr-1" />
+                          Lock
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => unlockSlot(position)}
+                        >
+                          <Unlock className="h-3 w-3 mr-1" />
+                          Unlock
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => muteSlot(position)}
+                        >
+                          <VolumeX className="h-3 w-3 mr-1" />
+                          Mute
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => unmuteSlot(position)}
+                        >
+                          <Volume2 className="h-3 w-3 mr-1" />
+                          Unmute
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}
