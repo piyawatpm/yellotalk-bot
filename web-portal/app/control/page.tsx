@@ -883,124 +883,181 @@ export default function ControlPage() {
                 <CardDescription>Control speaker slots (powered by room hijack exploit)</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                  {/* Slot 1 (Owner Slot) - Show First */}
+                <div className="space-y-4">
+                  {/* Slot 1 (Owner Slot) - FULL WIDTH ON TOP */}
                   {(() => {
                     const position = 0;
                     const speaker = speakers[position] || botState?.speakers?.[position];
                     const isLocked = speaker?.locked || speaker?.role === 'locked';
-                    const isOwnerSlot = position === 0;
 
                     return (
-                      <div key={position} className={`border-2 rounded-lg p-3 ${isOwnerSlot ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30' : 'bg-gray-50 dark:bg-gray-800'}`}>
-                        <div className="text-center mb-2">
-                          <div className="flex items-center justify-center gap-1">
-                            {isOwnerSlot && <Crown className="h-3 w-3 text-amber-500" />}
-                            <span className="text-sm font-bold">Slot 1</span>
-                            {isOwnerSlot && <span className="text-xs text-amber-600">(Owner)</span>}
-                          </div>
-                          {speaker && (
-                            <div className="mt-1 text-xs">
-                              <div className="font-semibold truncate">{speaker.pin_name}</div>
-                              <div className="flex items-center justify-center gap-1 mt-0.5">
-                                {speaker.mic_muted ? (
-                                  <VolumeX className="h-3 w-3 text-red-500" />
-                                ) : (
-                                  <Volume2 className="h-3 w-3 text-green-500" />
-                                )}
-                                <span className={speaker.mic_muted ? 'text-red-500' : 'text-green-500'}>
-                                  {speaker.mic_muted ? 'Muted' : 'Live'}
-                                </span>
-                              </div>
+                      <div key={position} className="border-2 border-amber-500 rounded-xl p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <Crown className="h-5 w-5 text-amber-500" />
+                            <div>
+                              <div className="font-bold text-base">Slot 1 - Room Owner</div>
+                              {speaker && !isLocked && (
+                                <div className="text-sm mt-0.5">
+                                  <span className="font-semibold">{speaker.pin_name}</span>
+                                  <span className="ml-2 inline-flex items-center gap-1">
+                                    {speaker.mic_muted ? (
+                                      <>
+                                        <VolumeX className="h-3 w-3 text-red-500" />
+                                        <span className="text-red-500 text-xs">Muted</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Volume2 className="h-3 w-3 text-green-500" />
+                                        <span className="text-green-500 text-xs">Live</span>
+                                      </>
+                                    )}
+                                  </span>
+                                </div>
+                              )}
+                              {isLocked && <div className="text-sm text-gray-500">🔒 Locked</div>}
                             </div>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <div className="grid grid-cols-2 gap-1">
-                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => lockSlot(position)}>
-                              <Lock className="h-3 w-3" />
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => unlockSlot(position)}>
-                              <Unlock className="h-3 w-3" />
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => muteSlot(position)}>
-                              <VolumeX className="h-3 w-3" />
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => unmuteSlot(position)}>
-                              <Volume2 className="h-3 w-3" />
-                            </Button>
                           </div>
-                          {speaker && !isLocked && speaker.uuid && (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="h-7 text-xs"
-                              onClick={() => kickSlot(position)}
-                            >
-                              <UserX className="h-3 w-3 mr-1" />
-                              Kick
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={() => lockSlot(position)}>
+                              <Lock className="h-4 w-4 mr-1" />
+                              Lock
                             </Button>
-                          )}
+                            <Button size="sm" variant="outline" onClick={() => unlockSlot(position)}>
+                              <Unlock className="h-4 w-4 mr-1" />
+                              Unlock
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => muteSlot(position)}>
+                              <VolumeX className="h-4 w-4 mr-1" />
+                              Mute
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => unmuteSlot(position)}>
+                              <Volume2 className="h-4 w-4 mr-1" />
+                              Unmute
+                            </Button>
+                            {speaker && !isLocked && speaker.uuid && (
+                              <Button size="sm" variant="destructive" onClick={() => kickSlot(position)}>
+                                <UserX className="h-4 w-4 mr-1" />
+                                Kick
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
                   })()}
 
-                  {/* Other Slots (2-10) */}
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((position) => {
-                    const speaker = speakers[position] || botState?.speakers?.[position];
-                    const isLocked = speaker?.locked || speaker?.role === 'locked';
+                  {/* Row 1: Slots 2-6 */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                    {[1, 2, 3, 4, 5].map((position) => {
+                      const speaker = speakers[position] || botState?.speakers?.[position];
+                      const isLocked = speaker?.locked || speaker?.role === 'locked';
 
-                    return (
-                      <div key={position} className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-800">
-                        <div className="text-center mb-2">
-                          <span className="text-sm font-semibold">Slot {position + 1}</span>
-                          {speaker && (
-                            <div className="mt-1 text-xs">
-                              <div className="font-semibold truncate">{speaker.pin_name}</div>
-                              <div className="flex items-center justify-center gap-1 mt-0.5">
-                                {speaker.mic_muted ? (
-                                  <VolumeX className="h-3 w-3 text-red-500" />
-                                ) : (
-                                  <Volume2 className="h-3 w-3 text-green-500" />
-                                )}
-                                <span className={speaker.mic_muted ? 'text-red-500' : 'text-green-500'}>
-                                  {speaker.mic_muted ? 'Muted' : 'Live'}
-                                </span>
-                              </div>
+                      return (
+                        <div key={position} className="border rounded-lg p-2 bg-white dark:bg-gray-800 shadow-sm">
+                          <div className="text-center mb-2">
+                            <div className="font-semibold text-sm">Slot {position + 1}</div>
+                            <div className="text-xs mt-1 h-10">
+                              {isLocked ? (
+                                <div className="text-gray-500">🔒 Locked</div>
+                              ) : speaker?.uuid ? (
+                                <>
+                                  <div className="font-medium truncate">{speaker.pin_name}</div>
+                                  <div className="flex items-center justify-center gap-1 mt-0.5">
+                                    {speaker.mic_muted ? (
+                                      <><VolumeX className="h-3 w-3 text-red-500" /><span className="text-red-500 text-xs">Muted</span></>
+                                    ) : (
+                                      <><Volume2 className="h-3 w-3 text-green-500" /><span className="text-green-500 text-xs">Live</span></>
+                                    )}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-gray-400 text-xs">Empty</div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <div className="grid grid-cols-2 gap-1">
-                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => lockSlot(position)}>
-                              <Lock className="h-3 w-3" />
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => unlockSlot(position)}>
-                              <Unlock className="h-3 w-3" />
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => muteSlot(position)}>
-                              <VolumeX className="h-3 w-3" />
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => unmuteSlot(position)}>
-                              <Volume2 className="h-3 w-3" />
-                            </Button>
                           </div>
-                          {speaker && !isLocked && speaker.uuid && (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="h-7 text-xs"
-                              onClick={() => kickSlot(position)}
-                            >
-                              <UserX className="h-3 w-3 mr-1" />
-                              Kick
-                            </Button>
-                          )}
+                          <div className="space-y-1">
+                            <div className="grid grid-cols-2 gap-1">
+                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => lockSlot(position)} title="Lock">
+                                <Lock className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => unlockSlot(position)} title="Unlock">
+                                <Unlock className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => muteSlot(position)} title="Mute">
+                                <VolumeX className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => unmuteSlot(position)} title="Unmute">
+                                <Volume2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                            {speaker && !isLocked && speaker.uuid && (
+                              <Button size="sm" variant="destructive" className="h-6 text-xs w-full" onClick={() => kickSlot(position)}>
+                                <UserX className="h-3 w-3 mr-1" />
+                                Kick
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+
+                  {/* Row 2: Slots 7-11 */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                    {[6, 7, 8, 9, 10].map((position) => {
+                      const speaker = speakers[position] || botState?.speakers?.[position];
+                      const isLocked = speaker?.locked || speaker?.role === 'locked';
+
+                      return (
+                        <div key={position} className="border rounded-lg p-2 bg-white dark:bg-gray-800 shadow-sm">
+                          <div className="text-center mb-2">
+                            <div className="font-semibold text-sm">Slot {position + 1}</div>
+                            <div className="text-xs mt-1 h-10">
+                              {isLocked ? (
+                                <div className="text-gray-500">🔒 Locked</div>
+                              ) : speaker?.uuid ? (
+                                <>
+                                  <div className="font-medium truncate">{speaker.pin_name}</div>
+                                  <div className="flex items-center justify-center gap-1 mt-0.5">
+                                    {speaker.mic_muted ? (
+                                      <><VolumeX className="h-3 w-3 text-red-500" /><span className="text-red-500 text-xs">Muted</span></>
+                                    ) : (
+                                      <><Volume2 className="h-3 w-3 text-green-500" /><span className="text-green-500 text-xs">Live</span></>
+                                    )}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-gray-400 text-xs">Empty</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="grid grid-cols-2 gap-1">
+                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => lockSlot(position)} title="Lock">
+                                <Lock className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => unlockSlot(position)} title="Unlock">
+                                <Unlock className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => muteSlot(position)} title="Mute">
+                                <VolumeX className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => unmuteSlot(position)} title="Unmute">
+                                <Volume2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                            {speaker && !isLocked && speaker.uuid && (
+                              <Button size="sm" variant="destructive" className="h-6 text-xs w-full" onClick={() => kickSlot(position)}>
+                                <UserX className="h-3 w-3 mr-1" />
+                                Kick
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </CardContent>
             </Card>

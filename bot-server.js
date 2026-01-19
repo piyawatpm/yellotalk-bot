@@ -1255,8 +1255,8 @@ app.get('/api/bot/greetings', (req, res) => {
 app.post('/api/bot/speaker/lock', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  if (position === undefined || position < 0 || position > 10) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-10)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1274,8 +1274,8 @@ app.post('/api/bot/speaker/lock', async (req, res) => {
 app.post('/api/bot/speaker/unlock', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  if (position === undefined || position < 0 || position > 10) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-10)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1293,8 +1293,8 @@ app.post('/api/bot/speaker/unlock', async (req, res) => {
 app.post('/api/bot/speaker/mute', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  if (position === undefined || position < 0 || position > 10) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-10)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1312,8 +1312,8 @@ app.post('/api/bot/speaker/mute', async (req, res) => {
 app.post('/api/bot/speaker/unmute', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  if (position === undefined || position < 0 || position > 10) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-10)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1331,8 +1331,8 @@ app.post('/api/bot/speaker/unmute', async (req, res) => {
 app.post('/api/bot/speaker/kick', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  if (position === undefined || position < 0 || position > 10) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-10)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
