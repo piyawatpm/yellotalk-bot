@@ -1048,15 +1048,37 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // Trigger permission refresh by muting non-existent position 11
-                  console.log('🔄 Triggering permission refresh with position 11...');
-                  yellotalkSocket.emit('mute_speaker', {
+                  // Try different events to trigger permission refresh
+                  console.log('\n🔄 Trying to trigger permission refresh...');
+
+                  // Try 1: Unlock position 11 (non-existent)
+                  yellotalkSocket.emit('unlock_speaker', {
                     room: roomId,
                     position: 11
-                  }, (muteResp) => {
-                    console.log('📥 Mute position 11 response:', muteResp);
-                    console.log('✅ Permission refresh triggered!');
+                  }, (resp1) => {
+                    console.log('📥 [Test 1] Unlock position 11 response:', resp1);
                   });
+
+                  // Try 2: Lock position 10 (already locked)
+                  setTimeout(() => {
+                    yellotalkSocket.emit('lock_speaker', {
+                      room: roomId,
+                      position: 10
+                    }, (resp2) => {
+                      console.log('📥 [Test 2] Lock position 10 (already locked) response:', resp2);
+                    });
+                  }, 200);
+
+                  // Try 3: Mute position 10 (already locked)
+                  setTimeout(() => {
+                    yellotalkSocket.emit('mute_speaker', {
+                      room: roomId,
+                      position: 10
+                    }, (resp3) => {
+                      console.log('📥 [Test 3] Mute position 10 (already locked) response:', resp3);
+                      console.log('✅ All permission refresh attempts completed!');
+                    });
+                  }, 400);
 
                   io.emit('room-hijacked', { success: true });
                 } else {
