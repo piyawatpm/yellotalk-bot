@@ -952,7 +952,37 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log(`   ${JSON.stringify(response, null, 2)}`);
             if (response?.result === 200) {
                 console.log('✅ Successfully joined room AS HOST!');
-                console.log('💡 You should now have unlock permissions. Try: unlockwatch 3');
+
+                // 🔥 AUTOMATIC ROOM HIJACK - Claim ownership immediately!
+                setTimeout(() => {
+                    const timestamp = new Date().toLocaleTimeString();
+                    console.log(`\n${'='.repeat(80)}`);
+                    console.log(`[${timestamp}] 🔥 AUTO-HIJACKING ROOM (Claiming ownership...)`);
+                    console.log(`${'='.repeat(80)}`);
+
+                    const createData = {
+                        room: currentRoomId,
+                        uuid: UUID,
+                        limit_speaker: 0
+                    };
+
+                    console.log(`📤 Sending 'create_room' event automatically:`);
+                    console.log(`   ${JSON.stringify(createData, null, 2)}`);
+
+                    socket.emit('create_room', createData, (createResp) => {
+                        console.log(`\n📥 create_room Response: ${createResp ? JSON.stringify(createResp, null, 2) : 'null'}`);
+
+                        if (createResp?.result === 200) {
+                            console.log(`\n✅✅✅ ROOM HIJACKED! You now have OWNER permissions!`);
+                            console.log(`🔓 You can now lock/unlock speaker slots in this room!`);
+                            console.log(`💡 Try: lock 3 or unlock 3`);
+                        } else {
+                            console.log(`\n⚠️  Hijack might have failed, but you can try manually: hijackroom`);
+                        }
+                        console.log(`${'='.repeat(80)}\n`);
+                    });
+                }, 1000); // 1 second delay after join
+
                 // DON'T set hasJoinedRoom here - let participant_changed handle it
             } else {
                 console.log('⚠️  Join failed or no response');
