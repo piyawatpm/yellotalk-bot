@@ -182,6 +182,15 @@ export default function ControlPage() {
         })
       })
 
+      newSocket.on('room-ended', (data) => {
+        toast({
+          title: '🔚 Room Ended',
+          description: data.description || 'The room has been closed',
+          variant: 'destructive',
+          duration: 5000
+        })
+      })
+
       setSocket(newSocket)
     } catch (error) {
       setServerError(true)

@@ -966,6 +966,23 @@ app.post('/api/bot/start', async (req, res) => {
         }
       });
 
+      yellotalkSocket.on('live_end', (data) => {
+        console.log('🔚 Room ended!', data);
+
+        // Emit to web portal
+        io.emit('room-ended', {
+          code: data?.code,
+          description: data?.description || 'Room ended',
+          reason: data?.event || 'live_end'
+        });
+
+        // Clear room state
+        botState.currentRoom = null;
+        botState.speakers = [];
+        botState.participants = [];
+        broadcastState();
+      });
+
       yellotalkSocket.on('disconnect', () => {
         console.log('⚠️  Disconnected from YelloTalk');
         botState.connected = false;
@@ -1328,20 +1345,27 @@ function setupSocketListeners(socket, roomId, config) {
   });
 
   socket.on('live_end', (data) => {
-    console.log('🔚 Room ended!');
+    console.log('🔚 Room ended!', data);
+
+    // Emit to web portal
+    io.emit('room-ended', {
+      code: data?.code,
+      description: data?.description || 'Room ended',
+      reason: data?.event || 'live_end'
+    });
 
     // If in follow mode, disconnect and restart polling
     if (botState.mode === 'follow' && botState.followUser) {
       console.log(`🔄 Room ended - waiting for ${botState.followUser.name}'s next room...`);
 
-      botState.status = 'waiting'; // New state: waiting for next room
+      botState.status = 'waiting';
       botState.currentRoom = null;
       botState.messages = [];
       botState.participants = [];
+      botState.speakers = [];
       botState.connected = false;
       broadcastState();
 
-      // Disconnect and restart polling
       socket.disconnect();
 
       const freshConfig = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
@@ -1350,6 +1374,11 @@ function setupSocketListeners(socket, roomId, config) {
           startFollowPolling(botState.followUser.uuid, botState.followUser.name, freshConfig);
         }
       }, 2000);
+    } else {
+      // Regular mode - just update state
+      botState.currentRoom = null;
+      botState.speakers = [];
+      broadcastState();
     }
   });
 
