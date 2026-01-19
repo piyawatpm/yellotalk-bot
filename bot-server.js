@@ -138,13 +138,17 @@ function lockSpeaker(position) {
 
   return new Promise((resolve, reject) => {
     console.log(`🔒 Locking speaker slot ${position + 1}...`);
-    yellotalkSocket.emit('lock_speaker', { position }, (response) => {
+    yellotalkSocket.emit('lock_speaker', {
+      room: botState.currentRoom?.id,
+      position
+    }, (response) => {
       console.log(`📥 Lock response:`, response);
       if (response?.result === 200) {
         console.log(`✅ Slot ${position + 1} locked!`);
         io.emit('speaker-action', { action: 'lock', position, success: true });
         resolve(response);
       } else {
+        console.log(`❌ Lock failed:`, response);
         reject(new Error(response?.description || 'Lock failed'));
       }
     });
@@ -159,13 +163,17 @@ function unlockSpeaker(position) {
 
   return new Promise((resolve, reject) => {
     console.log(`🔓 Unlocking speaker slot ${position + 1}...`);
-    yellotalkSocket.emit('unlock_speaker', { position }, (response) => {
+    yellotalkSocket.emit('unlock_speaker', {
+      room: botState.currentRoom?.id,
+      position
+    }, (response) => {
       console.log(`📥 Unlock response:`, response);
       if (response?.result === 200) {
         console.log(`✅ Slot ${position + 1} unlocked!`);
         io.emit('speaker-action', { action: 'unlock', position, success: true });
         resolve(response);
       } else {
+        console.log(`❌ Unlock failed:`, response);
         reject(new Error(response?.description || 'Unlock failed'));
       }
     });
@@ -180,7 +188,10 @@ function muteSpeaker(position) {
 
   return new Promise((resolve, reject) => {
     console.log(`🔇 Muting speaker slot ${position + 1}...`);
-    yellotalkSocket.emit('mute_speaker', { position }, (response) => {
+    yellotalkSocket.emit('mute_speaker', {
+      room: botState.currentRoom?.id,
+      position
+    }, (response) => {
       console.log(`📥 Mute response:`, response);
       if (response?.result === 200) {
         console.log(`✅ Slot ${position + 1} muted!`);
@@ -201,7 +212,10 @@ function unmuteSpeaker(position) {
 
   return new Promise((resolve, reject) => {
     console.log(`🔊 Unmuting speaker slot ${position + 1}...`);
-    yellotalkSocket.emit('unmute_speaker', { position }, (response) => {
+    yellotalkSocket.emit('unmute_speaker', {
+      room: botState.currentRoom?.id,
+      position
+    }, (response) => {
       console.log(`📥 Unmute response:`, response);
       if (response?.result === 200) {
         console.log(`✅ Slot ${position + 1} unmuted!`);
@@ -675,6 +689,8 @@ app.post('/api/bot/start', async (req, res) => {
           console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
 
           // Send welcome message explaining Siri feature (if enabled)
+          console.log(`[${timestamp}] 🔍 Welcome message setting: ${botState.enableWelcomeMessage ? 'ENABLED' : 'DISABLED'}`);
+
           if (botState.enableWelcomeMessage) {
             setTimeout(() => {
               const welcomeMessage = 'สวัสดีค่ะ! 🤖 สามารถถามคำถามทั่วไปกับ AI ได้ด้วย @siri, siri หรือ สิริ\n⚠️ ตอบได้เฉพาะคำถามทั่วไป ไม่รวมข่าวล่าสุดหรือข้อมูลเรียลไทม์\n\nตัวอย่าง:\n• @siri สวัสดี\n• siri อธิบาย AI คืออะไร\n• สิริ สุ่มเลข 1-12 จากทุกคนในห้อง\n• ใครคือหห? siri';
@@ -682,7 +698,7 @@ app.post('/api/bot/start', async (req, res) => {
               console.log(`[${timestamp}] 👋 Sent Siri welcome message`);
             }, 2000); // 2 second delay to let room fully load
           } else {
-            console.log(`[${timestamp}] ⏭️  Welcome message disabled`);
+            console.log(`[${timestamp}] ⏭️  Welcome message disabled - NOT sending`);
           }
 
           io.emit('participant-update', participants);
@@ -1251,23 +1267,14 @@ app.post('/api/bot/stop', (req, res) => {
 
   // Disconnect socket
   if (yellotalkSocket) {
-    // IMPORTANT: Send leave_room before disconnecting (we hijacked as owner, don't end the room!)
-    if (botState.currentRoom) {
-      console.log('⚠️  Sending leave_room (to avoid ending room as hijacked owner)...');
-      yellotalkSocket.emit('leave_room', { room: botState.currentRoom.id });
-      // Wait a bit for server to process
-      setTimeout(() => {
-        yellotalkSocket.removeAllListeners();
-        yellotalkSocket.disconnect();
-        yellotalkSocket = null;
-        console.log('✅ Socket disconnected safely (room NOT ended)');
-      }, 500);
-    } else {
-      yellotalkSocket.removeAllListeners();
-      yellotalkSocket.disconnect();
-      yellotalkSocket = null;
-      console.log('✅ Socket disconnected');
-    }
+    // CRITICAL: Just disconnect silently - DON'T send leave_room!
+    // Since we hijacked as "owner", sending leave_room would end the room!
+    // Silent disconnect = server treats as connection drop, room stays open
+    console.log('⚠️  Disconnecting silently (to avoid ending hijacked room)...');
+    yellotalkSocket.removeAllListeners();
+    yellotalkSocket.disconnect();
+    yellotalkSocket = null;
+    console.log('✅ Disconnected (room should stay open for others)');
   }
 
   // Clear follow interval
