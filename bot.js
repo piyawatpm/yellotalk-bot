@@ -677,7 +677,7 @@ function startCommandInterface() {
                     console.log(`   Data: ${JSON.stringify(data, null, 2)}`);
 
                     if (Array.isArray(data)) {
-                        const targetSlot = data.find(s => s.position === position - 1);
+                        const targetSlot = data.find(s => s && s.position === position - 1);
                         if (targetSlot) {
                             console.log(`\n🎯 Slot ${position} status:`);
                             console.log(`   Locked: ${targetSlot.locked || targetSlot.role === 'locked'}`);
