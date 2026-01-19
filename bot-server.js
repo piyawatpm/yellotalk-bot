@@ -1251,10 +1251,23 @@ app.post('/api/bot/stop', (req, res) => {
 
   // Disconnect socket
   if (yellotalkSocket) {
-    yellotalkSocket.removeAllListeners(); // Remove ALL listeners first
-    yellotalkSocket.disconnect();
-    yellotalkSocket = null;
-    console.log('✅ Socket disconnected');
+    // IMPORTANT: Send leave_room before disconnecting (we hijacked as owner, don't end the room!)
+    if (botState.currentRoom) {
+      console.log('⚠️  Sending leave_room (to avoid ending room as hijacked owner)...');
+      yellotalkSocket.emit('leave_room', { room: botState.currentRoom.id });
+      // Wait a bit for server to process
+      setTimeout(() => {
+        yellotalkSocket.removeAllListeners();
+        yellotalkSocket.disconnect();
+        yellotalkSocket = null;
+        console.log('✅ Socket disconnected safely (room NOT ended)');
+      }, 500);
+    } else {
+      yellotalkSocket.removeAllListeners();
+      yellotalkSocket.disconnect();
+      yellotalkSocket = null;
+      console.log('✅ Socket disconnected');
+    }
   }
 
   // Clear follow interval
@@ -1264,7 +1277,9 @@ app.post('/api/bot/stop', (req, res) => {
     console.log('✅ Follow polling stopped');
   }
 
-  // Reset state completely
+  // Reset state completely (preserve welcome message preference)
+  const keepWelcomePreference = botState.enableWelcomeMessage;
+
   botState = {
     status: 'stopped',
     mode: null,
@@ -1272,9 +1287,11 @@ app.post('/api/bot/stop', (req, res) => {
     followUser: null,
     messageCount: 0,
     participants: [],
+    speakers: [],
     messages: [],
     connected: false,
-    startTime: null
+    startTime: null,
+    enableWelcomeMessage: keepWelcomePreference // Preserve user preference
   };
 
   // Reset greeting tracking
