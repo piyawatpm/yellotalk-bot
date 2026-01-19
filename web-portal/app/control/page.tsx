@@ -729,10 +729,11 @@ export default function ControlPage() {
                         <div className="flex items-center gap-2">
                           <Zap className="h-4 w-4 text-rose-500" />
                           <Label htmlFor="hijack-toggle" className="text-sm font-medium cursor-pointer">
-                            Auto-Hijack (UUID Spoofing)
+                            Auto-Hijack Rooms (Exploit)
                           </Label>
                         </div>
-                        <p className="text-xs text-gray-500 pl-6">Join as room owner to control slots</p>
+                        <p className="text-xs text-gray-500 pl-6">Use create_room exploit to control speaker slots</p>
+                        <p className="text-xs text-rose-600 pl-6 font-semibold">⚠️ Room closes when bot stops if enabled</p>
                       </div>
                       <Switch
                         id="hijack-toggle"
