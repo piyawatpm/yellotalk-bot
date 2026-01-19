@@ -807,10 +807,14 @@ app.post('/api/bot/start', async (req, res) => {
         const timestamp = new Date().toLocaleTimeString();
         const speakers = Array.isArray(data) ? data : [];
         console.log(`[${timestamp}] 🎤 Speaker changed (${speakers.length} slots)`);
+        console.log(`📋 Raw speaker data:`, JSON.stringify(data).substring(0, 500));
 
         // Update speaker state
         botState.speakers = speakers.map((speaker, index) => {
-          if (!speaker || speaker.role === 'locked') {
+          // Check if slot is locked (speaker is null OR has role='locked')
+          const isLocked = !speaker || speaker.role === 'locked' || speaker.pin_name === '🔒';
+
+          if (isLocked) {
             return {
               position: index,
               locked: true,
@@ -819,16 +823,20 @@ app.post('/api/bot/start', async (req, res) => {
               mic_muted: true
             };
           }
+
+          // Speaker is present (not locked, has data)
           return {
             position: index,
             locked: false,
             pin_name: speaker.pin_name || 'Empty',
-            uuid: speaker.uuid,
-            mic_muted: speaker.mic_muted || false,
+            uuid: speaker.uuid || null,
+            mic_muted: speaker.mic_muted !== undefined ? speaker.mic_muted : true,
             avatar_suit: speaker.avatar_suit,
             gift_amount: speaker.gift_amount || 0
           };
         });
+
+        console.log(`📊 Mapped speakers:`, botState.speakers.map(s => `${s.position}:${s.pin_name}(${s.locked?'🔒':'✓'})`).join(', '));
 
         // Emit speaker update to web portal
         io.emit('speakers-update', botState.speakers);
@@ -1125,10 +1133,14 @@ function setupSocketListeners(socket, roomId, config) {
     const timestamp = new Date().toLocaleTimeString();
     const speakers = Array.isArray(data) ? data : [];
     console.log(`[${timestamp}] 🎤 Speaker changed (${speakers.length} slots)`);
+    console.log(`📋 Raw speaker data:`, JSON.stringify(data).substring(0, 500));
 
     // Update speaker state
     botState.speakers = speakers.map((speaker, index) => {
-      if (!speaker || speaker.role === 'locked') {
+      // Check if slot is locked (speaker is null OR has role='locked')
+      const isLocked = !speaker || speaker.role === 'locked' || speaker.pin_name === '🔒';
+
+      if (isLocked) {
         return {
           position: index,
           locked: true,
@@ -1137,18 +1149,20 @@ function setupSocketListeners(socket, roomId, config) {
           mic_muted: true
         };
       }
+
+      // Speaker is present (not locked, has data)
       return {
         position: index,
         locked: false,
         pin_name: speaker.pin_name || 'Empty',
-        uuid: speaker.uuid,
-        mic_muted: speaker.mic_muted || false,
+        uuid: speaker.uuid || null,
+        mic_muted: speaker.mic_muted !== undefined ? speaker.mic_muted : true,
         avatar_suit: speaker.avatar_suit,
         gift_amount: speaker.gift_amount || 0
       };
     });
 
-    console.log(`📊 Updated speaker state:`, botState.speakers.map(s => `${s.position}:${s.pin_name}`).join(', '));
+    console.log(`📊 Mapped speakers:`, botState.speakers.map(s => `${s.position}:${s.pin_name}(${s.locked?'🔒':'✓'})`).join(', '));
 
     // Emit speaker update to web portal
     io.emit('speakers-update', botState.speakers);

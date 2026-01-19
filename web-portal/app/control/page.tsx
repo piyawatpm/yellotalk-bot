@@ -681,6 +681,21 @@ export default function ControlPage() {
                       </TabsContent>
                     </Tabs>
 
+                    {/* Welcome Message Toggle - Available Before Starting */}
+                    <div className="flex items-center justify-between p-3 border-2 border-purple-500/50 rounded-xl bg-purple-50/50 dark:bg-purple-950/20">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4 text-purple-500" />
+                        <Label htmlFor="welcome-toggle-main" className="text-sm font-medium cursor-pointer">
+                          Send Welcome Message on Join
+                        </Label>
+                      </div>
+                      <Switch
+                        id="welcome-toggle-main"
+                        checked={botState?.enableWelcomeMessage ?? true}
+                        onCheckedChange={toggleWelcomeMessage}
+                      />
+                    </div>
+
                     <Button
                       onClick={startBot}
                       className="w-full h-12 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25 transition-all duration-300"
@@ -756,21 +771,6 @@ export default function ControlPage() {
                       <RefreshCw className="mr-2 h-4 w-4" />
                       Reload Greetings
                     </Button>
-
-                    {/* Welcome Message Toggle */}
-                    <div className="flex items-center justify-between p-3 border-2 border-purple-500/50 rounded-xl bg-purple-50/50 dark:bg-purple-950/20">
-                      <div className="flex items-center gap-2">
-                        <MessageSquare className="h-4 w-4 text-purple-500" />
-                        <Label htmlFor="welcome-toggle" className="text-sm font-medium cursor-pointer">
-                          Welcome Message on Join
-                        </Label>
-                      </div>
-                      <Switch
-                        id="welcome-toggle"
-                        checked={botState?.enableWelcomeMessage ?? true}
-                        onCheckedChange={toggleWelcomeMessage}
-                      />
-                    </div>
 
                     {/* Additional info for follow mode */}
                     {isFollowMode && (
