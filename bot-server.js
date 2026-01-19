@@ -1048,37 +1048,31 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // Try PARTICIPANT events to trigger sync without locking slots
-                  console.log('\n🔄 Trying PARTICIPANT events to trigger first action sync...');
+                  // Try READ-ONLY GET operations to trigger sync without modifications
+                  console.log('\n🔄 Trying READ-ONLY GET operations to trigger sync...');
 
-                  // Try 1: join_speaker to invalid position
-                  yellotalkSocket.emit('join_speaker', {
-                    room: roomId,
-                    uuid: config.user_uuid,
-                    position: 11  // Non-existent position
+                  // Try 1: Get speaker list/state
+                  yellotalkSocket.emit('get_speakers', {
+                    room: roomId
                   }, (resp1) => {
-                    console.log('📥 [Test 1] join_speaker position 11 response:', resp1);
+                    console.log('📥 [Test 1] get_speakers response:', resp1);
                   });
 
-                  // Try 2: leave_speaker from position we're not in
+                  // Try 2: Load speaker info
                   setTimeout(() => {
-                    yellotalkSocket.emit('leave_speaker', {
-                      room: roomId,
-                      uuid: config.user_uuid,
-                      position: 10
+                    yellotalkSocket.emit('load_speakers', {
+                      room: roomId
                     }, (resp2) => {
-                      console.log('📥 [Test 2] leave_speaker position 10 response:', resp2);
+                      console.log('📥 [Test 2] load_speakers response:', resp2);
                     });
                   }, 200);
 
-                  // Try 3: send_reaction (might count as room interaction)
+                  // Try 3: Request participant list (already exists, might trigger sync)
                   setTimeout(() => {
-                    yellotalkSocket.emit('new_reaction', {
-                      room: roomId,
-                      uuid: config.user_uuid,
-                      reaction: '👍'
+                    yellotalkSocket.emit('load_participant', {
+                      room: roomId
                     }, (resp3) => {
-                      console.log('📥 [Test 3] new_reaction response:', resp3);
+                      console.log('📥 [Test 3] load_participant response:', resp3);
                       console.log('✅ All sync trigger attempts completed!');
                     });
                   }, 400);
