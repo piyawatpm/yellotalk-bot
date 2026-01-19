@@ -317,6 +317,35 @@ function kickSpeaker(position, targetUuid) {
   });
 }
 
+function kickFromRoom(targetUuid) {
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    console.log('⚠️  Cannot kick from room - not connected');
+    return Promise.reject(new Error('Not connected'));
+  }
+
+  if (!targetUuid) {
+    return Promise.reject(new Error('No user specified'));
+  }
+
+  return new Promise((resolve, reject) => {
+    console.log(`👢 Kicking user from room: ${targetUuid}`);
+    yellotalkSocket.emit('kick_room', {
+      room: botState.currentRoom?.id,
+      uuid: targetUuid
+    }, (response) => {
+      console.log(`📥 Kick from room response:`, response);
+      if (response?.result === 200) {
+        console.log(`✅ Kicked user from room!`);
+        io.emit('user-kicked', { uuid: targetUuid, success: true });
+        resolve(response);
+      } else {
+        console.log(`❌ Kick from room failed:`, response);
+        reject(new Error(response?.description || 'Kick from room failed'));
+      }
+    });
+  });
+}
+
 function addMessage(sender, message) {
   botState.messages.push({
     sender,
@@ -1688,6 +1717,25 @@ app.post('/api/bot/speaker/kick', async (req, res) => {
 
   try {
     const result = await kickSpeaker(position, speaker.uuid);
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/bot/room/kick', async (req, res) => {
+  const { uuid } = req.body;
+
+  if (!uuid) {
+    return res.status(400).json({ error: 'UUID required' });
+  }
+
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    return res.status(400).json({ error: 'Bot not connected to room' });
+  }
+
+  try {
+    const result = await kickFromRoom(uuid);
     res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ error: error.message });

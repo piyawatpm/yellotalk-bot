@@ -377,6 +377,24 @@ export default function ControlPage() {
     }
   }
 
+  const kickFromRoom = async (uuid: string, name: string) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/room/kick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuid })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({ title: 'Kicked from Room', description: `${name} has been removed from the room` })
+      } else {
+        toast({ title: 'Kick Failed', description: data.error, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to kick from room', variant: 'destructive' })
+    }
+  }
+
   const toggleWelcomeMessage = async (enabled: boolean) => {
     try {
       const res = await fetch(`${getApiUrl()}/api/bot/toggle-welcome`, {
@@ -1046,6 +1064,50 @@ export default function ControlPage() {
                     })}
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Participants List with Kick Buttons */}
+          {isRunning && (
+            <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Users className="h-5 w-5 text-rose-500" />
+                  Room Participants
+                  <Badge variant="secondary" className="ml-2">{botState?.participants?.length || 0}</Badge>
+                </CardTitle>
+                <CardDescription>Kick users from the room</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="h-[300px]">
+                  <div className="space-y-2">
+                    {botState?.participants?.length === 0 ? (
+                      <div className="text-center text-gray-500 py-8">No participants yet</div>
+                    ) : (
+                      botState?.participants?.map((participant: any, index: number) => (
+                        <div key={participant.uuid || index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <UserAvatar user={participant} size="sm" />
+                            <div>
+                              <div className="font-semibold">{participant.pin_name || 'Unknown'}</div>
+                              <div className="text-xs text-gray-500">{participant.uuid?.substring(0, 8)}...</div>
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => kickFromRoom(participant.uuid, participant.pin_name || 'User')}
+                            disabled={participant.uuid === botState?.currentRoom?.owner?.uuid}
+                          >
+                            <UserX className="h-4 w-4 mr-1" />
+                            Kick from Room
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
               </CardContent>
             </Card>
           )}
