@@ -926,76 +926,9 @@ export default function ControlPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {/* Slot 1 (Owner Slot) - FULL WIDTH ON TOP */}
-                  {(() => {
-                    const position = 0;
-                    const speaker = speakers[position] || botState?.speakers?.[position];
-                    const isLocked = speaker?.locked || speaker?.role === 'locked';
-
-                    return (
-                      <div key={position} className={`border-2 rounded-xl p-4 ${
-                        isLocked
-                          ? 'border-red-500 bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950/30 dark:to-red-900/30'
-                          : 'border-amber-500 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30'
-                      }`}>
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <Crown className={`h-5 w-5 ${isLocked ? 'text-red-500' : 'text-amber-500'}`} />
-                            <div>
-                              <div className="font-bold text-base">Slot 1 - Room Owner</div>
-                              {speaker && !isLocked && (
-                                <div className="text-sm mt-0.5">
-                                  <span className="font-semibold">{speaker.pin_name}</span>
-                                  <span className="ml-2 inline-flex items-center gap-1">
-                                    {speaker.mic_muted ? (
-                                      <>
-                                        <VolumeX className="h-3 w-3 text-red-500" />
-                                        <span className="text-red-500 text-xs">Muted</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Volume2 className="h-3 w-3 text-green-500" />
-                                        <span className="text-green-500 text-xs">Live</span>
-                                      </>
-                                    )}
-                                  </span>
-                                </div>
-                              )}
-                              {isLocked && <div className="text-sm text-red-600 font-semibold">🔒 Locked</div>}
-                            </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => lockSlot(position)}>
-                              <Lock className="h-4 w-4 mr-1" />
-                              Lock
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => unlockSlot(position)}>
-                              <Unlock className="h-4 w-4 mr-1" />
-                              Unlock
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => muteSlot(position)}>
-                              <VolumeX className="h-4 w-4 mr-1" />
-                              Mute
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => unmuteSlot(position)}>
-                              <Volume2 className="h-4 w-4 mr-1" />
-                              Unmute
-                            </Button>
-                            {speaker && !isLocked && speaker.uuid && (
-                              <Button size="sm" variant="destructive" onClick={() => kickSlot(position)}>
-                                <UserX className="h-4 w-4 mr-1" />
-                                Kick
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Row 1: Slots 2-6 */}
+                  {/* Row 1: Slots 2-6 (indices 0-4) */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                    {[1, 2, 3, 4, 5].map((position) => {
+                    {[0, 1, 2, 3, 4].map((position) => {
                       const speaker = speakers[position] || botState?.speakers?.[position];
                       const isLocked = speaker?.locked || speaker?.role === 'locked';
 
@@ -1006,7 +939,7 @@ export default function ControlPage() {
                             : 'border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700'
                         }`}>
                           <div className="text-center mb-2">
-                            <div className="font-semibold text-sm">Slot {position + 1}</div>
+                            <div className="font-semibold text-sm">Slot {position + 2}</div>
                             <div className="text-xs mt-1 h-10">
                               {isLocked ? (
                                 <div className="text-red-600 font-semibold">🔒 Locked</div>
@@ -1053,9 +986,9 @@ export default function ControlPage() {
                     })}
                   </div>
 
-                  {/* Row 2: Slots 7-11 (5 slots) */}
+                  {/* Row 2: Slots 7-11 (indices 5-9) */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                    {[6, 7, 8, 9, 10].map((position) => {
+                    {[5, 6, 7, 8, 9].map((position) => {
                       const speaker = speakers[position] || botState?.speakers?.[position];
                       const isLocked = speaker?.locked || speaker?.role === 'locked';
 
@@ -1066,7 +999,7 @@ export default function ControlPage() {
                             : 'border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700'
                         }`}>
                           <div className="text-center mb-2">
-                            <div className="font-semibold text-sm">Slot {position + 1}</div>
+                            <div className="font-semibold text-sm">Slot {position + 2}</div>
                             <div className="text-xs mt-1 h-10">
                               {isLocked ? (
                                 <div className="text-red-600 font-semibold">🔒 Locked</div>
