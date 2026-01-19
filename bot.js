@@ -747,6 +747,17 @@ function startCommandInterface() {
                     console.log(`Available: ${currentParticipantsList.map(p => p.pin_name).join(', ')}`);
                 }
             }
+        } else if (cmd === 'showsession') {
+            // Show current session info
+            const timestamp = new Date().toLocaleTimeString();
+            console.log(`\n${'='.repeat(80)}`);
+            console.log(`[${timestamp}] 📊 SESSION INFO`);
+            console.log(`${'='.repeat(80)}`);
+            console.log(`Session ID: ${socket.sessionId || 'NOT SET'}`);
+            console.log(`Socket connected: ${socket.connected}`);
+            console.log(`Socket ID: ${socket.id}`);
+            console.log(`Current room: ${currentRoomId}`);
+            console.log(`${'='.repeat(80)}\n`);
         } else if (cmd === 'createroom') {
             // Try to create a room via REST API
             const timestamp = new Date().toLocaleTimeString();
@@ -838,6 +849,24 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
         }
     });
 
+    // 🔑 CRITICAL: Listen for authen_success and save session_id!
+    socket.on('authen_success', (data) => {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`\n${'='.repeat(80)}`);
+        console.log(`[${timestamp}] 🔑 AUTHEN_SUCCESS RECEIVED!`);
+        console.log(`${'='.repeat(80)}`);
+        console.log(`   Full data: ${JSON.stringify(data, null, 2)}`);
+
+        if (data && data.sid) {
+            socket.sessionId = data.sid;  // Save session ID!
+            console.log(`   ✅ Saved session_id: ${data.sid}`);
+            console.log(`   💡 This session_id might grant permissions!`);
+        } else {
+            console.log(`   ⚠️  No 'sid' found in authen_success response`);
+        }
+        console.log(`${'='.repeat(80)}\n`);
+    });
+
     socket.on('connect', () => {
         console.log('✅ Connected!');
 
@@ -883,18 +912,16 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
             console.log('Listening for new messages...\n');
             console.log('Commands:');
             console.log('  msg <text>    - Send message');
-            console.log('\n🔬 REVERSE ENGINEERING:');
-            console.log('  createroom  - Try to create room & see owner token/params');
-            console.log('\n⭐ GME ROLE TESTS:');
-            console.log('  setrole <host|listener> - Set GME role');
-            console.log('  rejoinhost              - Rejoin as role="host"');
-            console.log('\n⭐ PRIMARY TEST:');
-            console.log('  unlockwatch <1-10>  - Unlock + watch speaker_changed event');
+            console.log('\n🔬 SESSION DEBUG (CRITICAL!):');
+            console.log('  showsession - Show session_id (compare owner vs non-owner!)');
+            console.log('  createroom  - Try to create room');
+            console.log('\n⭐ UNLOCK Test:');
+            console.log('  unlockwatch <1-10>  - Unlock + watch speaker_changed');
             console.log('\n🔓 UNLOCK variants:');
             console.log('  unlock/unlockhost/unlockadmin/unlockroom <1-10>');
             console.log('\n🎤 Speaker:');
             console.log('  joinspeaker <pos> / movespeaker <name> <pos>');
-            console.log('\nOther: lock, mute, quit');
+            console.log('\nOther: setrole, lock, mute, quit');
             console.log();
 
             // Start command input handler
