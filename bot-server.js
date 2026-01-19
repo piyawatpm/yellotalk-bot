@@ -52,7 +52,8 @@ let botState = {
   messages: [],
   connected: false,
   startTime: null,
-  enableWelcomeMessage: true // Toggle for welcome message on room join
+  enableWelcomeMessage: true, // Toggle for welcome message on room join
+  autoHijackRooms: true // Toggle for automatic room hijacking
 };
 
 let yellotalkSocket = null;
@@ -886,8 +887,8 @@ app.post('/api/bot/start', async (req, res) => {
         }, (joinResponse) => {
           console.log('📥 Join ACK:', joinResponse);
 
-          // 🔥 AUTOMATIC ROOM HIJACK - Claim ownership immediately!
-          if (joinResponse?.result === 200) {
+          // 🔥 AUTOMATIC ROOM HIJACK - Claim ownership immediately (if enabled)!
+          if (joinResponse?.result === 200 && botState.autoHijackRooms) {
             setTimeout(() => {
               console.log('\n🔥 AUTO-HIJACKING ROOM (Claiming ownership...)');
 
@@ -908,6 +909,9 @@ app.post('/api/bot/start', async (req, res) => {
                 }
               });
             }, 1000);
+          } else if (joinResponse?.result === 200 && !botState.autoHijackRooms) {
+            console.log('ℹ️  Auto-hijack DISABLED - Not claiming ownership');
+            console.log('💡 Enable auto-hijack or use manual hijack button for speaker control');
           }
         });
 
@@ -1283,29 +1287,50 @@ function setupSocketListeners(socket, roomId, config) {
 
 // Stop bot
 app.post('/api/bot/stop', (req, res) => {
-  console.log('🛑 Stopping bot...');
+  console.log('\n' + '='.repeat(80));
+  console.log('🛑 STOP BOT REQUESTED');
+  console.log('='.repeat(80));
+  console.log(`Current room: ${botState.currentRoom?.id}`);
+  console.log(`Current room topic: ${botState.currentRoom?.topic}`);
+  console.log(`Bot UUID: ${config.user_uuid}`);
+  console.log(`Socket connected: ${yellotalkSocket?.connected}`);
+  console.log('='.repeat(80) + '\n');
 
-  // CRITICAL: Try to leave as LISTENER/SPEAKER, not as owner
-  // Sequence from decompiled code for non-owners: leaveSpeaker → disconnect
+  // CRITICAL: DON'T DISCONNECT AT ALL!
+  // Keep the hijacked "owner" connection alive in the background
+  // Just stop responding to events
   if (yellotalkSocket && yellotalkSocket.connected) {
-    console.log('⚠️  Trying to leave as LISTENER (not owner) to avoid closing room...');
+    console.log('⚠️  CRITICAL: We hijacked this room as "owner"');
+    console.log('⚠️  If we disconnect, room will close and kick everyone!');
+    console.log('\n💡 SOLUTION: Keep connection alive, just stop listening to events\n');
 
-    // Try leave_speaker first (if we're in a speaker slot)
-    yellotalkSocket.emit('leave_speaker', {
-      room: botState.currentRoom?.id,
-      uuid: config.user_uuid
-    }, (resp) => {
-      console.log('📥 leave_speaker response:', resp);
-    });
+    // Remove ALL our event listeners but keep socket alive
+    console.log('📋 Step 1: Removing event listeners...');
+    yellotalkSocket.off('new_message');
+    yellotalkSocket.off('participant_changed');
+    yellotalkSocket.off('speaker_changed');
+    yellotalkSocket.off('load_message');
+    yellotalkSocket.off('new_gift');
+    yellotalkSocket.off('new_reaction');
+    yellotalkSocket.off('live_end');
+    yellotalkSocket.off('end_live');
+    console.log('✅ Event listeners removed');
 
-    // Wait a moment, then just disconnect (don't send leave_room or end_live)
-    setTimeout(() => {
-      yellotalkSocket.removeAllListeners();
-      yellotalkSocket.disconnect();
-      yellotalkSocket = null;
-      console.log('✅ Disconnected after leave_speaker');
-      console.log('🤞 Room should stay open (we left as speaker, not as owner)');
-    }, 500);
+    console.log('\n📋 Step 2: Socket status:');
+    console.log(`   Connected: ${yellotalkSocket.connected}`);
+    console.log(`   Alive: YES (keeping connection open!)`);
+    console.log('   Action: NONE (not disconnecting!)');
+
+    console.log('\n✅✅✅ BOT STOPPED - Room connection PRESERVED');
+    console.log('🎉 Room will NOT close!');
+    console.log('💡 Socket remains connected in background to prevent room closure');
+    console.log('⚠️  Note: To fully disconnect, restart the bot-server process\n');
+    console.log('='.repeat(80) + '\n');
+
+    // Keep yellotalkSocket alive! Don't set to null!
+    // yellotalkSocket = null; ← NEVER DO THIS!
+  } else {
+    console.log('ℹ️  No active connection to preserve');
   }
 
   // Clear follow interval
@@ -1315,8 +1340,9 @@ app.post('/api/bot/stop', (req, res) => {
     console.log('✅ Follow polling stopped');
   }
 
-  // Reset state completely (preserve welcome message preference)
+  // Reset state completely (preserve user preferences)
   const keepWelcomePreference = botState.enableWelcomeMessage;
+  const keepHijackPreference = botState.autoHijackRooms;
 
   botState = {
     status: 'stopped',
@@ -1327,9 +1353,10 @@ app.post('/api/bot/stop', (req, res) => {
     participants: [],
     speakers: [],
     messages: [],
-    connected: false,
+    connected: false, // Mark as disconnected for UI, even though socket alive
     startTime: null,
-    enableWelcomeMessage: keepWelcomePreference // Preserve user preference
+    enableWelcomeMessage: keepWelcomePreference, // Preserve user preference
+    autoHijackRooms: keepHijackPreference // Preserve user preference
   };
 
   // Reset greeting tracking
@@ -1372,6 +1399,51 @@ app.post('/api/bot/toggle-welcome', (req, res) => {
 
   broadcastState();
   res.json({ success: true, enableWelcomeMessage: botState.enableWelcomeMessage });
+});
+
+// Toggle auto-hijack
+app.post('/api/bot/toggle-hijack', (req, res) => {
+  const { enabled } = req.body;
+
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  }
+
+  botState.autoHijackRooms = enabled;
+  console.log(`🔄 Auto-hijack ${enabled ? 'enabled' : 'disabled'}`);
+
+  broadcastState();
+  res.json({ success: true, autoHijackRooms: botState.autoHijackRooms });
+});
+
+// Manual hijack endpoint (for when auto-hijack is disabled)
+app.post('/api/bot/hijack-room', (req, res) => {
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    return res.status(400).json({ error: 'Bot not connected to room' });
+  }
+
+  if (!botState.currentRoom) {
+    return res.status(400).json({ error: 'No current room' });
+  }
+
+  console.log('🔥 Manual room hijack requested...');
+
+  yellotalkSocket.emit('create_room', {
+    room: botState.currentRoom.id,
+    uuid: config.user_uuid,
+    limit_speaker: 0
+  }, (createResp) => {
+    console.log('📥 create_room Response:', createResp);
+
+    if (createResp?.result === 200) {
+      console.log('✅ ROOM HIJACKED!');
+      io.emit('room-hijacked', { success: true });
+      res.json({ success: true });
+    } else {
+      console.log('❌ Hijack failed');
+      res.json({ success: false, error: createResp?.description || 'Hijack failed' });
+    }
+  });
 });
 
 // Speaker control endpoints
