@@ -59,6 +59,7 @@ let botState = {
 let yellotalkSocket = null;
 let followInterval = null;
 let botUUID = null; // Bot's own UUID to skip greeting itself
+let originalRoomOwner = null; // Store original owner before hijacking
 
 // Load config for Groq API keys
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
@@ -609,7 +610,9 @@ app.post('/api/bot/start', async (req, res) => {
       }
 
       botState.currentRoom = room;
+      originalRoomOwner = room.owner; // Save original owner before hijacking
       console.log(`📋 Room found: ${room.topic}`);
+      console.log(`📋 Original owner: ${originalRoomOwner.pin_name} (${originalRoomOwner.uuid})`);
 
       // Connect to YelloTalk
       yellotalkSocket = socketClient('https://live.yellotalk.co:8443', {
@@ -1443,26 +1446,65 @@ app.post('/api/bot/stop', (req, res) => {
   console.log(`Socket connected: ${yellotalkSocket?.connected}`);
   console.log('='.repeat(80) + '\n');
 
-  // Leave room properly without closing it
+  // Try to un-hijack and leave without closing room
   if (yellotalkSocket && yellotalkSocket.connected && botState.currentRoom) {
-    console.log('🚪 Attempting to leave room gracefully...');
+    console.log('🚪 Attempting to leave room without closing it...');
 
-    // Try to leave as participant (not owner disconnect)
-    yellotalkSocket.emit('leave_room', {
-      room: botState.currentRoom.id,
-      uuid: config.user_uuid
-    }, (leaveResp) => {
-      console.log('📥 leave_room response:', leaveResp);
+    if (originalRoomOwner && originalRoomOwner.uuid !== config.user_uuid) {
+      console.log('🔄 Step 1: Un-hijacking - transfer ownership back to original owner...');
+      console.log(`   Original owner: ${originalRoomOwner.pin_name} (${originalRoomOwner.uuid})`);
 
-      // After leaving, disconnect socket
-      setTimeout(() => {
-        console.log('🔌 Disconnecting socket...');
-        yellotalkSocket.removeAllListeners();
-        yellotalkSocket.disconnect();
-        yellotalkSocket = null;
-        console.log('✅ Left room and disconnected');
-      }, 500);
-    });
+      // Try to un-hijack by sending create_room with original owner's UUID
+      yellotalkSocket.emit('create_room', {
+        room: botState.currentRoom.id,
+        uuid: originalRoomOwner.uuid,  // Transfer back to original owner
+        limit_speaker: 0
+      }, (transferResp) => {
+        console.log('📥 Un-hijack response:', transferResp);
+
+        if (transferResp?.result === 200) {
+          console.log('✅ Ownership transferred back!');
+        } else {
+          console.log('⚠️  Transfer might have failed, trying to leave anyway...');
+        }
+
+        // Now leave as regular participant
+        setTimeout(() => {
+          console.log('🔄 Step 2: Leaving room as participant...');
+          yellotalkSocket.emit('leave_room', {
+            room: botState.currentRoom.id,
+            uuid: config.user_uuid
+          }, (leaveResp) => {
+            console.log('📥 leave_room response:', leaveResp);
+
+            // Disconnect
+            setTimeout(() => {
+              console.log('🔌 Disconnecting...');
+              yellotalkSocket.removeAllListeners();
+              yellotalkSocket.disconnect();
+              yellotalkSocket = null;
+              console.log('✅ Left room - should NOT have closed!');
+            }, 300);
+          });
+        }, 300);
+      });
+    } else {
+      console.log('⚠️  No original owner saved - room will likely close on leave');
+
+      yellotalkSocket.emit('leave_room', {
+        room: botState.currentRoom.id,
+        uuid: config.user_uuid
+      }, (leaveResp) => {
+        console.log('📥 leave_room response:', leaveResp);
+
+        setTimeout(() => {
+          yellotalkSocket.removeAllListeners();
+          yellotalkSocket.disconnect();
+          yellotalkSocket = null;
+          console.log('✅ Disconnected');
+        }, 300);
+      });
+    }
   } else {
     console.log('ℹ️  No active connection to leave');
   }
@@ -1497,6 +1539,7 @@ app.post('/api/bot/stop', (req, res) => {
   previousParticipants = new Map();
   participantJoinTimes = new Map();
   hasJoinedRoom = false;
+  originalRoomOwner = null; // Clear saved original owner
 
   console.log('✅ Bot fully stopped');
   broadcastState();
