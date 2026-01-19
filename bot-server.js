@@ -1047,6 +1047,17 @@ app.post('/api/bot/start', async (req, res) => {
                 if (createResp?.result === 200) {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
+
+                  // Trigger permission refresh by muting non-existent position 11
+                  console.log('🔄 Triggering permission refresh with position 11...');
+                  yellotalkSocket.emit('mute_speaker', {
+                    room: roomId,
+                    position: 11
+                  }, (muteResp) => {
+                    console.log('📥 Mute position 11 response:', muteResp);
+                    console.log('✅ Permission refresh triggered!');
+                  });
+
                   io.emit('room-hijacked', { success: true });
                 } else {
                   console.log('⚠️  Hijack might have failed');
@@ -1612,6 +1623,17 @@ app.post('/api/bot/hijack-room', (req, res) => {
 
     if (createResp?.result === 200) {
       console.log('✅ ROOM HIJACKED!');
+
+      // Trigger permission refresh by muting non-existent position 11
+      console.log('🔄 Triggering permission refresh with position 11...');
+      yellotalkSocket.emit('mute_speaker', {
+        room: botState.currentRoom.id,
+        position: 11
+      }, (muteResp) => {
+        console.log('📥 Mute position 11 response:', muteResp);
+        console.log('✅ Permission refresh triggered!');
+      });
+
       io.emit('room-hijacked', { success: true });
       res.json({ success: true });
     } else {
