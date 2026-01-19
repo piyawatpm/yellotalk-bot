@@ -822,16 +822,53 @@ app.post('/api/bot/start', async (req, res) => {
 
       yellotalkSocket.on('speaker_changed', (data) => {
         const timestamp = new Date().toLocaleTimeString();
+        console.log(`\n${'='.repeat(80)}`);
+        console.log(`[${timestamp}] 🎤 SPEAKER_CHANGED EVENT`);
+        console.log(`${'='.repeat(80)}`);
+
+        // Log COMPLETE raw data
+        console.log(`📋 Raw data (full JSON):`);
+        console.log(JSON.stringify(data, null, 2));
+        console.log(`\n📊 Data structure:`);
+        console.log(`   Type: ${typeof data}`);
+        console.log(`   isArray: ${Array.isArray(data)}`);
+        console.log(`   Length: ${data?.length}`);
+
+        if (Array.isArray(data)) {
+          console.log(`\n🔍 Analyzing each slot:`);
+          data.forEach((speaker, index) => {
+            console.log(`\n   Slot ${index}:`);
+            if (speaker === null) {
+              console.log(`      → NULL (empty/locked slot)`);
+            } else if (speaker === undefined) {
+              console.log(`      → UNDEFINED`);
+            } else {
+              console.log(`      → Object:`);
+              console.log(`         pin_name: "${speaker.pin_name}"`);
+              console.log(`         uuid: ${speaker.uuid}`);
+              console.log(`         role: "${speaker.role}"`);
+              console.log(`         mic_muted: ${speaker.mic_muted}`);
+              console.log(`         campus: "${speaker.campus}"`);
+            }
+          });
+        }
+
+        // Map speakers - KEEP ORIGINAL DATA, don't transform
         const speakers = Array.isArray(data) ? data : [];
-        console.log(`[${timestamp}] 🎤 Speaker changed (${speakers.length} slots)`);
-        console.log(`📋 Raw speaker data:`, JSON.stringify(data).substring(0, 500));
-
-        // Update speaker state
         botState.speakers = speakers.map((speaker, index) => {
-          // Check if slot is locked (speaker is null OR has role='locked')
-          const isLocked = !speaker || speaker.role === 'locked' || speaker.pin_name === '🔒';
+          if (speaker === null || speaker === undefined) {
+            // Null/undefined = empty or locked slot
+            return {
+              position: index,
+              locked: false, // Consider as empty, not locked
+              pin_name: 'Empty',
+              uuid: null,
+              mic_muted: true
+            };
+          }
 
-          if (isLocked) {
+          // Speaker object exists - check if it's locked or occupied
+          if (speaker.pin_name === '🔒' || speaker.role === 'locked' || speaker.campus === 'Locked') {
             return {
               position: index,
               locked: true,
@@ -841,19 +878,20 @@ app.post('/api/bot/start', async (req, res) => {
             };
           }
 
-          // Speaker is present (not locked, has data)
+          // Actual speaker present
           return {
             position: index,
             locked: false,
-            pin_name: speaker.pin_name || 'Empty',
-            uuid: speaker.uuid || null,
-            mic_muted: speaker.mic_muted !== undefined ? speaker.mic_muted : true,
+            pin_name: speaker.pin_name || 'Unknown',
+            uuid: speaker.uuid,
+            mic_muted: speaker.mic_muted !== false, // Default to muted if undefined
             avatar_suit: speaker.avatar_suit,
             gift_amount: speaker.gift_amount || 0
           };
         });
 
-        console.log(`📊 Mapped speakers:`, botState.speakers.map(s => `${s.position}:${s.pin_name}(${s.locked?'🔒':'✓'})`).join(', '));
+        console.log(`\n✅ Mapped ${botState.speakers.length} speakers`);
+        console.log(`${'='.repeat(80)}\n`);
 
         // Emit speaker update to web portal
         io.emit('speakers-update', botState.speakers);
