@@ -1121,6 +1121,40 @@ function setupSocketListeners(socket, roomId, config) {
     broadcastState();
   });
 
+  socket.on('speaker_changed', (data) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const speakers = Array.isArray(data) ? data : [];
+    console.log(`[${timestamp}] 🎤 Speaker changed (${speakers.length} slots)`);
+
+    // Update speaker state
+    botState.speakers = speakers.map((speaker, index) => {
+      if (!speaker || speaker.role === 'locked') {
+        return {
+          position: index,
+          locked: true,
+          pin_name: '🔒',
+          uuid: null,
+          mic_muted: true
+        };
+      }
+      return {
+        position: index,
+        locked: false,
+        pin_name: speaker.pin_name || 'Empty',
+        uuid: speaker.uuid,
+        mic_muted: speaker.mic_muted || false,
+        avatar_suit: speaker.avatar_suit,
+        gift_amount: speaker.gift_amount || 0
+      };
+    });
+
+    console.log(`📊 Updated speaker state:`, botState.speakers.map(s => `${s.position}:${s.pin_name}`).join(', '));
+
+    // Emit speaker update to web portal
+    io.emit('speakers-update', botState.speakers);
+    broadcastState();
+  });
+
   socket.on('live_end', (data) => {
     console.log('🔚 Room ended!');
 
