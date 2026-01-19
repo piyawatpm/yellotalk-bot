@@ -1048,34 +1048,34 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // Try different events to trigger permission refresh
-                  console.log('\n🔄 Trying to trigger permission refresh...');
+                  // Try different NON-SPEAKER events to trigger permission refresh
+                  console.log('\n🔄 Trying NON-SPEAKER events to trigger permission refresh...');
 
-                  // Try 1: Unlock position 11 (non-existent)
-                  yellotalkSocket.emit('unlock_speaker', {
+                  // Try 1: Resend create_room (might refresh permissions without side effects)
+                  yellotalkSocket.emit('create_room', {
                     room: roomId,
-                    position: 11
+                    uuid: config.user_uuid,
+                    limit_speaker: 0
                   }, (resp1) => {
-                    console.log('📥 [Test 1] Unlock position 11 response:', resp1);
+                    console.log('📥 [Test 1] Resend create_room response:', resp1);
                   });
 
-                  // Try 2: Lock position 10 (already locked)
+                  // Try 2: Update room settings with same values
                   setTimeout(() => {
-                    yellotalkSocket.emit('lock_speaker', {
+                    yellotalkSocket.emit('update_room', {
                       room: roomId,
-                      position: 10
+                      limit_speaker: 0
                     }, (resp2) => {
-                      console.log('📥 [Test 2] Lock position 10 (already locked) response:', resp2);
+                      console.log('📥 [Test 2] Update room (same settings) response:', resp2);
                     });
                   }, 200);
 
-                  // Try 3: Mute position 10 (already locked)
+                  // Try 3: Request room info (read-only operation)
                   setTimeout(() => {
-                    yellotalkSocket.emit('mute_speaker', {
-                      room: roomId,
-                      position: 10
+                    yellotalkSocket.emit('get_room_info', {
+                      room: roomId
                     }, (resp3) => {
-                      console.log('📥 [Test 3] Mute position 10 (already locked) response:', resp3);
+                      console.log('📥 [Test 3] Get room info response:', resp3);
                       console.log('✅ All permission refresh attempts completed!');
                     });
                   }, 400);
