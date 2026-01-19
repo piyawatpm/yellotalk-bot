@@ -1009,57 +1009,40 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('✅✅✅ ROOM HIJACKED! Bot has OWNER permissions!');
                   console.log('🔓 Can now lock/unlock speaker slots!');
 
-                  // SAVE-RESTORE: Unlock slot 1, then restore all original states
-                  console.log('\n💾 Preparing to trigger first action and restore state...');
-
+                  // FAST SAVE-RESTORE: Minimal delays, parallel restoration
                   setTimeout(() => {
-                    // Save current state (deep copy)
+                    // Save current state
                     const savedStates = botState.speakers.map(s => ({
                       position: s.position,
                       locked: s.locked,
-                      pin_name: s.pin_name,
-                      uuid: s.uuid
+                      pin_name: s.pin_name
                     }));
 
-                    const summary = `${savedStates.filter(s => !s.locked && s.pin_name !== 'Empty').length} occupied, ${savedStates.filter(s => s.locked).length} locked, ${savedStates.filter(s => !s.locked && s.pin_name === 'Empty').length} empty`;
-                    console.log('📋 Saved states:', summary);
+                    console.log('💾 Saved → 🔥 Triggering sync → 🔧 Restoring...');
 
-                    console.log('🔥 Triggering first action (unlock YelloTalk position 1 = Slot 2) - all slots will lock...');
-
-                    // Trigger first action on position 1 (real slot)
+                    // Trigger first action
                     yellotalkSocket.emit('unlock_speaker', {
                       room: roomId,
-                      position: 1  // YelloTalk position 1 (Slot 2 on UI)
+                      position: 1
                     }, (resp) => {
-                      console.log('📥 Unlock position 1 response:', resp);
-
-                      // Wait for speaker_changed to reflect the locks
+                      // Immediately restore after response (don't wait for speaker_changed)
                       setTimeout(() => {
-                        console.log('🔧 Restoring ALL original states...');
-
+                        // Restore ALL in parallel (no stagger)
                         savedStates.forEach((saved, index) => {
                           const current = botState.speakers[index];
 
-                          // Restore if state changed
                           if (saved.locked !== current?.locked) {
-                            setTimeout(() => {
-                              if (saved.locked && !current?.locked) {
-                                // Was locked, now unlocked → Re-lock
-                                console.log(`   🔒 Re-locking slot ${index} (was locked)...`);
-                                lockSpeaker(index).catch(() => {});
-                              } else if (!saved.locked && current?.locked) {
-                                // Was unlocked/empty, now locked → Unlock
-                                console.log(`   🔓 Unlocking slot ${index} (was ${saved.pin_name})...`);
-                                unlockSpeaker(index).catch(() => {});
-                              }
-                            }, index * 100);
+                            if (saved.locked && !current?.locked) {
+                              lockSpeaker(index).catch(() => {});
+                            } else if (!saved.locked && current?.locked) {
+                              unlockSpeaker(index).catch(() => {});
+                            }
                           }
                         });
-
-                        console.log('✅ State restoration complete! Both bot and owner have control.');
-                      }, 2000);
+                        console.log('✅ Sync complete! Dual control enabled.');
+                      }, 500);
                     });
-                  }, 2000);
+                  }, 500);
 
                   io.emit('room-hijacked', { success: true });
                 } else {
