@@ -146,6 +146,21 @@ function lockSpeaker(position) {
       console.log(`📥 Lock response:`, response);
       if (response?.result === 200) {
         console.log(`✅ Slot ${position + 1} locked!`);
+
+        // OPTIMISTIC UPDATE: Immediately update state before speaker_changed event
+        if (botState.speakers[position]) {
+          botState.speakers[position] = {
+            ...botState.speakers[position],
+            locked: true,
+            pin_name: '🔒',
+            uuid: null,
+            mic_muted: true
+          };
+          console.log(`⚡ Optimistically updated slot ${position} to locked`);
+          io.emit('speakers-update', botState.speakers);
+          broadcastState();
+        }
+
         io.emit('speaker-action', { action: 'lock', position, success: true });
         resolve(response);
       } else {
@@ -171,6 +186,21 @@ function unlockSpeaker(position) {
       console.log(`📥 Unlock response:`, response);
       if (response?.result === 200) {
         console.log(`✅ Slot ${position + 1} unlocked!`);
+
+        // OPTIMISTIC UPDATE: Immediately update state before speaker_changed event
+        if (botState.speakers[position]) {
+          botState.speakers[position] = {
+            ...botState.speakers[position],
+            locked: false,
+            pin_name: 'Empty',
+            uuid: null,
+            mic_muted: true
+          };
+          console.log(`⚡ Optimistically updated slot ${position} to unlocked`);
+          io.emit('speakers-update', botState.speakers);
+          broadcastState();
+        }
+
         io.emit('speaker-action', { action: 'unlock', position, success: true });
         resolve(response);
       } else {
@@ -196,6 +226,18 @@ function muteSpeaker(position) {
       console.log(`📥 Mute response:`, response);
       if (response?.result === 200) {
         console.log(`✅ Slot ${position + 1} muted!`);
+
+        // OPTIMISTIC UPDATE: Immediately update mic state
+        if (botState.speakers[position]) {
+          botState.speakers[position] = {
+            ...botState.speakers[position],
+            mic_muted: true
+          };
+          console.log(`⚡ Optimistically muted slot ${position}`);
+          io.emit('speakers-update', botState.speakers);
+          broadcastState();
+        }
+
         io.emit('speaker-action', { action: 'mute', position, success: true });
         resolve(response);
       } else {
@@ -220,6 +262,18 @@ function unmuteSpeaker(position) {
       console.log(`📥 Unmute response:`, response);
       if (response?.result === 200) {
         console.log(`✅ Slot ${position + 1} unmuted!`);
+
+        // OPTIMISTIC UPDATE: Immediately update mic state
+        if (botState.speakers[position]) {
+          botState.speakers[position] = {
+            ...botState.speakers[position],
+            mic_muted: false
+          };
+          console.log(`⚡ Optimistically unmuted slot ${position}`);
+          io.emit('speakers-update', botState.speakers);
+          broadcastState();
+        }
+
         io.emit('speaker-action', { action: 'unmute', position, success: true });
         resolve(response);
       } else {

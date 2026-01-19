@@ -933,10 +933,14 @@ export default function ControlPage() {
                     const isLocked = speaker?.locked || speaker?.role === 'locked';
 
                     return (
-                      <div key={position} className="border-2 border-amber-500 rounded-xl p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30">
+                      <div key={position} className={`border-2 rounded-xl p-4 ${
+                        isLocked
+                          ? 'border-red-500 bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950/30 dark:to-red-900/30'
+                          : 'border-amber-500 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30'
+                      }`}>
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-2">
-                            <Crown className="h-5 w-5 text-amber-500" />
+                            <Crown className={`h-5 w-5 ${isLocked ? 'text-red-500' : 'text-amber-500'}`} />
                             <div>
                               <div className="font-bold text-base">Slot 1 - Room Owner</div>
                               {speaker && !isLocked && (
@@ -957,7 +961,7 @@ export default function ControlPage() {
                                   </span>
                                 </div>
                               )}
-                              {isLocked && <div className="text-sm text-gray-500">🔒 Locked</div>}
+                              {isLocked && <div className="text-sm text-red-600 font-semibold">🔒 Locked</div>}
                             </div>
                           </div>
                           <div className="flex gap-2">
@@ -996,12 +1000,16 @@ export default function ControlPage() {
                       const isLocked = speaker?.locked || speaker?.role === 'locked';
 
                       return (
-                        <div key={position} className="border rounded-lg p-2 bg-white dark:bg-gray-800 shadow-sm">
+                        <div key={position} className={`border rounded-lg p-2 shadow-sm ${
+                          isLocked
+                            ? 'border-red-500 bg-red-50 dark:bg-red-950/30'
+                            : 'border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700'
+                        }`}>
                           <div className="text-center mb-2">
                             <div className="font-semibold text-sm">Slot {position + 1}</div>
                             <div className="text-xs mt-1 h-10">
                               {isLocked ? (
-                                <div className="text-gray-500">🔒 Locked</div>
+                                <div className="text-red-600 font-semibold">🔒 Locked</div>
                               ) : speaker?.uuid ? (
                                 <>
                                   <div className="font-medium truncate">{speaker.pin_name}</div>
@@ -1052,12 +1060,16 @@ export default function ControlPage() {
                       const isLocked = speaker?.locked || speaker?.role === 'locked';
 
                       return (
-                        <div key={position} className="border rounded-lg p-2 bg-white dark:bg-gray-800 shadow-sm">
+                        <div key={position} className={`border rounded-lg p-2 shadow-sm ${
+                          isLocked
+                            ? 'border-red-500 bg-red-50 dark:bg-red-950/30'
+                            : 'border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700'
+                        }`}>
                           <div className="text-center mb-2">
                             <div className="font-semibold text-sm">Slot {position + 1}</div>
                             <div className="text-xs mt-1 h-10">
                               {isLocked ? (
-                                <div className="text-gray-500">🔒 Locked</div>
+                                <div className="text-red-600 font-semibold">🔒 Locked</div>
                               ) : speaker?.uuid ? (
                                 <>
                                   <div className="font-medium truncate">{speaker.pin_name}</div>
