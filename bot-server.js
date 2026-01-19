@@ -48,6 +48,7 @@ let botState = {
   followUser: null,
   messageCount: 0,
   participants: [],
+  speakers: [], // Speaker slot status (10 slots)
   messages: [],
   connected: false,
   startTime: null
@@ -207,6 +208,35 @@ function unmuteSpeaker(position) {
         resolve(response);
       } else {
         reject(new Error(response?.description || 'Unmute failed'));
+      }
+    });
+  });
+}
+
+function kickSpeaker(position, targetUuid) {
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    console.log('⚠️  Cannot kick - not connected');
+    return Promise.reject(new Error('Not connected'));
+  }
+
+  if (!targetUuid) {
+    return Promise.reject(new Error('No speaker in this slot'));
+  }
+
+  return new Promise((resolve, reject) => {
+    console.log(`👢 Kicking speaker from slot ${position + 1}...`);
+    yellotalkSocket.emit('kick_speaker', {
+      room: botState.currentRoom?.id,
+      uuid: targetUuid,
+      position
+    }, (response) => {
+      console.log(`📥 Kick response:`, response);
+      if (response?.result === 200) {
+        console.log(`✅ Kicked speaker from slot ${position + 1}!`);
+        io.emit('speaker-action', { action: 'kick', position, success: true });
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Kick failed'));
       }
     });
   });
@@ -769,7 +799,35 @@ app.post('/api/bot/start', async (req, res) => {
       });
 
       yellotalkSocket.on('speaker_changed', (data) => {
-        console.log('🎤 Speaker changed');
+        const timestamp = new Date().toLocaleTimeString();
+        const speakers = Array.isArray(data) ? data : [];
+        console.log(`[${timestamp}] 🎤 Speaker changed (${speakers.length} slots)`);
+
+        // Update speaker state
+        botState.speakers = speakers.map((speaker, index) => {
+          if (!speaker || speaker.role === 'locked') {
+            return {
+              position: index,
+              locked: true,
+              pin_name: '🔒',
+              uuid: null,
+              mic_muted: true
+            };
+          }
+          return {
+            position: index,
+            locked: false,
+            pin_name: speaker.pin_name || 'Empty',
+            uuid: speaker.uuid,
+            mic_muted: speaker.mic_muted || false,
+            avatar_suit: speaker.avatar_suit,
+            gift_amount: speaker.gift_amount || 0
+          };
+        });
+
+        // Emit speaker update to web portal
+        io.emit('speakers-update', botState.speakers);
+        broadcastState();
       });
 
       yellotalkSocket.on('disconnect', () => {
@@ -1264,6 +1322,31 @@ app.post('/api/bot/speaker/unmute', async (req, res) => {
 
   try {
     const result = await unmuteSpeaker(position);
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/bot/speaker/kick', async (req, res) => {
+  const { position } = req.body;
+
+  if (position === undefined || position < 0 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  }
+
+  if (!yellotalkSocket || !yellotalkSocket.connected) {
+    return res.status(400).json({ error: 'Bot not connected to room' });
+  }
+
+  // Find speaker at this position
+  const speaker = botState.speakers[position];
+  if (!speaker || !speaker.uuid || speaker.locked) {
+    return res.status(400).json({ error: 'No speaker in this slot to kick' });
+  }
+
+  try {
+    const result = await kickSpeaker(position, speaker.uuid);
     res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ error: error.message });

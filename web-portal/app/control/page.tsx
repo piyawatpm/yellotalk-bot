@@ -31,7 +31,8 @@ import {
   Unlock,
   Volume2,
   VolumeX,
-  Mic
+  Mic,
+  UserX
 } from 'lucide-react'
 import io from 'socket.io-client'
 import { useToast } from '@/hooks/use-toast'
@@ -87,6 +88,7 @@ export default function ControlPage() {
   const [starting, setStarting] = useState(false)
   const [serverError, setServerError] = useState(false)
   const [pollCheck, setPollCheck] = useState<any>(null)
+  const [speakers, setSpeakers] = useState<any[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
   const startTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -133,6 +135,14 @@ export default function ControlPage() {
         setBotState((prev: any) => prev ? ({
           ...prev,
           messages: [...(prev.messages || []), msg]
+        }) : prev)
+      })
+
+      newSocket.on('speakers-update', (speakersData) => {
+        setSpeakers(speakersData)
+        setBotState((prev: any) => prev ? ({
+          ...prev,
+          speakers: speakersData
         }) : prev)
       })
 
@@ -338,6 +348,24 @@ export default function ControlPage() {
       }
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to unmute speaker', variant: 'destructive' })
+    }
+  }
+
+  const kickSlot = async (position: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/speaker/kick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({ title: 'Kicked', description: `Removed speaker from slot ${position + 1}` })
+      } else {
+        toast({ title: 'Kick Failed', description: data.error, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to kick speaker', variant: 'destructive' })
     }
   }
 
@@ -855,52 +883,124 @@ export default function ControlPage() {
                 <CardDescription>Control speaker slots (powered by room hijack exploit)</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((position) => (
-                    <div key={position} className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-800">
-                      <div className="text-center mb-2">
-                        <span className="text-sm font-semibold">Slot {position + 1}</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                  {/* Slot 1 (Owner Slot) - Show First */}
+                  {(() => {
+                    const position = 0;
+                    const speaker = speakers[position] || botState?.speakers?.[position];
+                    const isLocked = speaker?.locked || speaker?.role === 'locked';
+                    const isOwnerSlot = position === 0;
+
+                    return (
+                      <div key={position} className={`border-2 rounded-lg p-3 ${isOwnerSlot ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30' : 'bg-gray-50 dark:bg-gray-800'}`}>
+                        <div className="text-center mb-2">
+                          <div className="flex items-center justify-center gap-1">
+                            {isOwnerSlot && <Crown className="h-3 w-3 text-amber-500" />}
+                            <span className="text-sm font-bold">Slot 1</span>
+                            {isOwnerSlot && <span className="text-xs text-amber-600">(Owner)</span>}
+                          </div>
+                          {speaker && (
+                            <div className="mt-1 text-xs">
+                              <div className="font-semibold truncate">{speaker.pin_name}</div>
+                              <div className="flex items-center justify-center gap-1 mt-0.5">
+                                {speaker.mic_muted ? (
+                                  <VolumeX className="h-3 w-3 text-red-500" />
+                                ) : (
+                                  <Volume2 className="h-3 w-3 text-green-500" />
+                                )}
+                                <span className={speaker.mic_muted ? 'text-red-500' : 'text-green-500'}>
+                                  {speaker.mic_muted ? 'Muted' : 'Live'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <div className="grid grid-cols-2 gap-1">
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => lockSlot(position)}>
+                              <Lock className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => unlockSlot(position)}>
+                              <Unlock className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => muteSlot(position)}>
+                              <VolumeX className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => unmuteSlot(position)}>
+                              <Volume2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          {speaker && !isLocked && speaker.uuid && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="h-7 text-xs"
+                              onClick={() => kickSlot(position)}
+                            >
+                              <UserX className="h-3 w-3 mr-1" />
+                              Kick
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-xs"
-                          onClick={() => lockSlot(position)}
-                        >
-                          <Lock className="h-3 w-3 mr-1" />
-                          Lock
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-xs"
-                          onClick={() => unlockSlot(position)}
-                        >
-                          <Unlock className="h-3 w-3 mr-1" />
-                          Unlock
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-xs"
-                          onClick={() => muteSlot(position)}
-                        >
-                          <VolumeX className="h-3 w-3 mr-1" />
-                          Mute
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-xs"
-                          onClick={() => unmuteSlot(position)}
-                        >
-                          <Volume2 className="h-3 w-3 mr-1" />
-                          Unmute
-                        </Button>
+                    );
+                  })()}
+
+                  {/* Other Slots (2-10) */}
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((position) => {
+                    const speaker = speakers[position] || botState?.speakers?.[position];
+                    const isLocked = speaker?.locked || speaker?.role === 'locked';
+
+                    return (
+                      <div key={position} className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-800">
+                        <div className="text-center mb-2">
+                          <span className="text-sm font-semibold">Slot {position + 1}</span>
+                          {speaker && (
+                            <div className="mt-1 text-xs">
+                              <div className="font-semibold truncate">{speaker.pin_name}</div>
+                              <div className="flex items-center justify-center gap-1 mt-0.5">
+                                {speaker.mic_muted ? (
+                                  <VolumeX className="h-3 w-3 text-red-500" />
+                                ) : (
+                                  <Volume2 className="h-3 w-3 text-green-500" />
+                                )}
+                                <span className={speaker.mic_muted ? 'text-red-500' : 'text-green-500'}>
+                                  {speaker.mic_muted ? 'Muted' : 'Live'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <div className="grid grid-cols-2 gap-1">
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => lockSlot(position)}>
+                              <Lock className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => unlockSlot(position)}>
+                              <Unlock className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => muteSlot(position)}>
+                              <VolumeX className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => unmuteSlot(position)}>
+                              <Volume2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          {speaker && !isLocked && speaker.uuid && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="h-7 text-xs"
+                              onClick={() => kickSlot(position)}
+                            >
+                              <UserX className="h-3 w-3 mr-1" />
+                              Kick
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
