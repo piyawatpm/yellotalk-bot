@@ -794,17 +794,21 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
     socket.on('connect', () => {
         console.log('✅ Connected!');
 
-        // Join room
+        // Join room WITH GME ROLE = 'host' (this might grant unlock permissions!)
         const joinData = {
             room: currentRoomId,
             uuid: UUID,
             avatar_id: AVATAR_ID,
             gme_id: gmeId,
             campus: campus,
-            pin_name: PIN_NAME
+            pin_name: PIN_NAME,
+            role: 'host',           // GME role
+            gme_role: 'host',       // GME specific
+            audio_role: 'host'      // Audio permission role
         };
 
-        console.log('📥 Joining room...');
+        console.log('📥 Joining room AS HOST ROLE...');
+        console.log(`   Role parameters: role='host', gme_role='host', audio_role='host'`);
         socket.emit('join_room', joinData, (response) => {
             if (response?.result === 200) {
                 console.log('✅ Successfully joined room!');
