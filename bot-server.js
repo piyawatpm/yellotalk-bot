@@ -48,7 +48,7 @@ let botState = {
   followUser: null,
   messageCount: 0,
   participants: [],
-  speakers: [], // Speaker slot status (10 slots)
+  speakers: [], // Speaker slot status (11 slots: 1 owner + 10 user)
   messages: [],
   connected: false,
   startTime: null,
@@ -823,11 +823,11 @@ app.post('/api/bot/start', async (req, res) => {
       yellotalkSocket.on('speaker_changed', (data) => {
         const timestamp = new Date().toLocaleTimeString();
         console.log(`\n${'='.repeat(80)}`);
-        console.log(`[${timestamp}] 🎤 SPEAKER_CHANGED EVENT`);
+        console.log(`[${timestamp}] 🎤 SPEAKER_CHANGED EVENT (regular mode)`);
         console.log(`${'='.repeat(80)}`);
 
-        // Log COMPLETE raw data
-        console.log(`📋 Raw data (full JSON):`);
+        // Log COMPLETE raw data - NO TRUNCATION
+        console.log(`📋 COMPLETE RAW DATA (all fields, no truncation):`);
         console.log(JSON.stringify(data, null, 2));
         console.log(`\n📊 Data structure:`);
         console.log(`   Type: ${typeof data}`);
@@ -835,40 +835,46 @@ app.post('/api/bot/start', async (req, res) => {
         console.log(`   Length: ${data?.length}`);
 
         if (Array.isArray(data)) {
-          console.log(`\n🔍 Analyzing each slot:`);
+          console.log(`\n🔍 Analyzing each slot in detail:`);
           data.forEach((speaker, index) => {
-            console.log(`\n   Slot ${index}:`);
+            console.log(`\n   === Slot ${index} ===`);
             if (speaker === null) {
-              console.log(`      → NULL (empty/locked slot)`);
+              console.log(`      Type: NULL`);
             } else if (speaker === undefined) {
-              console.log(`      → UNDEFINED`);
+              console.log(`      Type: UNDEFINED`);
             } else {
-              console.log(`      → Object:`);
-              console.log(`         pin_name: "${speaker.pin_name}"`);
-              console.log(`         uuid: ${speaker.uuid}`);
-              console.log(`         role: "${speaker.role}"`);
-              console.log(`         mic_muted: ${speaker.mic_muted}`);
-              console.log(`         campus: "${speaker.campus}"`);
+              console.log(`      Type: Object with ${Object.keys(speaker).length} fields`);
+              console.log(`      ALL keys: [${Object.keys(speaker).join(', ')}]`);
+              console.log(`      pin_name: "${speaker.pin_name}"`);
+              console.log(`      uuid: "${speaker.uuid}"`);
+              console.log(`      role: "${speaker.role}"`);
+              console.log(`      mic_muted: ${speaker.mic_muted}`);
+              console.log(`      campus: "${speaker.campus}"`);
+              console.log(`      avatar_suit: ${speaker.avatar_suit}`);
             }
           });
         }
 
-        // Map speakers - KEEP ORIGINAL DATA, don't transform
+        // Map speakers with CONSISTENT LOGIC
         const speakers = Array.isArray(data) ? data : [];
         botState.speakers = speakers.map((speaker, index) => {
+          console.log(`\n   🔄 Mapping slot ${index}...`);
+
+          // 1. If null/undefined -> Empty slot (not locked)
           if (speaker === null || speaker === undefined) {
-            // Null/undefined = empty or locked slot
+            console.log(`      ✅ -> EMPTY SLOT (not locked)`);
             return {
               position: index,
-              locked: false, // Consider as empty, not locked
+              locked: false,
               pin_name: 'Empty',
               uuid: null,
               mic_muted: true
             };
           }
 
-          // Speaker object exists - check if it's locked or occupied
+          // 2. If has lock indicators -> Locked slot
           if (speaker.pin_name === '🔒' || speaker.role === 'locked' || speaker.campus === 'Locked') {
+            console.log(`      ✅ -> LOCKED SLOT (pin_name="${speaker.pin_name}", role="${speaker.role}", campus="${speaker.campus}")`);
             return {
               position: index,
               locked: true,
@@ -878,8 +884,8 @@ app.post('/api/bot/start', async (req, res) => {
             };
           }
 
-          // Actual speaker present
-          return {
+          // 3. Otherwise -> Occupied slot with speaker
+          const result = {
             position: index,
             locked: false,
             pin_name: speaker.pin_name || 'Unknown',
@@ -888,9 +894,16 @@ app.post('/api/bot/start', async (req, res) => {
             avatar_suit: speaker.avatar_suit,
             gift_amount: speaker.gift_amount || 0
           };
+          console.log(`      ✅ -> OCCUPIED SLOT: ${result.pin_name} (mic: ${result.mic_muted ? 'muted' : 'live'})`);
+          return result;
         });
 
-        console.log(`\n✅ Mapped ${botState.speakers.length} speakers`);
+        console.log(`\n📊 FINAL MAPPED SPEAKERS (${botState.speakers.length} total):`);
+        botState.speakers.forEach(s => {
+          const status = s.locked ? '🔒 LOCKED' : s.pin_name === 'Empty' ? '⭕ EMPTY' : `👤 ${s.pin_name}`;
+          const mic = s.mic_muted ? '🔇 Muted' : '🔊 Live';
+          console.log(`   Slot ${s.position}: ${status} | ${mic}`);
+        });
         console.log(`${'='.repeat(80)}\n`);
 
         // Emit speaker update to web portal
@@ -1191,28 +1204,48 @@ function setupSocketListeners(socket, roomId, config) {
     const timestamp = new Date().toLocaleTimeString();
     const speakers = Array.isArray(data) ? data : [];
     console.log(`\n${'='.repeat(80)}`);
-    console.log(`[${timestamp}] 🎤 SPEAKER_CHANGED EVENT RECEIVED`);
+    console.log(`[${timestamp}] 🎤 SPEAKER_CHANGED EVENT RECEIVED (setupSocketListeners)`);
     console.log(`${'='.repeat(80)}`);
     console.log(`📋 Raw data type: ${typeof data}, isArray: ${Array.isArray(data)}, length: ${speakers.length}`);
-    console.log(`📋 Full raw speaker data:`);
-    console.log(JSON.stringify(data, null, 2).substring(0, 1000));
+    console.log(`📋 COMPLETE RAW DATA (no truncation):`);
+    console.log(JSON.stringify(data, null, 2));
     console.log(`${'='.repeat(80)}\n`);
 
     // Update speaker state with DETAILED logging per slot
     botState.speakers = speakers.map((speaker, index) => {
-      console.log(`\n🔍 Slot ${index}:`);
-      console.log(`   speaker value:`, speaker);
-      console.log(`   speaker is null: ${speaker === null}`);
-      console.log(`   speaker is undefined: ${speaker === undefined}`);
-      console.log(`   speaker.role: ${speaker?.role}`);
-      console.log(`   speaker.pin_name: ${speaker?.pin_name}`);
-      console.log(`   speaker.uuid: ${speaker?.uuid}`);
+      console.log(`\n🔍 Analyzing Slot ${index}:`);
+      console.log(`   Raw value:`, JSON.stringify(speaker, null, 2));
+      console.log(`   Type checks:`);
+      console.log(`      is null: ${speaker === null}`);
+      console.log(`      is undefined: ${speaker === undefined}`);
+      console.log(`      typeof: ${typeof speaker}`);
 
-      // Check if slot is locked
-      const isLocked = !speaker || speaker.role === 'locked' || speaker.pin_name === '🔒';
-      console.log(`   → isLocked: ${isLocked} (because: ${!speaker ? 'null/undefined' : speaker.role === 'locked' ? 'role=locked' : speaker.pin_name === '🔒' ? 'pin_name=🔒' : 'SHOULD NOT BE LOCKED!'})`);
+      if (speaker && typeof speaker === 'object') {
+        console.log(`   Object fields:`);
+        console.log(`      ALL keys: [${Object.keys(speaker).join(', ')}]`);
+        console.log(`      pin_name: "${speaker.pin_name}"`);
+        console.log(`      uuid: "${speaker.uuid}"`);
+        console.log(`      role: "${speaker.role}"`);
+        console.log(`      campus: "${speaker.campus}"`);
+        console.log(`      mic_muted: ${speaker.mic_muted}`);
+      }
 
-      if (isLocked) {
+      // FIXED LOGIC: Match the first handler (lines 858-891)
+      // 1. If null/undefined -> Empty slot (not locked)
+      if (speaker === null || speaker === undefined) {
+        console.log(`   ✅ Decision: EMPTY SLOT (not locked)`);
+        return {
+          position: index,
+          locked: false,
+          pin_name: 'Empty',
+          uuid: null,
+          mic_muted: true
+        };
+      }
+
+      // 2. If has lock indicators -> Locked slot
+      if (speaker.pin_name === '🔒' || speaker.role === 'locked' || speaker.campus === 'Locked') {
+        console.log(`   ✅ Decision: LOCKED SLOT (pin_name=${speaker.pin_name}, role=${speaker.role}, campus=${speaker.campus})`);
         return {
           position: index,
           locked: true,
@@ -1222,21 +1255,22 @@ function setupSocketListeners(socket, roomId, config) {
         };
       }
 
-      // Speaker is present (not locked, has data)
+      // 3. Otherwise -> Occupied slot with speaker
       const result = {
         position: index,
         locked: false,
-        pin_name: speaker.pin_name || 'Empty',
+        pin_name: speaker.pin_name || 'Unknown',
         uuid: speaker.uuid || null,
-        mic_muted: speaker.mic_muted !== undefined ? speaker.mic_muted : true,
+        mic_muted: speaker.mic_muted !== false, // Default muted if undefined
         avatar_suit: speaker.avatar_suit,
         gift_amount: speaker.gift_amount || 0
       };
-      console.log(`   → Mapped as:`, result);
+      console.log(`   ✅ Decision: OCCUPIED SLOT`);
+      console.log(`   Final mapping:`, result);
       return result;
     });
 
-    console.log(`\n📊 Final mapped speakers:`);
+    console.log(`\n📊 FINAL MAPPED SPEAKERS (${botState.speakers.length} total):`);
     botState.speakers.forEach(s => {
       console.log(`   Slot ${s.position}: ${s.pin_name} | Locked: ${s.locked} | Mic: ${s.mic_muted ? 'Muted' : 'Live'}`);
     });
@@ -1488,8 +1522,8 @@ app.post('/api/bot/hijack-room', (req, res) => {
 app.post('/api/bot/speaker/lock', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots)' });
+  if (position === undefined || position < 0 || position > 10) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-10, total 11 slots: 1 owner + 10 user)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1507,8 +1541,8 @@ app.post('/api/bot/speaker/lock', async (req, res) => {
 app.post('/api/bot/speaker/unlock', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots)' });
+  if (position === undefined || position < 0 || position > 10) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-10, total 11 slots: 1 owner + 10 user)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1526,8 +1560,8 @@ app.post('/api/bot/speaker/unlock', async (req, res) => {
 app.post('/api/bot/speaker/mute', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots)' });
+  if (position === undefined || position < 0 || position > 10) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-10, total 11 slots: 1 owner + 10 user)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1545,8 +1579,8 @@ app.post('/api/bot/speaker/mute', async (req, res) => {
 app.post('/api/bot/speaker/unmute', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots)' });
+  if (position === undefined || position < 0 || position > 10) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-10, total 11 slots: 1 owner + 10 user)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1564,8 +1598,8 @@ app.post('/api/bot/speaker/unmute', async (req, res) => {
 app.post('/api/bot/speaker/kick', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots)' });
+  if (position === undefined || position < 0 || position > 10) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-10, total 11 slots: 1 owner + 10 user)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {

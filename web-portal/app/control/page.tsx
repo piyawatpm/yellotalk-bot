@@ -1045,9 +1045,9 @@ export default function ControlPage() {
                     })}
                   </div>
 
-                  {/* Row 2: Slots 7-10 (only 4 slots) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                    {[6, 7, 8, 9].map((position) => {
+                  {/* Row 2: Slots 7-11 (5 slots) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                    {[6, 7, 8, 9, 10].map((position) => {
                       const speaker = speakers[position] || botState?.speakers?.[position];
                       const isLocked = speaker?.locked || speaker?.role === 'locked';
 
