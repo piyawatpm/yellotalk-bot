@@ -138,10 +138,11 @@ function lockSpeaker(position) {
   }
 
   return new Promise((resolve, reject) => {
-    console.log(`🔒 Locking speaker position=${position} (display as Slot ${position + 1})...`);
+    const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
+    console.log(`🔒 Locking slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
     yellotalkSocket.emit('lock_speaker', {
       room: botState.currentRoom?.id,
-      position
+      position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Lock response for position ${position}:`, response);
       if (response?.result === 200) {
@@ -178,10 +179,11 @@ function unlockSpeaker(position) {
   }
 
   return new Promise((resolve, reject) => {
-    console.log(`🔓 Unlocking speaker slot ${position + 1}...`);
+    const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
+    console.log(`🔓 Unlocking slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
     yellotalkSocket.emit('unlock_speaker', {
       room: botState.currentRoom?.id,
-      position
+      position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Unlock response:`, response);
       if (response?.result === 200) {
@@ -218,10 +220,11 @@ function muteSpeaker(position) {
   }
 
   return new Promise((resolve, reject) => {
-    console.log(`🔇 Muting speaker slot ${position + 1}...`);
+    const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
+    console.log(`🔇 Muting slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
     yellotalkSocket.emit('mute_speaker', {
       room: botState.currentRoom?.id,
-      position
+      position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Mute response:`, response);
       if (response?.result === 200) {
@@ -254,10 +257,11 @@ function unmuteSpeaker(position) {
   }
 
   return new Promise((resolve, reject) => {
-    console.log(`🔊 Unmuting speaker slot ${position + 1}...`);
+    const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
+    console.log(`🔊 Unmuting slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
     yellotalkSocket.emit('unmute_speaker', {
       room: botState.currentRoom?.id,
-      position
+      position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Unmute response:`, response);
       if (response?.result === 200) {
@@ -294,11 +298,12 @@ function kickSpeaker(position, targetUuid) {
   }
 
   return new Promise((resolve, reject) => {
-    console.log(`👢 Kicking speaker from slot ${position + 1}...`);
+    const yellotalkPosition = position + 1; // YelloTalk uses 1-indexed positions (1-11)
+    console.log(`👢 Kicking speaker from slot: UI position=${position} → YelloTalk position=${yellotalkPosition} (Slot ${position + 1})...`);
     yellotalkSocket.emit('kick_speaker', {
       room: botState.currentRoom?.id,
       uuid: targetUuid,
-      position
+      position: yellotalkPosition
     }, (response) => {
       console.log(`📥 Kick response:`, response);
       if (response?.result === 200) {
