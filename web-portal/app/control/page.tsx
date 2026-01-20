@@ -733,7 +733,7 @@ export default function ControlPage() {
                           </Label>
                         </div>
                         <p className="text-xs text-gray-500 pl-6">Use create_room exploit to control speaker slots</p>
-                        <p className="text-xs text-rose-600 pl-6 font-semibold">⚠️ Room closes when bot stops if enabled</p>
+                        <p className="text-xs text-rose-600 pl-6 font-semibold">⚠️ Beta version - use at your own risk, some times it might cause issues with the room</p>
                       </div>
                       <Switch
                         id="hijack-toggle"
