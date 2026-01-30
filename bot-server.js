@@ -688,6 +688,60 @@ app.post('/api/bot/start', async (req, res) => {
               return;
             }
 
+            // Check if user wants to set their custom greeting
+            // Patterns: "เรียกฉันว่า X", "เรียกผมว่า X", "call me X", "ช่วยเรียก X", "ทักฉันว่า X"
+            const greetingPatterns = [
+              /(?:ช่วย)?เรียก(?:ฉัน|ผม|เรา|หนู)(?:ว่า|ด้วย)\s*(.+)/i,
+              /(?:ช่วย)?ทัก(?:ฉัน|ผม|เรา|หนู)(?:ว่า|ด้วย)\s*(.+)/i,
+              /(?:ช่วย)?ต้อนรับ(?:ฉัน|ผม|เรา|หนู)(?:ว่า|ด้วย)\s*(.+)/i,
+              /call\s*me\s+(.+)/i,
+              /greet\s*me\s*(?:with|as)?\s+(.+)/i,
+              /set\s*(?:my)?\s*greeting\s*(?:to)?\s+(.+)/i
+            ];
+
+            let customGreeting = null;
+            for (const pattern of greetingPatterns) {
+              const match = question.match(pattern);
+              if (match && match[1]) {
+                customGreeting = match[1].trim();
+                break;
+              }
+            }
+
+            if (customGreeting && customGreeting.length > 0) {
+              console.log(`[${timestamp}] 🎉 ${sender} wants to set custom greeting: "${customGreeting}"`);
+
+              // Add/update greeting in greetingsConfig
+              if (!greetingsConfig.customGreetings) {
+                greetingsConfig.customGreetings = {};
+              }
+
+              // Use a key that will match the user's name (partial match)
+              // Find a unique identifier from their name
+              const greetingKey = sender;
+              greetingsConfig.customGreetings[greetingKey] = customGreeting;
+
+              // Save to file
+              try {
+                const fs = require('fs');
+                const greetingsPath = require('path').join(__dirname, 'greetings.json');
+                fs.writeFileSync(greetingsPath, JSON.stringify(greetingsConfig, null, 2), 'utf8');
+                console.log(`[${timestamp}] ✅ Saved custom greeting for ${sender}`);
+
+                // Confirm to user
+                setTimeout(() => {
+                  sendMessage(`บันทึกแล้วค่ะ! ต่อไป Siri จะทักทาย ${sender} ว่า "${customGreeting}" 🎀`);
+                }, 1000);
+              } catch (err) {
+                console.error(`[${timestamp}] ❌ Failed to save greeting:`, err);
+                setTimeout(() => {
+                  sendMessage(`ขอโทษค่ะ ไม่สามารถบันทึกได้ 😢`);
+                }, 1000);
+              }
+
+              return; // Don't process as AI question
+            }
+
             console.log(`[${timestamp}] 🤖 Siri triggered by ${sender} (trigger: ${triggerFound})`);
             console.log(`           Original message: "${message}"`);
             console.log(`           Question extracted: "${question}"`);
