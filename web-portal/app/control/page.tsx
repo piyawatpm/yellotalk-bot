@@ -429,9 +429,10 @@ export default function ControlPage() {
     setMessage('')
   }
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [botState?.messages])
+  // Auto-scroll disabled per user request
+  // useEffect(() => {
+  //   chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  // }, [botState?.messages])
 
   if (loading) {
     return (
@@ -1023,7 +1024,7 @@ export default function ControlPage() {
                   </div>
 
                   {/* Row 1: Slots 2-6 (indices 0-4) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                  <div className="grid grid-cols-5 gap-2">
                     {[0, 1, 2, 3, 4].map((position) => {
                       const speaker = speakers[position] || botState?.speakers?.[position];
                       const isLocked = speaker?.locked || speaker?.role === 'locked';
@@ -1083,7 +1084,7 @@ export default function ControlPage() {
                   </div>
 
                   {/* Row 2: Slots 7-11 (indices 5-9) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                  <div className="grid grid-cols-5 gap-2">
                     {[5, 6, 7, 8, 9].map((position) => {
                       const speaker = speakers[position] || botState?.speakers?.[position];
                       const isLocked = speaker?.locked || speaker?.role === 'locked';
