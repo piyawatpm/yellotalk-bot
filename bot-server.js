@@ -58,7 +58,7 @@ let botState = {
 
 let yellotalkSocket = null;
 let followInterval = null;
-let botUUID = null; // Bot's own UUID to skip greeting itself
+const botName = 'Siri'; // Bot's name to skip greeting itself
 let originalRoomOwner = null; // Store original owner before hijacking
 
 // Load config for Groq API keys
@@ -433,7 +433,7 @@ async function getAIResponse(userQuestion, userUuid, userName) {
 
     if (allParticipants.length > 0) {
       const participantDetails = allParticipants
-        .filter(p => p.uuid !== botUUID && p.uuid !== config.user_uuid) // Exclude bot by UUID
+        .filter(p => !p.pin_name?.includes(botName)) // Exclude bot by name
         .map(p => {
           let name = p.pin_name || 'Unknown';
 
@@ -588,9 +588,6 @@ app.post('/api/bot/start', async (req, res) => {
 
   try {
     const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
-
-    // Set bot UUID to skip greeting itself
-    botUUID = config.user_uuid;
 
     botState.status = 'starting';
     botState.mode = mode;
@@ -766,7 +763,7 @@ app.post('/api/bot/start', async (req, res) => {
             console.log(`[${timestamp}] 🔍 Detected keyword: List users request`);
 
             // Filter out bot from list
-            const usersWithoutBot = botState.participants.filter(p => p.uuid !== botUUID);
+            const usersWithoutBot = botState.participants.filter(p => !p.pin_name?.includes(botName));
 
             if (usersWithoutBot.length === 0) {
               console.log(`[${timestamp}] ⚠️  Participant list not loaded yet`);
@@ -835,7 +832,7 @@ app.post('/api/bot/start', async (req, res) => {
 
           // Record join times for everyone currently in room (for future bye messages)
           participants.forEach(p => {
-            if (p.uuid !== botUUID) {
+            if (!p.pin_name?.includes(botName)) {
               participantJoinTimes.set(p.uuid, {
                 name: p.pin_name || 'User',
                 joinTime: new Date()
@@ -874,7 +871,7 @@ app.post('/api/bot/start', async (req, res) => {
           const userName = p.pin_name || 'User';
 
           // Skip bot itself
-          if (uuid === botUUID) return;
+          if (userName.includes(botName)) return;
 
           console.log(`[${timestamp}] 🔎 Checking ${userName} (${uuid})`);
 
@@ -935,7 +932,7 @@ app.post('/api/bot/start', async (req, res) => {
         // Find participants who LEFT
         let leftCount = 0;
         previousParticipants.forEach((prevName, prevUuid) => {
-          if (prevUuid !== botUUID && !currentParticipants.has(prevUuid)) {
+          if (!prevName?.includes(botName) && !currentParticipants.has(prevUuid)) {
             leftCount++;
             // This participant left!
             const joinInfo = participantJoinTimes.get(prevUuid);
