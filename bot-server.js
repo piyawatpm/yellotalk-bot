@@ -647,10 +647,7 @@ app.post('/api/bot/start', async (req, res) => {
         addMessage(sender, message);
 
         // Keyword detection (don't respond to our own messages)
-        const isBotMessage = senderUuid === botUUID ||
-                            sender === config.pin_name ||
-                            sender.includes('Siri') ||
-                            sender.includes('🤖');
+        const isBotMessage = sender.includes('Siri');
 
         if (!isBotMessage) {
           const messageLower = message.toLowerCase();
