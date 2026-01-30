@@ -986,6 +986,42 @@ export default function ControlPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
+                  {/* Owner Slot (Slot 1) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {(() => {
+                      const ownerSpeaker = botState?.currentRoom?.owner;
+                      const ownerPosition = -1; // Special position for owner (maps to YelloTalk position 0)
+
+                      return (
+                        <div className="border-2 border-amber-500 rounded-lg p-3 shadow-md bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/30 col-span-1 sm:col-span-2 lg:col-span-3">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <Crown className="h-5 w-5 text-amber-500" />
+                              <div className="font-bold text-amber-700 dark:text-amber-400">Slot 1 - Room Owner</div>
+                            </div>
+                            <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                              {ownerSpeaker?.pin_name || 'Unknown'}
+                            </Badge>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button size="sm" variant="outline" className="h-8 text-xs border-amber-300 hover:bg-amber-100" onClick={() => muteSlot(ownerPosition)}>
+                              <VolumeX className="h-3 w-3 mr-1" />
+                              Mute Owner
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-8 text-xs border-amber-300 hover:bg-amber-100" onClick={() => unmuteSlot(ownerPosition)}>
+                              <Volume2 className="h-3 w-3 mr-1" />
+                              Unmute Owner
+                            </Button>
+                            <Button size="sm" variant="destructive" className="h-8 text-xs" onClick={() => kickSlot(ownerPosition)}>
+                              <UserX className="h-3 w-3 mr-1" />
+                              Kick Owner
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   {/* Row 1: Slots 2-6 (indices 0-4) */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                     {[0, 1, 2, 3, 4].map((position) => {

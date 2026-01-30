@@ -1628,8 +1628,8 @@ app.post('/api/bot/hijack-room', (req, res) => {
 app.post('/api/bot/speaker/lock', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots displayed as Slots 2-11)' });
+  if (position === undefined || position < -1 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be -1 to 9, where -1 is owner slot)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1647,8 +1647,8 @@ app.post('/api/bot/speaker/lock', async (req, res) => {
 app.post('/api/bot/speaker/unlock', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots displayed as Slots 2-11)' });
+  if (position === undefined || position < -1 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be -1 to 9, where -1 is owner slot)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1666,8 +1666,8 @@ app.post('/api/bot/speaker/unlock', async (req, res) => {
 app.post('/api/bot/speaker/mute', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots displayed as Slots 2-11)' });
+  if (position === undefined || position < -1 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be -1 to 9, where -1 is owner slot)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1685,8 +1685,8 @@ app.post('/api/bot/speaker/mute', async (req, res) => {
 app.post('/api/bot/speaker/unmute', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots displayed as Slots 2-11)' });
+  if (position === undefined || position < -1 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be -1 to 9, where -1 is owner slot)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
@@ -1704,22 +1704,34 @@ app.post('/api/bot/speaker/unmute', async (req, res) => {
 app.post('/api/bot/speaker/kick', async (req, res) => {
   const { position } = req.body;
 
-  if (position === undefined || position < 0 || position > 9) {
-    return res.status(400).json({ error: 'Invalid position (must be 0-9, total 10 slots displayed as Slots 2-11)' });
+  if (position === undefined || position < -1 || position > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be -1 to 9, where -1 is owner slot)' });
   }
 
   if (!yellotalkSocket || !yellotalkSocket.connected) {
     return res.status(400).json({ error: 'Bot not connected to room' });
   }
 
-  // Find speaker at this position
-  const speaker = botState.speakers[position];
-  if (!speaker || !speaker.uuid || speaker.locked) {
-    return res.status(400).json({ error: 'No speaker in this slot to kick' });
+  // Handle owner slot (position -1) specially
+  let speaker, speakerUuid;
+  if (position === -1) {
+    // Owner slot
+    speaker = botState.currentRoom?.owner;
+    speakerUuid = speaker?.uuid;
+    if (!speakerUuid) {
+      return res.status(400).json({ error: 'No owner found to kick' });
+    }
+  } else {
+    // Regular speaker slot
+    speaker = botState.speakers[position];
+    if (!speaker || !speaker.uuid || speaker.locked) {
+      return res.status(400).json({ error: 'No speaker in this slot to kick' });
+    }
+    speakerUuid = speaker.uuid;
   }
 
   try {
-    const result = await kickSpeaker(position, speaker.uuid);
+    const result = await kickSpeaker(position, speakerUuid);
     res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ error: error.message });
