@@ -522,6 +522,141 @@ function kickFromRoom(targetUuid) {
   });
 }
 
+// ==================== MULTI-BOT SPEAKER CONTROL FUNCTIONS ====================
+// These functions accept socket and state as parameters for multi-bot support
+
+function lockSpeakerForBot(position, socket, state) {
+  return new Promise((resolve, reject) => {
+    const yellotalkPosition = position + 1;
+    console.log(`🔒 Locking slot ${position + 1}...`);
+
+    socket.emit('lock_speaker', {
+      room: state.currentRoom?.id,
+      position: yellotalkPosition
+    }, (response) => {
+      if (response?.result === 200) {
+        if (state.speakers[position]) {
+          state.speakers[position] = { ...state.speakers[position], locked: true, pin_name: '🔒', uuid: null, mic_muted: true };
+          io.emit('speakers-update', state.speakers);
+        }
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Lock failed'));
+      }
+    });
+  });
+}
+
+function unlockSpeakerForBot(position, socket, state) {
+  return new Promise((resolve, reject) => {
+    const yellotalkPosition = position + 1;
+    console.log(`🔓 Unlocking slot ${position + 1}...`);
+
+    socket.emit('unlock_speaker', {
+      room: state.currentRoom?.id,
+      position: yellotalkPosition
+    }, (response) => {
+      if (response?.result === 200) {
+        if (state.speakers[position]) {
+          state.speakers[position] = { ...state.speakers[position], locked: false, pin_name: 'Empty', uuid: null, mic_muted: true };
+          io.emit('speakers-update', state.speakers);
+        }
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Unlock failed'));
+      }
+    });
+  });
+}
+
+function muteSpeakerForBot(position, socket, state) {
+  return new Promise((resolve, reject) => {
+    const yellotalkPosition = position + 1;
+    console.log(`🔇 Muting slot ${position + 1}...`);
+
+    socket.emit('mute_speaker', {
+      room: state.currentRoom?.id,
+      position: yellotalkPosition
+    }, (response) => {
+      if (response?.result === 200) {
+        if (state.speakers[position]) {
+          state.speakers[position] = { ...state.speakers[position], mic_muted: true };
+          io.emit('speakers-update', state.speakers);
+        }
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Mute failed'));
+      }
+    });
+  });
+}
+
+function unmuteSpeakerForBot(position, socket, state) {
+  return new Promise((resolve, reject) => {
+    const yellotalkPosition = position + 1;
+    console.log(`🔊 Unmuting slot ${position + 1}...`);
+
+    socket.emit('unmute_speaker', {
+      room: state.currentRoom?.id,
+      position: yellotalkPosition
+    }, (response) => {
+      if (response?.result === 200) {
+        if (state.speakers[position]) {
+          state.speakers[position] = { ...state.speakers[position], mic_muted: false };
+          io.emit('speakers-update', state.speakers);
+        }
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Unmute failed'));
+      }
+    });
+  });
+}
+
+function kickSpeakerForBot(position, targetUuid, socket, state) {
+  if (!targetUuid) {
+    return Promise.reject(new Error('No speaker in this slot'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const yellotalkPosition = position + 1;
+    console.log(`👢 Kicking speaker from slot ${position + 1}...`);
+
+    socket.emit('kick_speaker', {
+      room: state.currentRoom?.id,
+      uuid: targetUuid,
+      position: yellotalkPosition
+    }, (response) => {
+      if (response?.result === 200) {
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Kick failed'));
+      }
+    });
+  });
+}
+
+function kickFromRoomForBot(targetUuid, socket, state) {
+  if (!targetUuid) {
+    return Promise.reject(new Error('No user specified'));
+  }
+
+  return new Promise((resolve, reject) => {
+    console.log(`👢 Kicking user from room: ${targetUuid}`);
+
+    socket.emit('kick_room', {
+      room: state.currentRoom?.id,
+      uuid: targetUuid
+    }, (response) => {
+      if (response?.result === 200) {
+        resolve(response);
+      } else {
+        reject(new Error(response?.description || 'Kick from room failed'));
+      }
+    });
+  });
+}
+
 function addMessage(sender, message) {
   // Legacy function - kept for backward compatibility
   // Try to add to all running bot instances
@@ -2009,32 +2144,42 @@ app.get('/api/bot/greetings', (req, res) => {
 
 // Toggle welcome message
 app.post('/api/bot/toggle-welcome', (req, res) => {
-  const { enabled } = req.body;
+  const { enabled, botId } = req.body;
 
   if (typeof enabled !== 'boolean') {
     return res.status(400).json({ error: 'enabled must be a boolean' });
   }
 
-  botState.enableWelcomeMessage = enabled;
-  console.log(`🔄 Welcome message ${enabled ? 'enabled' : 'disabled'}`);
+  // Update specific bot's state or global
+  const instance = botId ? botInstances.get(botId) : null;
+  const state = instance?.state || botState;
+
+  state.enableWelcomeMessage = enabled;
+  console.log(`🔄 Welcome message ${enabled ? 'enabled' : 'disabled'} for ${botId || 'global'}`);
 
   broadcastState();
-  res.json({ success: true, enableWelcomeMessage: botState.enableWelcomeMessage });
+  if (botId) broadcastBotState(botId);
+  res.json({ success: true, enableWelcomeMessage: state.enableWelcomeMessage });
 });
 
 // Toggle auto-hijack
 app.post('/api/bot/toggle-hijack', (req, res) => {
-  const { enabled } = req.body;
+  const { enabled, botId } = req.body;
 
   if (typeof enabled !== 'boolean') {
     return res.status(400).json({ error: 'enabled must be a boolean' });
   }
 
-  botState.autoHijackRooms = enabled;
-  console.log(`🔄 Auto-hijack ${enabled ? 'enabled' : 'disabled'}`);
+  // Update specific bot's state or global
+  const instance = botId ? botInstances.get(botId) : null;
+  const state = instance?.state || botState;
+
+  state.autoHijackRooms = enabled;
+  console.log(`🔄 Auto-hijack ${enabled ? 'enabled' : 'disabled'} for ${botId || 'global'}`);
 
   broadcastState();
-  res.json({ success: true, autoHijackRooms: botState.autoHijackRooms });
+  if (botId) broadcastBotState(botId);
+  res.json({ success: true, autoHijackRooms: state.autoHijackRooms });
 });
 
 // Manual hijack endpoint (for when auto-hijack is disabled)
@@ -2081,18 +2226,23 @@ app.post('/api/bot/hijack-room', (req, res) => {
 
 // Speaker control endpoints
 app.post('/api/bot/speaker/lock', async (req, res) => {
-  const { position } = req.body;
+  const { position, botId } = req.body;
 
   if (position === undefined || position < -1 || position > 9) {
     return res.status(400).json({ error: 'Invalid position (must be -1 to 9, where -1 is owner slot)' });
   }
 
-  if (!yellotalkSocket || !yellotalkSocket.connected) {
+  // Get specific bot instance or fallback to global
+  const instance = botId ? botInstances.get(botId) : null;
+  const socket = instance?.socket || yellotalkSocket;
+  const state = instance?.state || botState;
+
+  if (!socket || !socket.connected) {
     return res.status(400).json({ error: 'Bot not connected to room' });
   }
 
   try {
-    const result = await lockSpeaker(position);
+    const result = await lockSpeakerForBot(position, socket, state);
     res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2100,18 +2250,22 @@ app.post('/api/bot/speaker/lock', async (req, res) => {
 });
 
 app.post('/api/bot/speaker/unlock', async (req, res) => {
-  const { position } = req.body;
+  const { position, botId } = req.body;
 
   if (position === undefined || position < -1 || position > 9) {
     return res.status(400).json({ error: 'Invalid position (must be -1 to 9, where -1 is owner slot)' });
   }
 
-  if (!yellotalkSocket || !yellotalkSocket.connected) {
+  const instance = botId ? botInstances.get(botId) : null;
+  const socket = instance?.socket || yellotalkSocket;
+  const state = instance?.state || botState;
+
+  if (!socket || !socket.connected) {
     return res.status(400).json({ error: 'Bot not connected to room' });
   }
 
   try {
-    const result = await unlockSpeaker(position);
+    const result = await unlockSpeakerForBot(position, socket, state);
     res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2119,18 +2273,22 @@ app.post('/api/bot/speaker/unlock', async (req, res) => {
 });
 
 app.post('/api/bot/speaker/mute', async (req, res) => {
-  const { position } = req.body;
+  const { position, botId } = req.body;
 
   if (position === undefined || position < -1 || position > 9) {
     return res.status(400).json({ error: 'Invalid position (must be -1 to 9, where -1 is owner slot)' });
   }
 
-  if (!yellotalkSocket || !yellotalkSocket.connected) {
+  const instance = botId ? botInstances.get(botId) : null;
+  const socket = instance?.socket || yellotalkSocket;
+  const state = instance?.state || botState;
+
+  if (!socket || !socket.connected) {
     return res.status(400).json({ error: 'Bot not connected to room' });
   }
 
   try {
-    const result = await muteSpeaker(position);
+    const result = await muteSpeakerForBot(position, socket, state);
     res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2138,18 +2296,22 @@ app.post('/api/bot/speaker/mute', async (req, res) => {
 });
 
 app.post('/api/bot/speaker/unmute', async (req, res) => {
-  const { position } = req.body;
+  const { position, botId } = req.body;
 
   if (position === undefined || position < -1 || position > 9) {
     return res.status(400).json({ error: 'Invalid position (must be -1 to 9, where -1 is owner slot)' });
   }
 
-  if (!yellotalkSocket || !yellotalkSocket.connected) {
+  const instance = botId ? botInstances.get(botId) : null;
+  const socket = instance?.socket || yellotalkSocket;
+  const state = instance?.state || botState;
+
+  if (!socket || !socket.connected) {
     return res.status(400).json({ error: 'Bot not connected to room' });
   }
 
   try {
-    const result = await unmuteSpeaker(position);
+    const result = await unmuteSpeakerForBot(position, socket, state);
     res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2157,13 +2319,17 @@ app.post('/api/bot/speaker/unmute', async (req, res) => {
 });
 
 app.post('/api/bot/speaker/kick', async (req, res) => {
-  const { position } = req.body;
+  const { position, botId } = req.body;
 
   if (position === undefined || position < -1 || position > 9) {
     return res.status(400).json({ error: 'Invalid position (must be -1 to 9, where -1 is owner slot)' });
   }
 
-  if (!yellotalkSocket || !yellotalkSocket.connected) {
+  const instance = botId ? botInstances.get(botId) : null;
+  const socket = instance?.socket || yellotalkSocket;
+  const state = instance?.state || botState;
+
+  if (!socket || !socket.connected) {
     return res.status(400).json({ error: 'Bot not connected to room' });
   }
 
@@ -2171,14 +2337,14 @@ app.post('/api/bot/speaker/kick', async (req, res) => {
   let speaker, speakerUuid;
   if (position === -1) {
     // Owner slot
-    speaker = botState.currentRoom?.owner;
+    speaker = state.currentRoom?.owner;
     speakerUuid = speaker?.uuid;
     if (!speakerUuid) {
       return res.status(400).json({ error: 'No owner found to kick' });
     }
   } else {
     // Regular speaker slot
-    speaker = botState.speakers[position];
+    speaker = state.speakers[position];
     if (!speaker || !speaker.uuid || speaker.locked) {
       return res.status(400).json({ error: 'No speaker in this slot to kick' });
     }
@@ -2186,7 +2352,7 @@ app.post('/api/bot/speaker/kick', async (req, res) => {
   }
 
   try {
-    const result = await kickSpeaker(position, speakerUuid);
+    const result = await kickSpeakerForBot(position, speakerUuid, socket, state);
     res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2194,18 +2360,22 @@ app.post('/api/bot/speaker/kick', async (req, res) => {
 });
 
 app.post('/api/bot/room/kick', async (req, res) => {
-  const { uuid } = req.body;
+  const { uuid, botId } = req.body;
 
   if (!uuid) {
     return res.status(400).json({ error: 'UUID required' });
   }
 
-  if (!yellotalkSocket || !yellotalkSocket.connected) {
+  const instance = botId ? botInstances.get(botId) : null;
+  const socket = instance?.socket || yellotalkSocket;
+  const state = instance?.state || botState;
+
+  if (!socket || !socket.connected) {
     return res.status(400).json({ error: 'Bot not connected to room' });
   }
 
   try {
-    const result = await kickFromRoom(uuid);
+    const result = await kickFromRoomForBot(uuid, socket, state);
     res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ error: error.message });

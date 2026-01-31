@@ -506,13 +506,13 @@ export default function ControlPage() {
     }
   }
 
-  // Speaker control handlers
+  // Speaker control handlers - all include botId for multi-bot support
   const lockSlot = async (position: number) => {
     try {
       const res = await fetch(`${getApiUrl()}/api/bot/speaker/lock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ position })
+        body: JSON.stringify({ position, botId: selectedBotId })
       })
       const data = await res.json()
       if (data.success) {
@@ -530,7 +530,7 @@ export default function ControlPage() {
       const res = await fetch(`${getApiUrl()}/api/bot/speaker/unlock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ position })
+        body: JSON.stringify({ position, botId: selectedBotId })
       })
       const data = await res.json()
       if (data.success) {
@@ -548,7 +548,7 @@ export default function ControlPage() {
       const res = await fetch(`${getApiUrl()}/api/bot/speaker/mute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ position })
+        body: JSON.stringify({ position, botId: selectedBotId })
       })
       const data = await res.json()
       if (data.success) {
@@ -566,7 +566,7 @@ export default function ControlPage() {
       const res = await fetch(`${getApiUrl()}/api/bot/speaker/unmute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ position })
+        body: JSON.stringify({ position, botId: selectedBotId })
       })
       const data = await res.json()
       if (data.success) {
@@ -584,7 +584,7 @@ export default function ControlPage() {
       const res = await fetch(`${getApiUrl()}/api/bot/speaker/kick`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ position })
+        body: JSON.stringify({ position, botId: selectedBotId })
       })
       const data = await res.json()
       if (data.success) {
@@ -602,7 +602,7 @@ export default function ControlPage() {
       const res = await fetch(`${getApiUrl()}/api/bot/room/kick`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uuid })
+        body: JSON.stringify({ uuid, botId: selectedBotId })
       })
       const data = await res.json()
       if (data.success) {
@@ -620,7 +620,7 @@ export default function ControlPage() {
       const res = await fetch(`${getApiUrl()}/api/bot/toggle-welcome`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
+        body: JSON.stringify({ enabled, botId: selectedBotId })
       })
       const data = await res.json()
       if (data.success) {
@@ -635,8 +635,8 @@ export default function ControlPage() {
   }
 
   const sendMsg = () => {
-    if (!message.trim() || !socket || botState?.status !== 'running') return
-    socket.emit('send-message', { message: message.trim() })
+    if (!message.trim() || !socket || currentBotState?.status !== 'running') return
+    socket.emit('send-message', { botId: selectedBotId, message: message.trim() })
     setMessage('')
   }
 
@@ -1076,7 +1076,7 @@ export default function ControlPage() {
                       </div>
                       <Switch
                         id="welcome-toggle-main"
-                        checked={botState?.enableWelcomeMessage ?? true}
+                        checked={currentBotState?.enableWelcomeMessage ?? true}
                         onCheckedChange={toggleWelcomeMessage}
                       />
                     </div>
@@ -1095,13 +1095,13 @@ export default function ControlPage() {
                       </div>
                       <Switch
                         id="hijack-toggle"
-                        checked={botState?.autoHijackRooms ?? false}
+                        checked={currentBotState?.autoHijackRooms ?? false}
                         onCheckedChange={async (checked) => {
                           try {
                             await fetch(`${getApiUrl()}/api/bot/toggle-hijack`, {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ enabled: checked })
+                              body: JSON.stringify({ enabled: checked, botId: selectedBotId })
                             })
                             toast({
                               title: checked ? 'Auto-Hijack Enabled' : 'Auto-Hijack Disabled',
