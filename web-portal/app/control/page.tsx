@@ -112,6 +112,16 @@ export default function ControlPage() {
     fetchBots()
   }, [])
 
+  // Sync botState when selectedBotId or botStates changes
+  useEffect(() => {
+    if (selectedBotId && botStates[selectedBotId]) {
+      setBotState(botStates[selectedBotId])
+      if (botStates[selectedBotId].speakers?.length > 0) {
+        setSpeakers(botStates[selectedBotId].speakers)
+      }
+    }
+  }, [selectedBotId, botStates])
+
   const connectToServer = () => {
     try {
       const newSocket = io(getApiUrl(), {
@@ -338,6 +348,25 @@ export default function ControlPage() {
 
       if (data.success) {
         setSelectedBotId(botId)
+        // Update botState to show selected bot's state
+        if (botStates[botId]) {
+          setBotState(botStates[botId])
+          if (botStates[botId].speakers?.length > 0) {
+            setSpeakers(botStates[botId].speakers)
+          }
+        } else {
+          // Reset to default state for non-running bot
+          setBotState({
+            status: 'stopped',
+            mode: null,
+            currentRoom: null,
+            messages: [],
+            participants: [],
+            speakers: [],
+            messageCount: 0
+          })
+          setSpeakers([])
+        }
         toast({
           title: 'Bot Selected',
           description: `Now using ${data.selectedBot.name}`
@@ -670,10 +699,12 @@ export default function ControlPage() {
     )
   }
 
-  const isRunning = botState?.status === 'running'
-  const isWaiting = botState?.status === 'waiting'
-  const isFollowMode = botState?.mode === 'follow'
-  const uptime = botState?.startTime ? Math.floor((Date.now() - botState.startTime) / 1000) : 0
+  // Use selected bot's state from botStates for accurate status
+  const currentBotState = botStates[selectedBotId] || botState
+  const isRunning = currentBotState?.status === 'running'
+  const isWaiting = currentBotState?.status === 'waiting'
+  const isFollowMode = currentBotState?.mode === 'follow'
+  const uptime = currentBotState?.startTime ? Math.floor((Date.now() - currentBotState.startTime) / 1000) : 0
   const minutes = Math.floor(uptime / 60)
   const seconds = uptime % 60
   const uptimeStr = uptime > 0 ? `${minutes}:${seconds.toString().padStart(2, '0')}` : '--:--'
