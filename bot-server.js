@@ -1433,8 +1433,12 @@ app.post('/api/bot/start', async (req, res) => {
       yellotalkSocket.on('disconnect', () => {
         console.log('⚠️  Disconnected from YelloTalk');
         botState.connected = false;
-        botState.status = 'error';
+        botState.status = 'stopped';
+        // Also update instance state
+        instance.state.connected = false;
+        instance.state.status = 'stopped';
         broadcastState();
+        broadcastBotState(targetBotId);
       });
 
       // THEN handle connect event
@@ -1442,7 +1446,11 @@ app.post('/api/bot/start', async (req, res) => {
         console.log('✅ Connected to YelloTalk WebSocket');
         botState.connected = true;
         botState.status = 'running';
+        // Also update the instance state
+        instance.state.connected = true;
+        instance.state.status = 'running';
         broadcastState();
+        broadcastBotState(targetBotId); // Emit bot-specific state for portal loading reset
 
         console.log(`🎯 Joining room: ${room.topic}`);
 
