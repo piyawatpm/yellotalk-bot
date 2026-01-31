@@ -151,9 +151,10 @@ function broadcastState() {
   io.emit('bot-state', botState);
 }
 
-// Load config for Groq API keys
+// Load config for Groq API keys and bot name
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
 const GROQ_API_KEYS = config.groq_api_keys || [];
+const botName = config.bot_name || 'Siri';
 
 // Initialize bots array in config if not exists
 function initializeBotsConfig() {
@@ -553,7 +554,7 @@ function addMessageForBot(botId, sender, message) {
 }
 
 // AI Response Handler with Dual API Key Support
-async function getAIResponse(userQuestion, userUuid, userName) {
+async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri') {
   try {
     const timestamp = new Date().toLocaleTimeString();
     console.log(`[${timestamp}] 🤖 ${userName} asking AI: "${userQuestion}"`);
@@ -1124,7 +1125,7 @@ app.post('/api/bot/start', async (req, res) => {
             console.log(`           Question extracted: "${question}"`);
 
             // Get AI response and send it
-            getAIResponse(question, senderUuid, sender)
+            getAIResponse(question, senderUuid, sender, botConfig.name)
               .then(aiReply => {
                 setTimeout(() => {
                   sendMessage(aiReply);
@@ -1143,7 +1144,7 @@ app.post('/api/bot/start', async (req, res) => {
             console.log(`[${timestamp}] 🔍 Detected keyword: List users request`);
 
             // Filter out bot from list
-            const usersWithoutBot = botState.participants.filter(p => !p.pin_name?.includes(botName));
+            const usersWithoutBot = botState.participants.filter(p => !p.pin_name?.includes(botConfig.name));
 
             if (usersWithoutBot.length === 0) {
               console.log(`[${timestamp}] ⚠️  Participant list not loaded yet`);
@@ -1212,7 +1213,7 @@ app.post('/api/bot/start', async (req, res) => {
 
           // Record join times for everyone currently in room (for future bye messages)
           participants.forEach(p => {
-            if (!p.pin_name?.includes(botName)) {
+            if (!p.pin_name?.includes(botConfig.name)) {
               participantJoinTimes.set(p.uuid, {
                 name: p.pin_name || 'User',
                 joinTime: new Date()
@@ -1251,7 +1252,7 @@ app.post('/api/bot/start', async (req, res) => {
           const userName = p.pin_name || 'User';
 
           // Skip bot itself
-          if (userName.includes(botName)) return;
+          if (userName.includes(botConfig.name)) return;
 
           console.log(`[${timestamp}] 🔎 Checking ${userName} (${uuid})`);
 
@@ -1312,7 +1313,7 @@ app.post('/api/bot/start', async (req, res) => {
         // Find participants who LEFT
         let leftCount = 0;
         previousParticipants.forEach((prevName, prevUuid) => {
-          if (!prevName?.includes(botName) && !currentParticipants.has(prevUuid)) {
+          if (!prevName?.includes(botConfig.name) && !currentParticipants.has(prevUuid)) {
             leftCount++;
             // This participant left!
             const joinInfo = participantJoinTimes.get(prevUuid);
