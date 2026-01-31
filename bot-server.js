@@ -65,6 +65,69 @@ let originalRoomOwner = null; // Store original owner before hijacking
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
 const GROQ_API_KEYS = config.groq_api_keys || [];
 
+// Multi-bot support
+let selectedBotId = null; // Currently selected bot ID
+
+// Initialize bots array in config if not exists
+function initializeBotsConfig() {
+  const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+  if (!config.bots) {
+    // Migrate existing single bot to bots array
+    config.bots = [{
+      id: 'bot-1',
+      name: config.pin_name || 'Bot 1',
+      jwt_token: config.jwt_token,
+      user_uuid: config.user_uuid,
+      avatar_id: config.avatar_id || 0
+    }];
+    fs.writeFileSync('./config.json', JSON.stringify(config, null, 2));
+    console.log('✅ Migrated config to multi-bot format');
+  }
+  // Set default selected bot
+  if (!selectedBotId && config.bots.length > 0) {
+    selectedBotId = config.bots[0].id;
+  }
+  return config;
+}
+
+// Get currently selected bot config
+function getSelectedBot() {
+  const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+  if (!config.bots || config.bots.length === 0) {
+    // Fallback to legacy config
+    return {
+      id: 'default',
+      name: config.pin_name || 'Bot',
+      jwt_token: config.jwt_token,
+      user_uuid: config.user_uuid,
+      avatar_id: config.avatar_id || 0
+    };
+  }
+  const bot = config.bots.find(b => b.id === selectedBotId);
+  return bot || config.bots[0];
+}
+
+// Validate JWT token by making API call
+async function validateBotToken(token) {
+  const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+  try {
+    const response = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'User-Agent': 'ios'
+      },
+      httpsAgent,
+      timeout: 10000
+    });
+    return { valid: true, data: response.data };
+  } catch (error) {
+    return { valid: false, error: error.response?.data?.message || error.message };
+  }
+}
+
+// Initialize on startup
+initializeBotsConfig();
+
 // Dual API Key Load Balancer
 let currentApiKeyIndex = 0;
 const groqClients = GROQ_API_KEYS.map(key => {
@@ -552,15 +615,162 @@ OTHER INSTRUCTIONS:
   }
 }
 
-// Fetch rooms
-app.get('/api/bot/rooms', async (req, res) => {
+// ==================== MULTI-BOT MANAGEMENT ====================
+
+// List all bots
+app.get('/api/bots', (req, res) => {
   try {
     const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+    const bots = config.bots || [];
+    res.json({
+      bots: bots.map(b => ({ id: b.id, name: b.name, user_uuid: b.user_uuid })),
+      selectedBotId
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add new bot
+app.post('/api/bots/add', async (req, res) => {
+  const { name, jwt_token } = req.body;
+
+  if (!jwt_token) {
+    return res.status(400).json({ error: 'JWT token is required' });
+  }
+
+  try {
+    // Validate token
+    console.log('🔍 Validating bot token...');
+    const validation = await validateBotToken(jwt_token);
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: `Invalid token: ${validation.error}` });
+    }
+
+    // Get user info from token (decode JWT to get uuid)
+    let userUuid = '';
+    try {
+      const tokenParts = jwt_token.split('.');
+      if (tokenParts.length === 3) {
+        const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+        userUuid = payload.uuid || '';
+      }
+    } catch (e) {
+      console.log('⚠️ Could not decode JWT payload');
+    }
+
+    // Load config and add bot
+    const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+    if (!config.bots) config.bots = [];
+
+    // Generate unique ID
+    const botId = `bot-${Date.now()}`;
+    const botName = name || `Bot ${config.bots.length + 1}`;
+
+    const newBot = {
+      id: botId,
+      name: botName,
+      jwt_token: jwt_token,
+      user_uuid: userUuid,
+      avatar_id: 0
+    };
+
+    config.bots.push(newBot);
+    fs.writeFileSync('./config.json', JSON.stringify(config, null, 2));
+
+    console.log(`✅ Added new bot: ${botName} (${botId})`);
+    res.json({
+      success: true,
+      bot: { id: newBot.id, name: newBot.name, user_uuid: newBot.user_uuid }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Select active bot
+app.post('/api/bots/select', (req, res) => {
+  const { botId } = req.body;
+
+  if (!botId) {
+    return res.status(400).json({ error: 'Bot ID is required' });
+  }
+
+  try {
+    const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+    const bot = config.bots?.find(b => b.id === botId);
+
+    if (!bot) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    selectedBotId = botId;
+    console.log(`✅ Selected bot: ${bot.name} (${botId})`);
+    res.json({ success: true, selectedBot: { id: bot.id, name: bot.name } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete bot
+app.delete('/api/bots/:id', (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+    if (!config.bots) {
+      return res.status(404).json({ error: 'No bots configured' });
+    }
+
+    const botIndex = config.bots.findIndex(b => b.id === id);
+    if (botIndex === -1) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    // Don't allow deleting the last bot
+    if (config.bots.length === 1) {
+      return res.status(400).json({ error: 'Cannot delete the last bot' });
+    }
+
+    const deletedBot = config.bots.splice(botIndex, 1)[0];
+    fs.writeFileSync('./config.json', JSON.stringify(config, null, 2));
+
+    // If deleted bot was selected, select the first available
+    if (selectedBotId === id) {
+      selectedBotId = config.bots[0].id;
+    }
+
+    console.log(`🗑️ Deleted bot: ${deletedBot.name} (${id})`);
+    res.json({ success: true, deletedBot: { id: deletedBot.id, name: deletedBot.name } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get selected bot info
+app.get('/api/bots/selected', (req, res) => {
+  try {
+    const bot = getSelectedBot();
+    res.json({
+      bot: { id: bot.id, name: bot.name, user_uuid: bot.user_uuid }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== END MULTI-BOT MANAGEMENT ====================
+
+// Fetch rooms (uses selected bot's token)
+app.get('/api/bot/rooms', async (req, res) => {
+  try {
+    const bot = getSelectedBot();
     const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
     const response = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
       headers: {
-        'Authorization': `Bearer ${config.jwt_token}`,
+        'Authorization': `Bearer ${bot.jwt_token}`,
         'User-Agent': 'ios'
       },
       httpsAgent
@@ -573,9 +783,14 @@ app.get('/api/bot/rooms', async (req, res) => {
   }
 });
 
-// Get status
+// Get status (includes selected bot info)
 app.get('/api/bot/status', (req, res) => {
-  res.json(botState);
+  const currentBot = getSelectedBot();
+  res.json({
+    ...botState,
+    selectedBotId,
+    selectedBotName: currentBot.name
+  });
 });
 
 // Start bot
@@ -587,7 +802,9 @@ app.post('/api/bot/start', async (req, res) => {
   const { mode, roomId, userUuid } = req.body;
 
   try {
-    const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+    // Get selected bot configuration
+    const bot = getSelectedBot();
+    console.log(`🤖 Starting bot: ${bot.name} (${bot.id})`);
 
     botState.status = 'starting';
     botState.mode = mode;
@@ -595,6 +812,8 @@ app.post('/api/bot/start', async (req, res) => {
     botState.messages = [];
     botState.participants = [];
     botState.messageCount = 0;
+    botState.activeBotId = bot.id;
+    botState.activeBotName = bot.name;
 
     // Reset greeting tracking
     previousParticipants = new Map();
@@ -607,7 +826,7 @@ app.post('/api/bot/start', async (req, res) => {
     if (mode === 'regular' && roomId) {
       const httpsAgent = new https.Agent({ rejectUnauthorized: false });
       const roomResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-        headers: { 'Authorization': `Bearer ${config.jwt_token}` },
+        headers: { 'Authorization': `Bearer ${bot.jwt_token}` },
         httpsAgent
       });
 
@@ -621,9 +840,9 @@ app.post('/api/bot/start', async (req, res) => {
       console.log(`📋 Room found: ${room.topic}`);
       console.log(`📋 Original owner: ${originalRoomOwner.pin_name} (${originalRoomOwner.uuid})`);
 
-      // Connect to YelloTalk
+      // Connect to YelloTalk with selected bot's token
       yellotalkSocket = socketClient('https://live.yellotalk.co:8443', {
-        auth: { token: config.jwt_token },
+        auth: { token: bot.jwt_token },
         transports: ['websocket'],
         rejectUnauthorized: false
       });
@@ -1065,14 +1284,14 @@ app.post('/api/bot/start', async (req, res) => {
 
         console.log(`🎯 Joining room: ${room.topic}`);
 
-        // Join room with bot's UUID (normal join)
+        // Join room with selected bot's UUID (normal join)
         yellotalkSocket.emit('join_room', {
           room: roomId,
-          uuid: config.user_uuid,
-          avatar_id: config.avatar_id,
+          uuid: bot.user_uuid,
+          avatar_id: bot.avatar_id || 0,
           gme_id: String(room.gme_id),
           campus: room.owner.group_shortname || 'No Group',
-          pin_name: config.pin_name
+          pin_name: bot.name
         }, (joinResponse) => {
           console.log('📥 Join ACK:', joinResponse);
 
@@ -1083,7 +1302,7 @@ app.post('/api/bot/start', async (req, res) => {
 
               yellotalkSocket.emit('create_room', {
                 room: roomId,
-                uuid: config.user_uuid,
+                uuid: bot.user_uuid,
                 limit_speaker: 0
               }, (createResp) => {
                 console.log('📥 create_room Response:', createResp);
@@ -1136,10 +1355,10 @@ app.post('/api/bot/start', async (req, res) => {
         }, 2000); // Increased to 2s to let hijack complete first
       });
     } else if (mode === 'follow' && userUuid) {
-      // Follow user mode - find the user first
+      // Follow user mode - find the user first (using selected bot)
       const httpsAgent = new https.Agent({ rejectUnauthorized: false });
       const roomsResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-        headers: { 'Authorization': `Bearer ${config.jwt_token}` },
+        headers: { 'Authorization': `Bearer ${bot.jwt_token}` },
         httpsAgent
       });
 
@@ -1160,12 +1379,12 @@ app.post('/api/bot/start', async (req, res) => {
 
       if (targetRoom) {
         console.log(`✅ User has active room: ${targetRoom.topic}`);
-        await joinRoom(targetRoom, config);
+        await joinRoom(targetRoom, bot);
       } else {
         console.log(`⏳ User has no room - starting polling...`);
         botState.status = 'running';
         broadcastState();
-        await startFollowPolling(userUuid, targetUser.pin_name, config);
+        await startFollowPolling(userUuid, targetUser.pin_name, bot);
       }
     }
 
@@ -1178,8 +1397,8 @@ app.post('/api/bot/start', async (req, res) => {
   }
 });
 
-// Follow user polling
-async function startFollowPolling(targetUserUuid, targetUserName, config) {
+// Follow user polling (bot parameter contains selected bot config)
+async function startFollowPolling(targetUserUuid, targetUserName, bot) {
   let checkCount = 0;
 
   // Clear any existing interval first!
@@ -1219,7 +1438,7 @@ async function startFollowPolling(targetUserUuid, targetUserName, config) {
     try {
       const httpsAgent = new https.Agent({ rejectUnauthorized: false });
       const roomsResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-        headers: { 'Authorization': `Bearer ${config.jwt_token}` },
+        headers: { 'Authorization': `Bearer ${bot.jwt_token}` },
         httpsAgent
       });
 
@@ -1236,8 +1455,8 @@ async function startFollowPolling(targetUserUuid, targetUserName, config) {
           console.log('🛑 Stopped polling - joining room');
         }
 
-        // Join the room
-        await joinRoom(targetRoom, config);
+        // Join the room with selected bot
+        await joinRoom(targetRoom, bot);
       } else {
         console.log(`   ❌ No room - waiting 5s...`);
         // Keep status as 'waiting' and broadcast
@@ -1259,8 +1478,9 @@ async function startFollowPolling(targetUserUuid, targetUserName, config) {
   }
 }
 
-async function joinRoom(room, config) {
-  console.log(`🔄 Joining room: ${room.topic}`);
+// Join room with selected bot configuration
+async function joinRoom(room, bot) {
+  console.log(`🔄 Joining room: ${room.topic} with bot: ${bot.name}`);
 
   botState.currentRoom = room;
   botState.status = 'running';
@@ -1278,9 +1498,9 @@ async function joinRoom(room, config) {
   // Wait a bit before reconnecting
   await new Promise(resolve => setTimeout(resolve, 500));
 
-  // Connect and join
+  // Connect and join with selected bot's token
   yellotalkSocket = socketClient('https://live.yellotalk.co:8443', {
-    auth: { token: config.jwt_token },
+    auth: { token: bot.jwt_token },
     transports: ['websocket'],
     rejectUnauthorized: false
   });
@@ -1295,11 +1515,11 @@ async function joinRoom(room, config) {
 
     yellotalkSocket.emit('join_room', {
       room: room.id,
-      uuid: config.user_uuid,
-      avatar_id: config.avatar_id,
+      uuid: bot.user_uuid,
+      avatar_id: bot.avatar_id || 0,
       gme_id: String(room.gme_id),
       campus: room.owner.group_shortname || 'No Group',
-      pin_name: config.pin_name
+      pin_name: bot.name
     }, (joinResponse) => {
       console.log('📥 Join ACK:', joinResponse);
     });
@@ -1311,18 +1531,18 @@ async function joinRoom(room, config) {
   });
 
   // Set up other listeners
-  setupSocketListeners(yellotalkSocket, room.id, config);
+  setupSocketListeners(yellotalkSocket, room.id, bot);
 
   // If already connected, emit join immediately
   if (yellotalkSocket.connected) {
     console.log('⚡ Already connected - joining immediately');
     yellotalkSocket.emit('join_room', {
       room: room.id,
-      uuid: config.user_uuid,
-      avatar_id: config.avatar_id,
+      uuid: bot.user_uuid,
+      avatar_id: bot.avatar_id || 0,
       gme_id: String(room.gme_id),
       campus: room.owner.group_shortname || 'No Group',
-      pin_name: config.pin_name
+      pin_name: bot.name
     });
 
     setTimeout(() => {
@@ -1331,7 +1551,7 @@ async function joinRoom(room, config) {
   }
 }
 
-function setupSocketListeners(socket, roomId, config) {
+function setupSocketListeners(socket, roomId, bot) {
   socket.onAny((eventName, data) => {
     console.log(`📡 [${eventName}]`);
   });
@@ -1434,10 +1654,11 @@ function setupSocketListeners(socket, roomId, config) {
 
       socket.disconnect();
 
-      const freshConfig = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+      // Use selected bot for follow polling restart
+      const selectedBot = getSelectedBot();
       setTimeout(() => {
         if (botState.followUser && botState.mode === 'follow') {
-          startFollowPolling(botState.followUser.uuid, botState.followUser.name, freshConfig);
+          startFollowPolling(botState.followUser.uuid, botState.followUser.name, selectedBot);
         }
       }, 2000);
     } else {
@@ -1469,8 +1690,8 @@ function setupSocketListeners(socket, roomId, config) {
       console.log(`🔄 Restarting follow polling for ${savedFollowUser.name}...`);
 
       try {
-        // Read config fresh
-        const freshConfig = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+        // Use selected bot for reconnection
+        const selectedBot = getSelectedBot();
 
         // Ensure followUser is preserved in state
         botState.followUser = savedFollowUser;
@@ -1479,7 +1700,7 @@ function setupSocketListeners(socket, roomId, config) {
         setTimeout(() => {
           // Triple check mode hasn't been changed by user clicking stop
           if (botState.followUser && botState.mode === 'follow') {
-            startFollowPolling(savedFollowUser.uuid, savedFollowUser.name, freshConfig);
+            startFollowPolling(savedFollowUser.uuid, savedFollowUser.name, selectedBot);
           } else {
             console.log('❌ Follow mode cancelled - not restarting');
           }
@@ -1500,12 +1721,15 @@ function setupSocketListeners(socket, roomId, config) {
 
 // Stop bot
 app.post('/api/bot/stop', (req, res) => {
+  const currentBot = getSelectedBot();
+
   console.log('\n' + '='.repeat(80));
   console.log('🛑 STOP BOT REQUESTED');
   console.log('='.repeat(80));
   console.log(`Current room: ${botState.currentRoom?.id}`);
   console.log(`Current room topic: ${botState.currentRoom?.topic}`);
-  console.log(`Bot UUID: ${config.user_uuid}`);
+  console.log(`Active bot: ${botState.activeBotName || currentBot.name}`);
+  console.log(`Bot UUID: ${currentBot.user_uuid}`);
   console.log(`Socket connected: ${yellotalkSocket?.connected}`);
   console.log('='.repeat(80) + '\n');
 
@@ -1532,7 +1756,7 @@ app.post('/api/bot/stop', (req, res) => {
       if (botState.currentRoom) {
         yellotalkSocket.emit('leave_room', {
           room: botState.currentRoom.id,
-          uuid: config.user_uuid
+          uuid: currentBot.user_uuid
         }, (leaveResp) => {
           console.log('📥 leave_room response:', leaveResp);
         });
@@ -1644,11 +1868,12 @@ app.post('/api/bot/hijack-room', (req, res) => {
     return res.status(400).json({ error: 'No current room' });
   }
 
+  const currentBot = getSelectedBot();
   console.log('🔥 Manual room hijack requested...');
 
   yellotalkSocket.emit('create_room', {
     room: botState.currentRoom.id,
-    uuid: config.user_uuid,
+    uuid: currentBot.user_uuid,
     limit_speaker: 0
   }, (createResp) => {
     console.log('📥 create_room Response:', createResp);
@@ -1815,13 +2040,14 @@ io.on('connection', (socket) => {
 
   socket.on('send-message', (data) => {
     if (yellotalkSocket && botState.currentRoom) {
-      const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+      // Use selected bot for sending messages
+      const bot = getSelectedBot();
 
       yellotalkSocket.emit('new_message', {
         room: botState.currentRoom.id,
-        uuid: config.user_uuid,
-        avatar_id: config.avatar_id,
-        pin_name: config.pin_name,
+        uuid: bot.user_uuid,
+        avatar_id: bot.avatar_id || 0,
+        pin_name: bot.name,
         message: data.message
       });
 

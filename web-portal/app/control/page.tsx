@@ -34,7 +34,10 @@ import {
   Volume2,
   VolumeX,
   Mic,
-  UserX
+  UserX,
+  Bot,
+  Plus,
+  Trash2
 } from 'lucide-react'
 import io from 'socket.io-client'
 import { useToast } from '@/hooks/use-toast'
@@ -94,9 +97,18 @@ export default function ControlPage() {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const startTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Multi-bot management state
+  const [bots, setBots] = useState<any[]>([])
+  const [selectedBotId, setSelectedBotId] = useState<string>('')
+  const [showAddBot, setShowAddBot] = useState(false)
+  const [newBotName, setNewBotName] = useState('')
+  const [newBotToken, setNewBotToken] = useState('')
+  const [addingBot, setAddingBot] = useState(false)
+
   useEffect(() => {
     connectToServer()
     fetchRooms()
+    fetchBots()
   }, [])
 
   const connectToServer = () => {
@@ -205,6 +217,130 @@ export default function ControlPage() {
       setRooms(data.rooms || [])
     } catch (error) {
       console.error('Could not fetch rooms')
+    }
+  }
+
+  // Fetch available bots
+  const fetchBots = async () => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bots`)
+      const data = await res.json()
+      setBots(data.bots || [])
+      if (data.selectedBotId) {
+        setSelectedBotId(data.selectedBotId)
+      }
+    } catch (error) {
+      console.error('Could not fetch bots')
+    }
+  }
+
+  // Add new bot
+  const addBot = async () => {
+    if (!newBotToken.trim()) {
+      toast({
+        title: 'Token Required',
+        description: 'Please enter a JWT token for the bot',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    setAddingBot(true)
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bots/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newBotName.trim() || undefined,
+          jwt_token: newBotToken.trim()
+        })
+      })
+      const data = await res.json()
+
+      if (data.success) {
+        toast({
+          title: 'Bot Added',
+          description: `Successfully added ${data.bot.name}`
+        })
+        setNewBotName('')
+        setNewBotToken('')
+        setShowAddBot(false)
+        fetchBots()
+        fetchRooms() // Refresh rooms with new bot
+      } else {
+        toast({
+          title: 'Failed to Add Bot',
+          description: data.error || 'Invalid token or server error',
+          variant: 'destructive'
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to add bot',
+        variant: 'destructive'
+      })
+    } finally {
+      setAddingBot(false)
+    }
+  }
+
+  // Select active bot
+  const selectBot = async (botId: string) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bots/select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId })
+      })
+      const data = await res.json()
+
+      if (data.success) {
+        setSelectedBotId(botId)
+        toast({
+          title: 'Bot Selected',
+          description: `Now using ${data.selectedBot.name}`
+        })
+        fetchRooms() // Refresh rooms with selected bot's token
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to select bot',
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // Delete bot
+  const deleteBot = async (botId: string, botName: string) => {
+    if (!confirm(`Are you sure you want to delete ${botName}?`)) return
+
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bots/${botId}`, {
+        method: 'DELETE'
+      })
+      const data = await res.json()
+
+      if (data.success) {
+        toast({
+          title: 'Bot Deleted',
+          description: `Removed ${data.deletedBot.name}`
+        })
+        fetchBots()
+      } else {
+        toast({
+          title: 'Delete Failed',
+          description: data.error,
+          variant: 'destructive'
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete bot',
+        variant: 'destructive'
+      })
     }
   }
 
@@ -537,9 +673,19 @@ export default function ControlPage() {
                     <div className={`w-3 h-3 rounded-full ${(isRunning || isWaiting) ? 'bg-white animate-pulse' : 'bg-white/40'}`} />
                   </div>
 
+                  {/* Active Bot Badge */}
+                  {(isRunning || isWaiting) && (
+                    <div className="flex items-center gap-2 mb-2 bg-white/10 px-3 py-1.5 rounded-lg inline-flex">
+                      <Bot className="h-4 w-4" />
+                      <span className="text-sm font-medium">
+                        Using: {botState?.activeBotName || bots.find(b => b.id === selectedBotId)?.name || 'Bot'}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Follow Mode Status */}
                   {isFollowMode && botState?.followUser && (
-                    <div className="flex items-center gap-2 mb-2 bg-white/10 px-3 py-1.5 rounded-lg inline-flex">
+                    <div className="flex items-center gap-2 mb-2 bg-white/10 px-3 py-1.5 rounded-lg inline-flex ml-2">
                       <Users className="h-4 w-4" />
                       <span className="text-sm font-medium">
                         Following: {botState.followUser.name}
@@ -636,6 +782,110 @@ export default function ControlPage() {
           transition={{ delay: 0.2 }}
           className="space-y-6"
         >
+          {/* Bot Selector Card */}
+          <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Bot className="h-5 w-5 text-blue-500" />
+                  Select Bot
+                </CardTitle>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowAddBot(!showAddBot)}
+                  className="border-blue-200 hover:bg-blue-50"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Bot
+                </Button>
+              </div>
+              <CardDescription>Choose which bot account to use</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Add Bot Form */}
+              {showAddBot && (
+                <div className="p-3 border-2 border-dashed border-blue-300 rounded-xl bg-blue-50/50 space-y-3">
+                  <Input
+                    placeholder="Bot name (optional)"
+                    value={newBotName}
+                    onChange={(e) => setNewBotName(e.target.value)}
+                    className="border-blue-200"
+                  />
+                  <Input
+                    placeholder="JWT Token (required)"
+                    value={newBotToken}
+                    onChange={(e) => setNewBotToken(e.target.value)}
+                    className="border-blue-200 font-mono text-xs"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={addBot}
+                      disabled={addingBot || !newBotToken.trim()}
+                      className="flex-1 bg-blue-500 hover:bg-blue-600"
+                    >
+                      {addingBot ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                      Add
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => { setShowAddBot(false); setNewBotName(''); setNewBotToken(''); }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Bot List */}
+              <div className="space-y-2">
+                {bots.map((bot) => (
+                  <div
+                    key={bot.id}
+                    onClick={() => !isRunning && selectBot(bot.id)}
+                    className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${
+                      selectedBotId === bot.id
+                        ? 'bg-blue-100 dark:bg-blue-900/40 ring-2 ring-blue-500'
+                        : 'bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    } ${isRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white font-bold">
+                        {bot.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-medium">{bot.name}</p>
+                        <p className="text-xs text-muted-foreground">{bot.id}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {selectedBotId === bot.id && (
+                        <CheckCircle2 className="h-5 w-5 text-blue-500" />
+                      )}
+                      {bots.length > 1 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={(e) => { e.stopPropagation(); deleteBot(bot.id, bot.name); }}
+                          disabled={isRunning}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {bots.length === 0 && (
+                  <div className="text-center text-muted-foreground py-4">
+                    <Bot className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No bots configured</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
           <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -646,7 +896,7 @@ export default function ControlPage() {
                 {(isRunning || isWaiting)
                   ? isFollowMode
                     ? `Following ${botState?.followUser?.name || 'user'} - Click below to stop`
-                    : 'Bot is currently running'
+                    : `Bot "${botState?.activeBotName || bots.find(b => b.id === selectedBotId)?.name || 'Unknown'}" is running`
                   : 'Select a mode and room to start'}
               </CardDescription>
             </CardHeader>
