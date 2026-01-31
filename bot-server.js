@@ -1243,12 +1243,12 @@ app.post('/api/bot/start', async (req, res) => {
 
                 // Confirm to user
                 setTimeout(() => {
-                  sendMessage(`บันทึกแล้วค่ะ! ต่อไป Siri จะทักทาย ${sender} ว่า "${customGreeting}" 🎀`);
+                  sendMessageForBot(targetBotId, `บันทึกแล้วค่ะ! ต่อไป Siri จะทักทาย ${sender} ว่า "${customGreeting}" 🎀`);
                 }, 1000);
               } catch (err) {
                 console.error(`[${timestamp}] ❌ Failed to save greeting:`, err);
                 setTimeout(() => {
-                  sendMessage(`ขอโทษค่ะ ไม่สามารถบันทึกได้ 😢`);
+                  sendMessageForBot(targetBotId, `ขอโทษค่ะ ไม่สามารถบันทึกได้ 😢`);
                 }, 1000);
               }
 
@@ -1263,7 +1263,7 @@ app.post('/api/bot/start', async (req, res) => {
             getAIResponse(question, senderUuid, sender, botConfig.name)
               .then(aiReply => {
                 setTimeout(() => {
-                  sendMessage(aiReply);
+                  sendMessageForBot(targetBotId, aiReply);
                 }, 1000); // Small delay to seem more natural
               })
               .catch(err => {
@@ -1308,7 +1308,7 @@ app.post('/api/bot/start', async (req, res) => {
             console.log(`[${timestamp}] 🤖 Auto-responding with user list (${usersWithoutBot.length} users)`);
 
             setTimeout(() => {
-              sendMessage(response);
+              sendMessageForBot(targetBotId, response);
             }, 800);
           }
         }
@@ -1365,7 +1365,7 @@ app.post('/api/bot/start', async (req, res) => {
           if (botState.enableWelcomeMessage) {
             setTimeout(() => {
               const welcomeMessage = 'สวัสดีค่ะ! 🤖 สามารถถามคำถามทั่วไปกับ AI ได้ด้วย @siri, siri หรือ สิริ\n⚠️ ตอบได้เฉพาะคำถามทั่วไป ไม่รวมข่าวล่าสุดหรือข้อมูลเรียลไทม์\n\nตัวอย่าง:\n• @siri สวัสดี\n• siri อธิบาย AI คืออะไร\n• สิริ สุ่มเลข 1-12 จากทุกคนในห้อง\n• ใครคือหห? siri\n\n🎀 ตั้งคำทักทายของตัวเอง:\n• siri เรียกฉันว่า [คำทักทาย]\n• siri ทักฉันว่า สวัสดีคนสวย';
-              sendMessage(welcomeMessage);
+              sendMessageForBot(targetBotId, welcomeMessage);
               console.log(`[${timestamp}] 👋 Sent Siri welcome message`);
             }, 2000); // 2 second delay to let room fully load
           } else {
@@ -1431,7 +1431,7 @@ app.post('/api/bot/start', async (req, res) => {
 
               // Send greeting with delay
               setTimeout(() => {
-                sendMessage(greeting);
+                sendMessageForBot(targetBotId, greeting);
               }, 1000 + (index * 500));
             } else {
               console.log(`[${timestamp}] 🔄 ${userName} rejoined (skipping duplicate greet)`);
@@ -1466,7 +1466,7 @@ app.post('/api/bot/start', async (req, res) => {
               console.log(`[${timestamp}] 🤖 Sending: "${goodbye}"`);
 
               setTimeout(() => {
-                sendMessage(goodbye);
+                sendMessageForBot(targetBotId, goodbye);
               }, 800);
 
               // Clean up
