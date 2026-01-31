@@ -116,6 +116,41 @@ function broadcastBotState(botId) {
 // Legacy: for backward compatibility
 let selectedBotId = null;
 
+// Global botState proxy - points to the first running bot or selected bot's state
+// This provides backward compatibility with code that hasn't been fully refactored
+let botState = createBotState();
+let yellotalkSocket = null;
+let followInterval = null;
+
+// Update global botState to match the active/selected bot instance
+function syncGlobalBotState() {
+  // Find first running bot or use selected bot
+  for (const [botId, instance] of botInstances) {
+    if (instance.state.status === 'running' || instance.state.status === 'waiting') {
+      botState = instance.state;
+      yellotalkSocket = instance.socket;
+      followInterval = instance.followInterval;
+      return;
+    }
+  }
+  // Fallback to selected bot's instance
+  if (selectedBotId) {
+    const instance = botInstances.get(selectedBotId);
+    if (instance) {
+      botState = instance.state;
+      yellotalkSocket = instance.socket;
+      followInterval = instance.followInterval;
+      return;
+    }
+  }
+}
+
+// Legacy broadcastState - broadcasts the global botState
+function broadcastState() {
+  syncGlobalBotState();
+  io.emit('bot-state', botState);
+}
+
 // Load config for Groq API keys
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
 const GROQ_API_KEYS = config.groq_api_keys || [];
@@ -1511,11 +1546,14 @@ app.post('/api/bot/start', async (req, res) => {
       }
     }
 
-    res.json({ success: true });
+    res.json({ success: true, botId: targetBotId });
   } catch (error) {
     console.error('Start error:', error);
-    botState.status = 'error';
-    broadcastState();
+    // Update the instance state if it exists
+    if (instance) {
+      instance.state.status = 'error';
+      broadcastBotState(targetBotId);
+    }
     res.status(500).json({ error: error.message });
   }
 });
