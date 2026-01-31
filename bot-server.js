@@ -1004,6 +1004,9 @@ app.post('/api/bot/start', async (req, res) => {
         rejectUnauthorized: false
       });
 
+      // Sync global socket for backward compatibility with code that still uses yellotalkSocket
+      yellotalkSocket = instance.socket;
+
       // Set up ALL event listeners FIRST
       instance.socket.onAny((eventName, data) => {
         console.log(`📡 [${botConfig.name}] [${eventName}]`, typeof data === 'object' ? JSON.stringify(data).substring(0, 100) : data);
@@ -1445,11 +1448,11 @@ app.post('/api/bot/start', async (req, res) => {
         // Join room with selected bot's UUID (normal join)
         yellotalkSocket.emit('join_room', {
           room: roomId,
-          uuid: bot.user_uuid,
-          avatar_id: bot.avatar_id || 0,
+          uuid: botConfig.user_uuid,
+          avatar_id: botConfig.avatar_id || 0,
           gme_id: String(room.gme_id),
           campus: room.owner.group_shortname || 'No Group',
-          pin_name: bot.name
+          pin_name: botConfig.name
         }, (joinResponse) => {
           console.log('📥 Join ACK:', joinResponse);
 
@@ -1460,7 +1463,7 @@ app.post('/api/bot/start', async (req, res) => {
 
               yellotalkSocket.emit('create_room', {
                 room: roomId,
-                uuid: bot.user_uuid,
+                uuid: botConfig.user_uuid,
                 limit_speaker: 0
               }, (createResp) => {
                 console.log('📥 create_room Response:', createResp);
