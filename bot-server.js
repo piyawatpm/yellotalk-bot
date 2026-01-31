@@ -1516,7 +1516,7 @@ app.post('/api/bot/start', async (req, res) => {
       // Follow user mode - find the user first (using selected bot)
       const httpsAgent = new https.Agent({ rejectUnauthorized: false });
       const roomsResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-        headers: { 'Authorization': `Bearer ${bot.jwt_token}` },
+        headers: { 'Authorization': `Bearer ${botConfig.jwt_token}` },
         httpsAgent
       });
 
@@ -1528,7 +1528,7 @@ app.post('/api/bot/start', async (req, res) => {
         throw new Error('User not found');
       }
 
-      botState.followUser = {
+      instance.state.followUser = {
         uuid: targetUser.uuid,
         name: targetUser.pin_name
       };
@@ -1537,12 +1537,12 @@ app.post('/api/bot/start', async (req, res) => {
 
       if (targetRoom) {
         console.log(`✅ User has active room: ${targetRoom.topic}`);
-        await joinRoom(targetRoom, bot);
+        await joinRoom(targetRoom, botConfig);
       } else {
         console.log(`⏳ User has no room - starting polling...`);
-        botState.status = 'running';
-        broadcastState();
-        await startFollowPolling(userUuid, targetUser.pin_name, bot);
+        instance.state.status = 'running';
+        broadcastBotState(targetBotId);
+        await startFollowPolling(userUuid, targetUser.pin_name, botConfig);
       }
     }
 
