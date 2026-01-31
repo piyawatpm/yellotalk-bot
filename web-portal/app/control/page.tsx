@@ -99,6 +99,7 @@ export default function ControlPage() {
 
   // Multi-bot management state
   const [bots, setBots] = useState<any[]>([])
+  const [botStates, setBotStates] = useState<Record<string, any>>({}) // State for each bot
   const [selectedBotId, setSelectedBotId] = useState<string>('')
   const [showAddBot, setShowAddBot] = useState(false)
   const [newBotName, setNewBotName] = useState('')
@@ -125,15 +126,32 @@ export default function ControlPage() {
         toast({ title: 'Connected!', description: 'Connected to bot control server' })
       })
 
-      newSocket.on('bot-state', (state) => {
-        setBotState(state)
+      // Handle all bot states (multi-bot support)
+      newSocket.on('all-bot-states', (states) => {
+        setBotStates(states)
 
-        // Initialize speakers from bot state
-        if (state.speakers && state.speakers.length > 0) {
-          setSpeakers(state.speakers)
+        // For backward compatibility, set botState to selected bot's state
+        if (selectedBotId && states[selectedBotId]) {
+          setBotState(states[selectedBotId])
+          if (states[selectedBotId].speakers?.length > 0) {
+            setSpeakers(states[selectedBotId].speakers)
+          }
+        }
+      })
+
+      // Handle individual bot state update
+      newSocket.on('bot-state-update', ({ botId, state }) => {
+        setBotStates((prev: any) => ({ ...prev, [botId]: state }))
+
+        // Update main botState if this is the selected bot
+        if (botId === selectedBotId) {
+          setBotState(state)
+          if (state.speakers?.length > 0) {
+            setSpeakers(state.speakers)
+          }
         }
 
-        // Clear timeout and reset starting state when we get bot state update
+        // Clear timeout and reset starting state
         if (startTimeoutRef.current) {
           clearTimeout(startTimeoutRef.current)
           startTimeoutRef.current = null
@@ -141,7 +159,7 @@ export default function ControlPage() {
 
         if (state.status === 'running') {
           toast({
-            title: 'Bot Started!',
+            title: `${state.name || 'Bot'} Started!`,
             description: `Now monitoring: ${state.currentRoom?.topic || 'room'}`
           })
           setStarting(false)
@@ -150,7 +168,30 @@ export default function ControlPage() {
         }
       })
 
+      // Legacy bot-state event (backward compatibility)
+      newSocket.on('bot-state', (state) => {
+        setBotState(state)
+        if (state.speakers?.length > 0) {
+          setSpeakers(state.speakers)
+        }
+      })
+
       newSocket.on('new-message', (msg) => {
+        // Update the specific bot's messages or the selected bot
+        const targetBotId = msg.botId || selectedBotId
+        if (targetBotId) {
+          setBotStates((prev: any) => {
+            if (!prev[targetBotId]) return prev
+            return {
+              ...prev,
+              [targetBotId]: {
+                ...prev[targetBotId],
+                messages: [...(prev[targetBotId].messages || []), msg]
+              }
+            }
+          })
+        }
+        // Also update legacy botState
         setBotState((prev: any) => prev ? ({
           ...prev,
           messages: [...(prev.messages || []), msg]
@@ -374,7 +415,8 @@ export default function ControlPage() {
         body: JSON.stringify({
           mode: selectedMode,
           roomId: selectedRoom,
-          userUuid: selectedUser
+          userUuid: selectedUser,
+          botId: selectedBotId // Include selected bot ID
         })
       })
 
@@ -401,9 +443,13 @@ export default function ControlPage() {
     }
   }
 
-  const stopBot = async () => {
+  const stopBot = async (botIdToStop?: string) => {
     try {
-      await fetch(`${getApiUrl()}/api/bot/stop`, { method: 'POST' })
+      await fetch(`${getApiUrl()}/api/bot/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId: botIdToStop || selectedBotId })
+      })
       toast({ title: 'Bot Stopped', description: 'Bot has been disconnected' })
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to stop bot', variant: 'destructive' })
@@ -837,45 +883,75 @@ export default function ControlPage() {
                 </div>
               )}
 
-              {/* Bot List */}
+              {/* Bot List - Each bot shows its own status */}
               <div className="space-y-2">
-                {bots.map((bot) => (
-                  <div
-                    key={bot.id}
-                    onClick={() => !isRunning && selectBot(bot.id)}
-                    className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${
-                      selectedBotId === bot.id
-                        ? 'bg-blue-100 dark:bg-blue-900/40 ring-2 ring-blue-500'
-                        : 'bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
-                    } ${isRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white font-bold">
-                        {bot.name.charAt(0).toUpperCase()}
+                {bots.map((bot) => {
+                  const thisBotState = botStates[bot.id] || {}
+                  const thisBotRunning = thisBotState.status === 'running' || thisBotState.status === 'waiting'
+
+                  return (
+                    <div
+                      key={bot.id}
+                      onClick={() => selectBot(bot.id)}
+                      className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${
+                        selectedBotId === bot.id
+                          ? 'bg-blue-100 dark:bg-blue-900/40 ring-2 ring-blue-500'
+                          : thisBotRunning
+                          ? 'bg-green-50 dark:bg-green-900/20 ring-1 ring-green-400'
+                          : 'bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold ${
+                          thisBotRunning
+                            ? 'bg-gradient-to-br from-green-500 to-emerald-500'
+                            : 'bg-gradient-to-br from-blue-500 to-indigo-500'
+                        }`}>
+                          {bot.name.charAt(0).toUpperCase()}
+                          {thisBotRunning && (
+                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-pulse" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-medium">{bot.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {thisBotRunning
+                              ? `🟢 ${thisBotState.currentRoom?.topic || 'Running'}`
+                              : '⚪ Stopped'
+                            }
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium">{bot.name}</p>
-                        <p className="text-xs text-muted-foreground">{bot.id}</p>
+                      <div className="flex items-center gap-2">
+                        {thisBotRunning ? (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="h-8"
+                            onClick={(e) => { e.stopPropagation(); stopBot(bot.id); }}
+                          >
+                            <Square className="h-3 w-3 mr-1" />
+                            Stop
+                          </Button>
+                        ) : (
+                          selectedBotId === bot.id && (
+                            <CheckCircle2 className="h-5 w-5 text-blue-500" />
+                          )
+                        )}
+                        {bots.length > 1 && !thisBotRunning && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={(e) => { e.stopPropagation(); deleteBot(bot.id, bot.name); }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {selectedBotId === bot.id && (
-                        <CheckCircle2 className="h-5 w-5 text-blue-500" />
-                      )}
-                      {bots.length > 1 && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={(e) => { e.stopPropagation(); deleteBot(bot.id, bot.name); }}
-                          disabled={isRunning}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
                 {bots.length === 0 && (
                   <div className="text-center text-muted-foreground py-4">
                     <Bot className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -1067,7 +1143,7 @@ export default function ControlPage() {
                       </AlertDescription>
                     </Alert>
                     <Button
-                      onClick={stopBot}
+                      onClick={() => stopBot()}
                       className="w-full h-12 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-lg shadow-rose-500/25 transition-all duration-300"
                     >
                       <Square className="mr-2 h-5 w-5" />

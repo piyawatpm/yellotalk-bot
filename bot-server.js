@@ -40,33 +40,85 @@ const io = new Server(server, {
 
 app.use(express.json());
 
-// Bot state
-let botState = {
-  status: 'stopped', // stopped, starting, running, waiting, error
-  mode: null,
-  currentRoom: null,
-  followUser: null,
-  messageCount: 0,
-  participants: [],
-  speakers: [], // Speaker slot status (10 slots: indices 0-9, displayed as Slots 2-11, skipping owner)
-  messages: [],
-  connected: false,
-  startTime: null,
-  enableWelcomeMessage: true, // Toggle for welcome message on room join
-  autoHijackRooms: false // Toggle for automatic room hijacking (default: false)
-};
+// ==================== MULTI-BOT INSTANCE MANAGEMENT ====================
+// Each bot runs independently with its own state, socket, and intervals
 
-let yellotalkSocket = null;
-let followInterval = null;
-const botName = 'Siri'; // Bot's name to skip greeting itself
-let originalRoomOwner = null; // Store original owner before hijacking
+// Map of active bot instances: botId -> { config, state, socket, followInterval, originalRoomOwner }
+const botInstances = new Map();
+
+// Create a fresh state object for a bot
+function createBotState() {
+  return {
+    status: 'stopped', // stopped, starting, running, waiting, error
+    mode: null,
+    currentRoom: null,
+    followUser: null,
+    messageCount: 0,
+    participants: [],
+    speakers: [],
+    messages: [],
+    connected: false,
+    startTime: null,
+    enableWelcomeMessage: true,
+    autoHijackRooms: false
+  };
+}
+
+// Get or create a bot instance
+function getBotInstance(botId) {
+  if (!botInstances.has(botId)) {
+    const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+    const botConfig = config.bots?.find(b => b.id === botId);
+    if (!botConfig) return null;
+
+    botInstances.set(botId, {
+      config: botConfig,
+      state: createBotState(),
+      socket: null,
+      followInterval: null,
+      originalRoomOwner: null
+    });
+  }
+  return botInstances.get(botId);
+}
+
+// Get all bot instances with their states
+function getAllBotStates() {
+  const states = {};
+  const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+
+  // Include all configured bots, even if not running
+  (config.bots || []).forEach(bot => {
+    const instance = botInstances.get(bot.id);
+    states[bot.id] = {
+      id: bot.id,
+      name: bot.name,
+      ...(instance ? instance.state : createBotState())
+    };
+  });
+
+  return states;
+}
+
+// Broadcast state for a specific bot
+function broadcastBotState(botId) {
+  const instance = botInstances.get(botId);
+  if (instance) {
+    io.emit('bot-state-update', {
+      botId,
+      state: { ...instance.state, id: botId, name: instance.config.name }
+    });
+  }
+  // Also emit all states for clients that want the full picture
+  io.emit('all-bot-states', getAllBotStates());
+}
+
+// Legacy: for backward compatibility
+let selectedBotId = null;
 
 // Load config for Groq API keys
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
 const GROQ_API_KEYS = config.groq_api_keys || [];
-
-// Multi-bot support
-let selectedBotId = null; // Currently selected bot ID
 
 // Initialize bots array in config if not exists
 function initializeBotsConfig() {
@@ -184,14 +236,28 @@ function broadcastState() {
   io.emit('bot-state', botState);
 }
 
+// Legacy sendMessage - sends to first connected bot
 function sendMessage(text) {
-  if (!yellotalkSocket || !yellotalkSocket.connected) {
-    console.log('⚠️  Cannot send message - not connected');
+  // Find any connected bot instance
+  for (const [botId, instance] of botInstances) {
+    if (instance.socket && instance.socket.connected) {
+      sendMessageForBot(botId, text);
+      return;
+    }
+  }
+  console.log('⚠️  Cannot send message - no bot connected');
+}
+
+// Send message from a specific bot
+function sendMessageForBot(botId, text) {
+  const instance = botInstances.get(botId);
+  if (!instance || !instance.socket || !instance.socket.connected) {
+    console.log(`⚠️  Cannot send message - bot ${botId} not connected`);
     return;
   }
-  yellotalkSocket.emit('new_message', { message: text });
-  console.log(`📤 Sent: ${text}`);
-  addMessage('Bot', text);
+  instance.socket.emit('new_message', { message: text });
+  console.log(`📤 [${instance.config.name}] Sent: ${text}`);
+  addMessageForBot(botId, instance.config.name, text);
 }
 
 // Speaker control functions
@@ -421,20 +487,34 @@ function kickFromRoom(targetUuid) {
 }
 
 function addMessage(sender, message) {
-  botState.messages.push({
+  // Legacy function - kept for backward compatibility
+  // Try to add to all running bot instances
+  botInstances.forEach((instance, botId) => {
+    if (instance.state.status === 'running') {
+      addMessageForBot(botId, sender, message);
+    }
+  });
+}
+
+// Add message to a specific bot's state
+function addMessageForBot(botId, sender, message) {
+  const instance = botInstances.get(botId);
+  if (!instance) return;
+
+  instance.state.messages.push({
     sender,
     message,
     time: new Date().toLocaleTimeString()
   });
-  botState.messageCount++;
+  instance.state.messageCount++;
 
   // Keep only last 100 messages
-  if (botState.messages.length > 100) {
-    botState.messages = botState.messages.slice(-100);
+  if (instance.state.messages.length > 100) {
+    instance.state.messages = instance.state.messages.slice(-100);
   }
 
-  io.emit('new-message', { sender, message, time: new Date().toLocaleTimeString() });
-  broadcastState();
+  io.emit('new-message', { botId, sender, message, time: new Date().toLocaleTimeString() });
+  broadcastBotState(botId);
 }
 
 // AI Response Handler with Dual API Key Support
@@ -762,15 +842,25 @@ app.get('/api/bots/selected', (req, res) => {
 
 // ==================== END MULTI-BOT MANAGEMENT ====================
 
-// Fetch rooms (uses selected bot's token)
+// Fetch rooms (can specify botId to use that bot's token)
 app.get('/api/bot/rooms', async (req, res) => {
   try {
-    const bot = getSelectedBot();
+    const { botId } = req.query;
+    let botConfig;
+
+    if (botId) {
+      const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+      botConfig = config.bots?.find(b => b.id === botId);
+    }
+    if (!botConfig) {
+      botConfig = getSelectedBot();
+    }
+
     const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
     const response = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
       headers: {
-        'Authorization': `Bearer ${bot.jwt_token}`,
+        'Authorization': `Bearer ${botConfig.jwt_token}`,
         'User-Agent': 'ios'
       },
       httpsAgent
@@ -783,50 +873,82 @@ app.get('/api/bot/rooms', async (req, res) => {
   }
 });
 
-// Get status (includes selected bot info)
+// Get status for all bots
 app.get('/api/bot/status', (req, res) => {
-  const currentBot = getSelectedBot();
   res.json({
-    ...botState,
-    selectedBotId,
-    selectedBotName: currentBot.name
+    bots: getAllBotStates(),
+    selectedBotId
   });
 });
 
-// Start bot
-app.post('/api/bot/start', async (req, res) => {
-  if (botState.status === 'running') {
-    return res.json({ error: 'Bot already running' });
+// Get status for a specific bot
+app.get('/api/bot/status/:botId', (req, res) => {
+  const { botId } = req.params;
+  const instance = botInstances.get(botId);
+  const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+  const botConfig = config.bots?.find(b => b.id === botId);
+
+  if (!botConfig) {
+    return res.status(404).json({ error: 'Bot not found' });
   }
 
-  const { mode, roomId, userUuid } = req.body;
+  res.json({
+    id: botId,
+    name: botConfig.name,
+    ...(instance ? instance.state : createBotState())
+  });
+});
+
+// Start a specific bot
+app.post('/api/bot/start', async (req, res) => {
+  const { mode, roomId, userUuid, botId } = req.body;
+
+  // Get bot config - either specified botId or selected bot
+  const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+  const targetBotId = botId || selectedBotId || config.bots?.[0]?.id;
+
+  if (!targetBotId) {
+    return res.status(400).json({ error: 'No bot specified or selected' });
+  }
+
+  const botConfig = config.bots?.find(b => b.id === targetBotId);
+  if (!botConfig) {
+    return res.status(404).json({ error: 'Bot not found' });
+  }
+
+  // Get or create bot instance
+  let instance = getBotInstance(targetBotId);
+  if (!instance) {
+    return res.status(404).json({ error: 'Could not create bot instance' });
+  }
+
+  // Check if this specific bot is already running
+  if (instance.state.status === 'running') {
+    return res.json({ error: `Bot "${botConfig.name}" is already running` });
+  }
 
   try {
-    // Get selected bot configuration
-    const bot = getSelectedBot();
-    console.log(`🤖 Starting bot: ${bot.name} (${bot.id})`);
+    console.log(`🤖 Starting bot: ${botConfig.name} (${targetBotId})`);
 
-    botState.status = 'starting';
-    botState.mode = mode;
-    botState.startTime = Date.now();
-    botState.messages = [];
-    botState.participants = [];
-    botState.messageCount = 0;
-    botState.activeBotId = bot.id;
-    botState.activeBotName = bot.name;
+    instance.state.status = 'starting';
+    instance.state.mode = mode;
+    instance.state.startTime = Date.now();
+    instance.state.messages = [];
+    instance.state.participants = [];
+    instance.state.messageCount = 0;
 
-    // Reset greeting tracking
-    previousParticipants = new Map();
-    participantJoinTimes = new Map();
-    hasJoinedRoom = false;
+    // Reset greeting tracking for this bot instance
+    instance.previousParticipants = new Map();
+    instance.participantJoinTimes = new Map();
+    instance.hasJoinedRoom = false;
 
-    broadcastState();
+    broadcastBotState(targetBotId);
 
     // Fetch room details FIRST
     if (mode === 'regular' && roomId) {
       const httpsAgent = new https.Agent({ rejectUnauthorized: false });
       const roomResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-        headers: { 'Authorization': `Bearer ${bot.jwt_token}` },
+        headers: { 'Authorization': `Bearer ${botConfig.jwt_token}` },
         httpsAgent
       });
 
@@ -835,35 +957,36 @@ app.post('/api/bot/start', async (req, res) => {
         throw new Error('Room not found');
       }
 
-      botState.currentRoom = room;
-      originalRoomOwner = room.owner; // Save original owner before hijacking
+      instance.state.currentRoom = room;
+      instance.originalRoomOwner = room.owner;
       console.log(`📋 Room found: ${room.topic}`);
-      console.log(`📋 Original owner: ${originalRoomOwner.pin_name} (${originalRoomOwner.uuid})`);
+      console.log(`📋 Original owner: ${instance.originalRoomOwner.pin_name} (${instance.originalRoomOwner.uuid})`);
 
-      // Connect to YelloTalk with selected bot's token
-      yellotalkSocket = socketClient('https://live.yellotalk.co:8443', {
-        auth: { token: bot.jwt_token },
+      // Connect to YelloTalk with this bot's token
+      instance.socket = socketClient('https://live.yellotalk.co:8443', {
+        auth: { token: botConfig.jwt_token },
         transports: ['websocket'],
         rejectUnauthorized: false
       });
 
       // Set up ALL event listeners FIRST
-      yellotalkSocket.onAny((eventName, data) => {
-        console.log(`📡 [${eventName}]`, typeof data === 'object' ? JSON.stringify(data).substring(0, 100) : data);
+      instance.socket.onAny((eventName, data) => {
+        console.log(`📡 [${botConfig.name}] [${eventName}]`, typeof data === 'object' ? JSON.stringify(data).substring(0, 100) : data);
       });
 
-      yellotalkSocket.on('new_message', (data) => {
+      instance.socket.on('new_message', (data) => {
         const timestamp = new Date().toLocaleTimeString();
         const sender = data.pin_name || 'Unknown';
         const message = data.message || '';
         const senderUuid = data.uuid;
 
-        console.log(`\n[${timestamp}] 💬 ${sender}:`);
+        console.log(`\n[${timestamp}] [${botConfig.name}] 💬 ${sender}:`);
         console.log(`           ${message}`);
-        addMessage(sender, message);
+        addMessageForBot(targetBotId, sender, message);
 
         // Keyword detection (don't respond to our own messages)
-        const isBotMessage = sender.includes('Siri');
+        // Use bot's actual name instead of hardcoded "Siri"
+        const isBotMessage = sender.includes(botConfig.name);
 
         if (!isBotMessage) {
           const messageLower = message.toLowerCase();
@@ -1719,33 +1842,65 @@ function setupSocketListeners(socket, roomId, bot) {
   });
 }
 
-// Stop bot
+// Stop a specific bot (or all if no botId provided)
 app.post('/api/bot/stop', (req, res) => {
-  const currentBot = getSelectedBot();
+  const { botId } = req.body;
+
+  // If botId specified, stop just that bot
+  if (botId) {
+    const instance = botInstances.get(botId);
+    if (!instance) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    stopBotInstance(botId);
+    return res.json({ success: true, stopped: botId });
+  }
+
+  // Otherwise stop all running bots
+  const stoppedBots = [];
+  botInstances.forEach((instance, id) => {
+    if (instance.state.status === 'running' || instance.state.status === 'waiting') {
+      stopBotInstance(id);
+      stoppedBots.push(id);
+    }
+  });
+
+  res.json({ success: true, stopped: stoppedBots });
+});
+
+// Helper function to stop a specific bot instance
+function stopBotInstance(botId) {
+  const instance = botInstances.get(botId);
+  if (!instance) return;
 
   console.log('\n' + '='.repeat(80));
-  console.log('🛑 STOP BOT REQUESTED');
+  console.log(`🛑 STOPPING BOT: ${instance.config.name} (${botId})`);
   console.log('='.repeat(80));
-  console.log(`Current room: ${botState.currentRoom?.id}`);
-  console.log(`Current room topic: ${botState.currentRoom?.topic}`);
-  console.log(`Active bot: ${botState.activeBotName || currentBot.name}`);
-  console.log(`Bot UUID: ${currentBot.user_uuid}`);
-  console.log(`Socket connected: ${yellotalkSocket?.connected}`);
+  console.log(`Current room: ${instance.state.currentRoom?.id}`);
+  console.log(`Current room topic: ${instance.state.currentRoom?.topic}`);
+  console.log(`Socket connected: ${instance.socket?.connected}`);
   console.log('='.repeat(80) + '\n');
 
+  // Clear follow interval if exists
+  if (instance.followInterval) {
+    clearInterval(instance.followInterval);
+    instance.followInterval = null;
+  }
+
   // Handle leaving based on whether we hijacked or not
-  if (yellotalkSocket && yellotalkSocket.connected) {
-    if (botState.autoHijackRooms && botState.currentRoom) {
+  if (instance.socket && instance.socket.connected) {
+    if (instance.state.autoHijackRooms && instance.state.currentRoom) {
       // HIJACKED: Keep socket alive to prevent room closure
       console.log('⚠️  HIJACKED MODE: Keeping socket alive to prevent room closure');
       console.log('📋 Removing event listeners but maintaining connection...');
 
-      yellotalkSocket.off('new_message');
-      yellotalkSocket.off('participant_changed');
-      yellotalkSocket.off('speaker_changed');
-      yellotalkSocket.off('load_message');
-      yellotalkSocket.off('live_end');
-      yellotalkSocket.off('owner_changed');
+      instance.socket.off('new_message');
+      instance.socket.off('participant_changed');
+      instance.socket.off('speaker_changed');
+      instance.socket.off('load_message');
+      instance.socket.off('live_end');
+      instance.socket.off('owner_changed');
 
       console.log('✅ Bot stopped - Socket alive in background');
       console.log('💡 Room will NOT close. Restart bot-server to fully disconnect.');
@@ -1753,10 +1908,10 @@ app.post('/api/bot/stop', (req, res) => {
       // NOT HIJACKED: Can leave normally
       console.log('🚪 NOT HIJACKED: Leaving room normally...');
 
-      if (botState.currentRoom) {
-        yellotalkSocket.emit('leave_room', {
-          room: botState.currentRoom.id,
-          uuid: currentBot.user_uuid
+      if (instance.state.currentRoom) {
+        instance.socket.emit('leave_room', {
+          room: instance.state.currentRoom.id,
+          uuid: instance.config.user_uuid
         }, (leaveResp) => {
           console.log('📥 leave_room response:', leaveResp);
         });
@@ -1764,52 +1919,26 @@ app.post('/api/bot/stop', (req, res) => {
 
       setTimeout(() => {
         console.log('🔌 Disconnecting...');
-        yellotalkSocket.removeAllListeners();
-        yellotalkSocket.disconnect();
-        yellotalkSocket = null;
+        instance.socket.removeAllListeners();
+        instance.socket.disconnect();
+        instance.socket = null;
         console.log('✅ Left room cleanly');
       }, 500);
     }
-  } else {
-    console.log('ℹ️  No active connection');
   }
 
-  // Clear follow interval
-  if (followInterval) {
-    clearInterval(followInterval);
-    followInterval = null;
-    console.log('✅ Follow polling stopped');
-  }
+  // Reset state
+  instance.state.status = 'stopped';
+  instance.state.mode = null;
+  instance.state.currentRoom = null;
+  instance.state.followUser = null;
+  instance.state.participants = [];
+  instance.state.speakers = [];
+  instance.state.connected = false;
 
-  // Reset state completely (preserve user preferences)
-  const keepWelcomePreference = botState.enableWelcomeMessage;
-  const keepHijackPreference = botState.autoHijackRooms;
+  broadcastBotState(botId);
+}
 
-  botState = {
-    status: 'stopped',
-    mode: null,
-    currentRoom: null,
-    followUser: null,
-    messageCount: 0,
-    participants: [],
-    speakers: [],
-    messages: [],
-    connected: false, // Mark as disconnected for UI, even though socket alive
-    startTime: null,
-    enableWelcomeMessage: keepWelcomePreference, // Preserve user preference
-    autoHijackRooms: keepHijackPreference // Preserve user preference
-  };
-
-  // Reset greeting tracking
-  previousParticipants = new Map();
-  participantJoinTimes = new Map();
-  hasJoinedRoom = false;
-  originalRoomOwner = null; // Clear saved original owner
-
-  console.log('✅ Bot fully stopped');
-  broadcastState();
-  res.json({ success: true });
-});
 
 // Reload greetings
 app.post('/api/bot/reload-greetings', (req, res) => {
@@ -2036,23 +2165,41 @@ app.post('/api/bot/room/kick', async (req, res) => {
 // WebSocket from portal
 io.on('connection', (socket) => {
   console.log('✅ Web portal connected');
-  socket.emit('bot-state', botState);
 
+  // Send all bot states to new connection
+  socket.emit('all-bot-states', getAllBotStates());
+
+  // Handle send-message with optional botId
   socket.on('send-message', (data) => {
-    if (yellotalkSocket && botState.currentRoom) {
-      // Use selected bot for sending messages
-      const bot = getSelectedBot();
+    const { botId, message } = data;
 
-      yellotalkSocket.emit('new_message', {
-        room: botState.currentRoom.id,
-        uuid: bot.user_uuid,
-        avatar_id: bot.avatar_id || 0,
-        pin_name: bot.name,
-        message: data.message
-      });
+    // If botId specified, send from that bot
+    if (botId) {
+      const instance = botInstances.get(botId);
+      if (instance && instance.socket && instance.socket.connected && instance.state.currentRoom) {
+        instance.socket.emit('new_message', {
+          room: instance.state.currentRoom.id,
+          uuid: instance.config.user_uuid,
+          avatar_id: instance.config.avatar_id || 0,
+          pin_name: instance.config.name,
+          message: message
+        });
+      }
+      return;
+    }
 
-      // DON'T add here - it will come back via new_message event
-      // This prevents duplicate messages
+    // Otherwise, send from first connected bot
+    for (const [id, instance] of botInstances) {
+      if (instance.socket && instance.socket.connected && instance.state.currentRoom) {
+        instance.socket.emit('new_message', {
+          room: instance.state.currentRoom.id,
+          uuid: instance.config.user_uuid,
+          avatar_id: instance.config.avatar_id || 0,
+          pin_name: instance.config.name,
+          message: message
+        });
+        break;
+      }
     }
   });
 });
