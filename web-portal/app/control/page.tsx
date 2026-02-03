@@ -1141,6 +1141,36 @@ export default function ControlPage() {
                       />
                     </div>
 
+                    {/* Auto-Join Random Room Toggle */}
+                    <div className="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-950/30 rounded-xl">
+                      <div className="space-y-1">
+                        <Label htmlFor="autojoin-toggle" className="text-sm font-semibold flex items-center gap-2">
+                          <RefreshCw className="h-4 w-4 text-purple-500" />
+                          Auto-Join Random Room
+                        </Label>
+                        <p className="text-xs text-gray-500 pl-6">Automatically join a random room when bot is free</p>
+                      </div>
+                      <Switch
+                        id="autojoin-toggle"
+                        checked={currentBotState?.autoJoinRandomRoom ?? false}
+                        onCheckedChange={async (checked) => {
+                          try {
+                            await fetch(`${getApiUrl()}/api/bot/toggle-auto-join`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ enabled: checked, botId: selectedBotId })
+                            })
+                            toast({
+                              title: checked ? 'Auto-Join Enabled' : 'Auto-Join Disabled',
+                              description: checked ? 'Bot will auto-join random rooms when free' : 'Bot stays idle when free'
+                            })
+                          } catch (error) {
+                            toast({ title: 'Error', description: 'Failed to toggle auto-join', variant: 'destructive' })
+                          }
+                        }}
+                      />
+                    </div>
+
                     <Button
                       onClick={startBot}
                       className="w-full h-12 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25 transition-all duration-300"
