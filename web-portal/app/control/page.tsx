@@ -97,6 +97,7 @@ export default function ControlPage() {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const startTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const startingBotIdRef = useRef<string | null>(null) // Track which bot we're starting
+  const selectedBotIdRef = useRef<string>('') // Track currently selected bot for socket handlers
 
   // Multi-bot management state
   const [bots, setBots] = useState<any[]>([])
@@ -112,6 +113,11 @@ export default function ControlPage() {
     fetchRooms()
     fetchBots()
   }, [])
+
+  // Keep selectedBotIdRef in sync with selectedBotId state
+  useEffect(() => {
+    selectedBotIdRef.current = selectedBotId
+  }, [selectedBotId])
 
   // Sync botState when selectedBotId or botStates changes
   useEffect(() => {
@@ -141,11 +147,12 @@ export default function ControlPage() {
       newSocket.on('all-bot-states', (states) => {
         setBotStates(states)
 
-        // For backward compatibility, set botState to selected bot's state
-        if (selectedBotId && states[selectedBotId]) {
-          setBotState(states[selectedBotId])
-          if (states[selectedBotId].speakers?.length > 0) {
-            setSpeakers(states[selectedBotId].speakers)
+        // For backward compatibility, set botState to selected bot's state using ref
+        const currentSelectedId = selectedBotIdRef.current
+        if (currentSelectedId && states[currentSelectedId]) {
+          setBotState(states[currentSelectedId])
+          if (states[currentSelectedId].speakers?.length > 0) {
+            setSpeakers(states[currentSelectedId].speakers)
           }
         }
       })
@@ -154,17 +161,16 @@ export default function ControlPage() {
       newSocket.on('bot-state-update', ({ botId, state }) => {
         setBotStates((prev: any) => ({ ...prev, [botId]: state }))
 
-        // Update main botState if this is the bot we're starting or selected
-        setBotState((prev: any) => {
-          // Update if this bot is the one we're starting
-          if (botId === startingBotIdRef.current) {
-            if (state.speakers?.length > 0) {
-              setSpeakers(state.speakers)
-            }
-            return state
+        // Update main botState if this is the bot we're starting OR currently selected
+        const isStartingBot = botId === startingBotIdRef.current
+        const isSelectedBot = botId === selectedBotIdRef.current
+
+        if (isStartingBot || isSelectedBot) {
+          setBotState(state)
+          if (state.speakers?.length > 0) {
+            setSpeakers(state.speakers)
           }
-          return prev
-        })
+        }
 
         // Reset loading state if this is the bot we're starting
         if (botId === startingBotIdRef.current) {
@@ -196,8 +202,8 @@ export default function ControlPage() {
       })
 
       newSocket.on('new-message', (msg) => {
-        // Update the specific bot's messages or the selected bot
-        const targetBotId = msg.botId || selectedBotId
+        // Update the specific bot's messages using ref for current selection
+        const targetBotId = msg.botId || selectedBotIdRef.current
         if (targetBotId) {
           setBotStates((prev: any) => {
             if (!prev[targetBotId]) return prev
@@ -210,11 +216,13 @@ export default function ControlPage() {
             }
           })
         }
-        // Also update legacy botState
-        setBotState((prev: any) => prev ? ({
-          ...prev,
-          messages: [...(prev.messages || []), msg]
-        }) : prev)
+        // Only update legacy botState if message is for the selected bot
+        if (targetBotId === selectedBotIdRef.current) {
+          setBotState((prev: any) => prev ? ({
+            ...prev,
+            messages: [...(prev.messages || []), msg]
+          }) : prev)
+        }
       })
 
       newSocket.on('speakers-update', (speakersData) => {
