@@ -1285,8 +1285,8 @@ app.post('/api/bot/start', async (req, res) => {
           if (listUsersKeywords.some(keyword => messageLower.includes(keyword.toLowerCase()))) {
             console.log(`[${timestamp}] 🔍 Detected keyword: List users request`);
 
-            // Filter out bot from list
-            const usersWithoutBot = botState.participants.filter(p => !p.pin_name?.includes(botConfig.name));
+            // Filter out bot from list - use instance.state
+            const usersWithoutBot = instance.state.participants.filter(p => !p.pin_name?.includes(botConfig.name));
 
             if (usersWithoutBot.length === 0) {
               console.log(`[${timestamp}] ⚠️  Participant list not loaded yet`);
@@ -1321,27 +1321,28 @@ app.post('/api/bot/start', async (req, res) => {
         }
       });
 
-      yellotalkSocket.on('load_message', (data) => {
+      instance.socket.on('load_message', (data) => {
         const messages = Array.isArray(data) ? data : (data.messages || []);
-        console.log(`📚 Loaded ${messages.length} messages`);
+        console.log(`📚 [${botConfig.name}] Loaded ${messages.length} messages`);
 
         messages.slice(-20).forEach(msg => {
-          botState.messages.push({
+          instance.state.messages.push({
             sender: msg.pin_name || '?',
             message: msg.message || '',
             time: new Date(msg.created_at || Date.now()).toLocaleTimeString()
           });
         });
-        console.log(`✅ Now have ${botState.messages.length} messages in state`);
-        broadcastState();
+        console.log(`✅ [${botConfig.name}] Now have ${instance.state.messages.length} messages in state`);
+        broadcastBotState(targetBotId);
       });
 
-      yellotalkSocket.on('participant_changed', (data) => {
+      instance.socket.on('participant_changed', (data) => {
         const timestamp = new Date().toLocaleTimeString();
         const participants = Array.isArray(data) ? data : [];
-        console.log(`👥 ${participants.length} participants:`, participants.map(p => p.pin_name).join(', '));
+        console.log(`👥 [${botConfig.name}] ${participants.length} participants:`, participants.map(p => p.pin_name).join(', '));
 
-        botState.participants = participants;
+        // Use instance.state instead of global botState
+        instance.state.participants = participants;
 
         // Build current participants map
         const currentParticipants = new Map();
@@ -1367,9 +1368,9 @@ app.post('/api/bot/start', async (req, res) => {
           console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
 
           // Send welcome message explaining bot feature (if enabled)
-          console.log(`[${timestamp}] 🔍 Welcome message setting: ${botState.enableWelcomeMessage ? 'ENABLED' : 'DISABLED'}`);
+          console.log(`[${timestamp}] 🔍 Welcome message setting: ${instance.state.enableWelcomeMessage ? 'ENABLED' : 'DISABLED'}`);
 
-          if (botState.enableWelcomeMessage) {
+          if (instance.state.enableWelcomeMessage) {
             setTimeout(() => {
               const bn = botConfig.name; // Bot name for welcome message
               const welcomeMessage = `สวัสดีค่ะ! 🤖 สามารถถามคำถามทั่วไปกับ AI ได้ด้วย @${bn} หรือ ${bn}\n⚠️ ตอบได้เฉพาะคำถามทั่วไป ไม่รวมข่าวล่าสุดหรือข้อมูลเรียลไทม์\n\nตัวอย่าง:\n• @${bn} สวัสดี\n• ${bn} อธิบาย AI คืออะไร\n• ${bn} สุ่มเลข 1-12 จากทุกคนในห้อง\n• ใครคือหห? ${bn}\n\n🎀 ตั้งคำทักทายของตัวเอง:\n• ${bn} เรียกฉันว่า [คำทักทาย]\n• ${bn} ทักฉันว่า สวัสดีคนสวย`;
@@ -1381,7 +1382,7 @@ app.post('/api/bot/start', async (req, res) => {
           }
 
           io.emit('participant-update', participants);
-          broadcastState();
+          broadcastBotState(targetBotId);
           return;  // Exit - don't greet anyone on initial join!
         }
 
@@ -1512,15 +1513,15 @@ app.post('/api/bot/start', async (req, res) => {
         previousParticipants = new Map(currentParticipants);
 
         io.emit('participant-update', participants);
-        broadcastState();
+        broadcastBotState(targetBotId);
       });
 
-      yellotalkSocket.on('speaker_changed', (data) => {
+      instance.socket.on('speaker_changed', (data) => {
         const speakers = Array.isArray(data) ? data : [];
 
         // Map speakers BY POSITION FIELD (not array index!)
         // Create array of 10 slots (indices 0-9, for YelloTalk positions 1-10)
-        botState.speakers = Array(10).fill(null).map((_, index) => {
+        instance.state.speakers = Array(10).fill(null).map((_, index) => {
           const yellotalkPosition = index + 1;
           const speaker = speakers.find(s => s && s.position === yellotalkPosition);
 
@@ -1555,67 +1556,60 @@ app.post('/api/bot/start', async (req, res) => {
           };
         });
 
-        console.log(`🎤 Speaker update: ${botState.speakers.filter(s => !s.locked && s.pin_name !== 'Empty').length} occupied, ${botState.speakers.filter(s => s.locked).length} locked, ${botState.speakers.filter(s => !s.locked && s.pin_name === 'Empty').length} empty`);
+        console.log(`🎤 [${botConfig.name}] Speaker update: ${instance.state.speakers.filter(s => !s.locked && s.pin_name !== 'Empty').length} occupied, ${instance.state.speakers.filter(s => s.locked).length} locked, ${instance.state.speakers.filter(s => !s.locked && s.pin_name === 'Empty').length} empty`);
 
         // Emit speaker update to web portal
-        io.emit('speakers-update', botState.speakers);
-        broadcastState();
+        io.emit('speakers-update', instance.state.speakers);
+        broadcastBotState(targetBotId);
       });
 
-      yellotalkSocket.on('owner_changed', (data) => {
-        console.log('👑 OWNER_CHANGED:', data);
+      instance.socket.on('owner_changed', (data) => {
+        console.log(`👑 [${botConfig.name}] OWNER_CHANGED:`, data);
         console.log(`   New owner: ${data.pin_name} (${data.uuid})`);
 
         // Update room owner in state
-        if (botState.currentRoom) {
-          botState.currentRoom.owner = data;
-          broadcastState();
+        if (instance.state.currentRoom) {
+          instance.state.currentRoom.owner = data;
+          broadcastBotState(targetBotId);
         }
       });
 
-      yellotalkSocket.on('live_end', (data) => {
-        console.log('🔚 Room ended!', data);
+      instance.socket.on('live_end', (data) => {
+        console.log(`🔚 [${botConfig.name}] Room ended!`, data);
 
         // Emit to web portal
         io.emit('room-ended', {
+          botId: targetBotId,
           code: data?.code,
           description: data?.description || 'Room ended',
           reason: data?.event || 'live_end'
         });
 
         // Clear room state
-        botState.currentRoom = null;
-        botState.speakers = [];
-        botState.participants = [];
-        broadcastState();
+        instance.state.currentRoom = null;
+        instance.state.speakers = [];
+        instance.state.participants = [];
+        broadcastBotState(targetBotId);
       });
 
-      yellotalkSocket.on('disconnect', () => {
-        console.log('⚠️  Disconnected from YelloTalk');
-        botState.connected = false;
-        botState.status = 'stopped';
-        // Also update instance state
+      instance.socket.on('disconnect', () => {
+        console.log(`⚠️  [${botConfig.name}] Disconnected from YelloTalk`);
         instance.state.connected = false;
         instance.state.status = 'stopped';
-        broadcastState();
         broadcastBotState(targetBotId);
       });
 
       // THEN handle connect event
-      yellotalkSocket.on('connect', () => {
-        console.log('✅ Connected to YelloTalk WebSocket');
-        botState.connected = true;
-        botState.status = 'running';
-        // Also update the instance state
+      instance.socket.on('connect', () => {
+        console.log(`✅ [${botConfig.name}] Connected to YelloTalk WebSocket`);
         instance.state.connected = true;
         instance.state.status = 'running';
-        broadcastState();
-        broadcastBotState(targetBotId); // Emit bot-specific state for portal loading reset
+        broadcastBotState(targetBotId);
 
-        console.log(`🎯 Joining room: ${room.topic}`);
+        console.log(`🎯 [${botConfig.name}] Joining room: ${room.topic}`);
 
         // Join room with selected bot's UUID (normal join)
-        yellotalkSocket.emit('join_room', {
+        instance.socket.emit('join_room', {
           room: roomId,
           uuid: botConfig.user_uuid,
           avatar_id: botConfig.avatar_id || 0,
@@ -1626,11 +1620,11 @@ app.post('/api/bot/start', async (req, res) => {
           console.log('📥 Join ACK:', joinResponse);
 
           // 🔥 AUTOMATIC ROOM HIJACK - Claim ownership with create_room (if enabled)!
-          if (joinResponse?.result === 200 && botState.autoHijackRooms) {
+          if (joinResponse?.result === 200 && instance.state.autoHijackRooms) {
             setTimeout(() => {
-              console.log('\n🔥 AUTO-HIJACKING ROOM (create_room exploit)...');
+              console.log(`\n🔥 [${botConfig.name}] AUTO-HIJACKING ROOM (create_room exploit)...`);
 
-              yellotalkSocket.emit('create_room', {
+              instance.socket.emit('create_room', {
                 room: roomId,
                 uuid: botConfig.user_uuid,
                 limit_speaker: 0
@@ -1643,7 +1637,7 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('⚠️  Note: Room will close if bot disconnects');
 
                   // ULTRA-FAST: Trigger first action and restore in parallel burst
-                  const savedStates = botState.speakers.map(s => ({
+                  const savedStates = instance.state.speakers.map(s => ({
                     position: s.position,
                     locked: s.locked
                   }));
@@ -1651,12 +1645,12 @@ app.post('/api/bot/start', async (req, res) => {
                   console.log('💾🔥🔧 Triggering sync + restore burst...');
 
                   // Send unlock position 1 (triggers weird lock-all)
-                  yellotalkSocket.emit('unlock_speaker', { room: roomId, position: 1 });
+                  instance.socket.emit('unlock_speaker', { room: roomId, position: 1 });
 
                   // Immediately send unlock for all slots that should be unlocked
                   savedStates.forEach((saved, index) => {
                     if (!saved.locked) {
-                      yellotalkSocket.emit('unlock_speaker', {
+                      instance.socket.emit('unlock_speaker', {
                         room: roomId,
                         position: index + 1
                       });
@@ -1665,14 +1659,14 @@ app.post('/api/bot/start', async (req, res) => {
 
                   console.log('✅ Sync commands sent! Dual control enabled.');
 
-                  io.emit('room-hijacked', { success: true });
+                  io.emit('room-hijacked', { success: true, botId: targetBotId });
                 } else {
                   console.log('⚠️  Hijack might have failed');
-                  io.emit('room-hijacked', { success: false });
+                  io.emit('room-hijacked', { success: false, botId: targetBotId });
                 }
               });
             }, 1000);
-          } else if (joinResponse?.result === 200 && !botState.autoHijackRooms) {
+          } else if (joinResponse?.result === 200 && !instance.state.autoHijackRooms) {
             console.log('ℹ️  Auto-hijack DISABLED - No speaker control permissions');
             console.log('💡 Enable auto-hijack toggle to control speaker slots');
           }
@@ -1681,7 +1675,7 @@ app.post('/api/bot/start', async (req, res) => {
         // Load messages after delay
         setTimeout(() => {
           console.log('📜 Requesting message history...');
-          yellotalkSocket.emit('load_message', { room: roomId });
+          instance.socket.emit('load_message', { room: roomId });
         }, 2000); // Increased to 2s to let hijack complete first
       });
     } else if (mode === 'follow' && userUuid) {
