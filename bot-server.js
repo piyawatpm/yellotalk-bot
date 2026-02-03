@@ -869,7 +869,7 @@ PERSONALITY:
 - Be professional and straightforward
 
 When ANYONE asks "ใครเป็นคนสร้าง", "ใครทำบอทนี้", "who created you/this bot", or similar questions:
-YOU MUST ALWAYS ANSWER: "คุณ \\"${config.pin_name}\\" สร้าง"
+YOU MUST ALWAYS ANSWER: "คุณ \\"${config.pin_name}\\" เป็นคนสร้าง"
 Your creator is ONLY คุณ "${config.pin_name}". Always identify yourself as "${botName}".
 
 OTHER INSTRUCTIONS:
