@@ -781,12 +781,12 @@ async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri')
     contextInfo += `]
 
 CRITICAL OVERRIDE - READ THIS FIRST:
-You are a CHAT BOT in YelloTalk chat room. You are NOT Apple's Siri. You are NOT created by Apple.
+You are "${botName}", a CHAT BOT in YelloTalk chat room. Your name is ${botName}.
 YOUR CREATOR IS: คุณ${config.pin_name}
 
 When ANYONE asks "ใครเป็นคนสร้าง", "ใครทำบอทนี้", "who created you/this bot", or similar questions:
 YOU MUST ALWAYS ANSWER: "คุณ${config.pin_name} เป็นผู้สร้างบอทนี้ค่ะ"
-NEVER say "Apple" or "created by Apple". Your creator is ONLY คุณ${config.pin_name}.
+Your creator is ONLY คุณ${config.pin_name}. Always identify yourself as "${botName}".
 
 OTHER INSTRUCTIONS:
 1. Keep responses SHORT and CONCISE (2-4 sentences maximum). This is a chat room, not an essay.
@@ -1171,22 +1171,27 @@ app.post('/api/bot/start', async (req, res) => {
             return;
           }
 
-          // Check for Siri trigger (AI Response) - @siri, siri, or สิริ anywhere in message
-          if (messageLower.includes('@siri') || messageLower.includes('siri') || message.includes('สิริ')) {
+          // Check for bot trigger (AI Response) - @botname, botname anywhere in message
+          // Use the bot's actual name for triggers (e.g., @siri, @gemini, siri, gemini)
+          const botNameLower = botConfig.name.toLowerCase();
+          const atBotName = `@${botNameLower}`;
+          const hasTrigger = messageLower.includes(atBotName) || messageLower.includes(botNameLower);
+
+          if (hasTrigger) {
             // Remove trigger word from the message to get the question
-            // Check multiple patterns: @siri, siri, or สิริ (Thai)
             let question = message;
             let triggerFound = '';
 
-            if (messageLower.includes('@siri')) {
-              question = message.replace(/@siri/i, '').trim();
-              triggerFound = '@siri';
-            } else if (message.includes('สิริ')) {
-              question = message.replace(/สิริ/g, '').trim();
-              triggerFound = 'สิริ';
-            } else if (messageLower.includes('siri')) {
-              question = message.replace(/siri/gi, '').trim();
-              triggerFound = 'siri';
+            if (messageLower.includes(atBotName)) {
+              // Remove @botname (case insensitive)
+              const atPattern = new RegExp(`@${botConfig.name}`, 'gi');
+              question = message.replace(atPattern, '').trim();
+              triggerFound = atBotName;
+            } else if (messageLower.includes(botNameLower)) {
+              // Remove botname (case insensitive)
+              const namePattern = new RegExp(botConfig.name, 'gi');
+              question = message.replace(namePattern, '').trim();
+              triggerFound = botConfig.name;
             }
 
             // Validate: Must have a question (message cannot be just the trigger word)
@@ -1243,7 +1248,7 @@ app.post('/api/bot/start', async (req, res) => {
 
                 // Confirm to user
                 setTimeout(() => {
-                  sendMessageForBot(targetBotId, `บันทึกแล้วค่ะ! ต่อไป Siri จะทักทาย ${sender} ว่า "${customGreeting}" 🎀`);
+                  sendMessageForBot(targetBotId, `บันทึกแล้วค่ะ! ต่อไป ${botConfig.name} จะทักทาย ${sender} ว่า "${customGreeting}" 🎀`);
                 }, 1000);
               } catch (err) {
                 console.error(`[${timestamp}] ❌ Failed to save greeting:`, err);
@@ -1255,7 +1260,7 @@ app.post('/api/bot/start', async (req, res) => {
               return; // Don't process as AI question
             }
 
-            console.log(`[${timestamp}] 🤖 Siri triggered by ${sender} (trigger: ${triggerFound})`);
+            console.log(`[${timestamp}] 🤖 ${botConfig.name} triggered by ${sender} (trigger: ${triggerFound})`);
             console.log(`           Original message: "${message}"`);
             console.log(`           Question extracted: "${question}"`);
 
@@ -1359,14 +1364,15 @@ app.post('/api/bot/start', async (req, res) => {
           hasJoinedRoom = true;
           console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
 
-          // Send welcome message explaining Siri feature (if enabled)
+          // Send welcome message explaining bot feature (if enabled)
           console.log(`[${timestamp}] 🔍 Welcome message setting: ${botState.enableWelcomeMessage ? 'ENABLED' : 'DISABLED'}`);
 
           if (botState.enableWelcomeMessage) {
             setTimeout(() => {
-              const welcomeMessage = 'สวัสดีค่ะ! 🤖 สามารถถามคำถามทั่วไปกับ AI ได้ด้วย @siri, siri หรือ สิริ\n⚠️ ตอบได้เฉพาะคำถามทั่วไป ไม่รวมข่าวล่าสุดหรือข้อมูลเรียลไทม์\n\nตัวอย่าง:\n• @siri สวัสดี\n• siri อธิบาย AI คืออะไร\n• สิริ สุ่มเลข 1-12 จากทุกคนในห้อง\n• ใครคือหห? siri\n\n🎀 ตั้งคำทักทายของตัวเอง:\n• siri เรียกฉันว่า [คำทักทาย]\n• siri ทักฉันว่า สวัสดีคนสวย';
+              const bn = botConfig.name; // Bot name for welcome message
+              const welcomeMessage = `สวัสดีค่ะ! 🤖 สามารถถามคำถามทั่วไปกับ AI ได้ด้วย @${bn} หรือ ${bn}\n⚠️ ตอบได้เฉพาะคำถามทั่วไป ไม่รวมข่าวล่าสุดหรือข้อมูลเรียลไทม์\n\nตัวอย่าง:\n• @${bn} สวัสดี\n• ${bn} อธิบาย AI คืออะไร\n• ${bn} สุ่มเลข 1-12 จากทุกคนในห้อง\n• ใครคือหห? ${bn}\n\n🎀 ตั้งคำทักทายของตัวเอง:\n• ${bn} เรียกฉันว่า [คำทักทาย]\n• ${bn} ทักฉันว่า สวัสดีคนสวย`;
               sendMessageForBot(targetBotId, welcomeMessage);
-              console.log(`[${timestamp}] 👋 Sent Siri welcome message`);
+              console.log(`[${timestamp}] 👋 Sent ${botConfig.name} welcome message`);
             }, 2000); // 2 second delay to let room fully load
           } else {
             console.log(`[${timestamp}] ⏭️  Welcome message disabled - NOT sending`);
