@@ -694,10 +694,15 @@ function addMessageForBot(botId, sender, message) {
 }
 
 // AI Response Handler with Dual API Key Support
-async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri') {
+async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri', botId = null) {
   try {
     const timestamp = new Date().toLocaleTimeString();
-    console.log(`[${timestamp}] 🤖 ${userName} asking AI: "${userQuestion}"`);
+    console.log(`[${timestamp}] 🤖 [${botName}] ${userName} asking AI: "${userQuestion}"`);
+
+    // Get bot instance for correct state (multi-bot support)
+    const instance = botId ? botInstances.get(botId) : null;
+    const currentBotState = instance?.state || botState; // Fallback to global for legacy
+    const currentJoinTimes = instance?.participantJoinTimes || participantJoinTimes;
 
     // Get or create conversation history for this user
     if (!conversationHistory.has(userUuid)) {
@@ -725,25 +730,28 @@ async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri')
     // Build context information
     let contextInfo = `[Context: Current date/time: ${dateStr} at ${timeStr}`;
 
-    // Add room owner info (หัวห้อง)
-    if (botState.currentRoom && botState.currentRoom.owner) {
-      const owner = botState.currentRoom.owner;
+    // Add room owner info (หัวห้อง) - use currentBotState for multi-bot support
+    if (currentBotState.currentRoom && currentBotState.currentRoom.owner) {
+      const owner = currentBotState.currentRoom.owner;
       const ownerName = owner.pin_name || owner.name || 'Unknown';
       contextInfo += ` | Room Owner (หัวห้อง/หห): ${ownerName}`;
-      if (botState.currentRoom.topic) {
-        contextInfo += ` | Room Topic: ${botState.currentRoom.topic}`;
+      if (currentBotState.currentRoom.topic) {
+        contextInfo += ` | Room Topic: ${currentBotState.currentRoom.topic}`;
       }
     }
 
     // Add participants list with time duration
-    const roomOwnerId = botState.currentRoom?.owner?.uuid;
+    const roomOwnerId = currentBotState.currentRoom?.owner?.uuid;
 
     // Build list of all participants (including room owner if not in list)
-    let allParticipants = [...(botState.participants || [])];
+    let allParticipants = [...(currentBotState.participants || [])];
+
+    // DEBUG: Log participant count for AI context
+    console.log(`[${timestamp}] 🧠 AI Context: ${allParticipants.length} participants from ${botId || 'global'} state`);
 
     // Check if room owner is in participants list, if not add them
     if (roomOwnerId && !allParticipants.some(p => p.uuid === roomOwnerId)) {
-      const owner = botState.currentRoom.owner;
+      const owner = currentBotState.currentRoom.owner;
       allParticipants.push({
         uuid: owner.uuid,
         pin_name: owner.pin_name || owner.name || 'Unknown'
@@ -761,8 +769,8 @@ async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri')
             name += ' (หห)';
           }
 
-          // Add time duration if available
-          const joinInfo = participantJoinTimes.get(p.uuid);
+          // Add time duration if available - use currentJoinTimes for multi-bot
+          const joinInfo = currentJoinTimes.get(p.uuid);
           if (joinInfo) {
             const duration = now - joinInfo.joinTime;
             const minutes = Math.floor(duration / 60000);
@@ -1271,8 +1279,8 @@ app.post('/api/bot/start', async (req, res) => {
             console.log(`           Original message: "${message}"`);
             console.log(`           Question extracted: "${question}"`);
 
-            // Get AI response and send it
-            getAIResponse(question, senderUuid, sender, botConfig.name)
+            // Get AI response and send it - pass botId for correct participant context
+            getAIResponse(question, senderUuid, sender, botConfig.name, targetBotId)
               .then(aiReply => {
                 setTimeout(() => {
                   sendMessageForBot(targetBotId, aiReply);
