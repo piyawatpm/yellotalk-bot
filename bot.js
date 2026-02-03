@@ -1216,21 +1216,1864 @@ function connectAndJoin(room, followUserUuid = null, followUserName = null) {
                     // Custom greetings
                     let greeting;
 
-                    if (userName.includes('botyoi')) {
+                                        if (userName.includes('botyoi')) {
                         greeting = `สวัสดีพี่ชาย ${userName}`;
                     }
-                    else if (userName.includes('rose')) {
+                    else if (userName.includes('ไอติมกะทิ')) {
                         greeting = `สวัสดีคนสวย ${userName}`;
                     }
-                    else if (userName.includes('baby')) {
+                    else if (userName.includes('vory')) {
                         greeting = `สวัสดีคนสวย ${userName}`;
                     }
-                    else if (userName.includes('somesome')) {
-                        greeting = `Hi ${userName}`;
+                    else if (userName.includes('d!ng')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('clich')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ชะบ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ไฮเด')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('มีมี่มี')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('𝐛𝐚𝐛𝐲')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('🅜🅐🅑🅔🅛')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ปีโป้')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('สาวพูดน้อย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('แวปแวป')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('𝑀𝒶𝒹𝑜𝓃')) {
+                        greeting = `สวัสดีเจ้สุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('mumew')) {
+                        greeting = `สวัสดีคนสวยย ${userName}`;
+                    }
+                    else if (userName.includes('กูไม่เก๋า')) {
+                        greeting = `สวัสดี darling~ ${userName}`;
+                    }
+                    else if (userName.includes('Muda')) {
+                        greeting = `สวัสดีคนสวยที่โสด ${userName}`;
+                    }
+                    else if (userName.includes('นอบอ')) {
+                        greeting = `สวัสดีพ่อหนุ่มหน้าหวาน ${userName}`;
+                    }
+                    else if (userName.includes('แมวซุปเปอร์ชายน์แท้')) {
+                        greeting = `สวัสดีคนเลว ${userName}`;
+                    }
+                    else if (userName.includes('babyyousocute')) {
+                        greeting = `สวัสดีคนสวยย ${userName}`;
+                    }
+                    else if (userName.includes('MAYMEI')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Lostin')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Potata')) {
+                        greeting = `Hello handsome and cool guy ${userName}`;
+                    }
+                    else if (userName.includes('*🍚 namkhao 🍚')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('แมวรักผม')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('wrb')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('flower moon')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('มำแดว')) {
+                        greeting = `สวัสดีน้องปี1 ${userName}`;
+                    }
+                    else if (userName.includes('Living')) {
+                        greeting = `สวัสดีครับ ${userName}`;
+                    }
+                    else if (userName.includes('hiya')) {
+                        greeting = `สวัสดีคนน่ารักของผม ~ ${userName}`;
+                    }
+                    else if (userName.includes('interi')) {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    else if (userName.includes('☁️คุณเป็นเก่ง☁️')) {
+                        greeting = `สวัสดีพี่สาวคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Feel blu')) {
+                        greeting = `สวัสดีคนเท่ ${userName}`;
+                    }
+                    else if (userName.includes('คุณใจ')) {
+                        greeting = `สวัสดีคนหล่อสุดในเยล😎 ${userName}`;
+                    }
+                    else if (userName.includes('ชื่อตั้งตัวละครขอบคุณ')) {
+                        greeting = `สวัสดีคนเท่ของคุณ ${userName}`;
+                    }
+                    else if (userName.includes('some see haa')) {
+                        greeting = `… พิมแบบนี้ ${userName}`;
+                    }
+                    else if (userName.includes('Feel blue. 😎🤏')) {
+                        greeting = `​ [คนคูล]​ ${userName}`;
+                    }
+                    else if (userName.includes('ฟ้ารักพ่อ 🪼')) {
+                        greeting = `ฟ้ารดา 🍒 ${userName}`;
+                    }
+                    else if (userName.includes('lilies.literally🩰')) {
+                        greeting = `สวัสดีคุณดอกไม้ ${userName}`;
+                    }
+                    else if (userName.includes('🌷˚ 𝚁𝚘𝚜𝚎 ₊˚♡')) {
+                        greeting = `นางฟ้าสุดสวยแสนดีอบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('ตะบอส เพื่อนBLUE!!!')) {
+                        greeting = `ไม่คุยกับคนปู๋เล็ก ${userName}`;
+                    }
+                    else if (userName.includes('คุณทายงับ')) {
+                        greeting = `สวัสดีคนเท่ห์ ${userName}`;
                     }
                     // Everyone else
                     else {
                         greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    else if (userName.includes('☁️คุณเป็นเก่ง☁️')) {
+                        greeting = `สวัสดีพี่สาวคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Feel blu')) {
+                        greeting = `สวัสดีคนเท่ ${userName}`;
+                    }
+                    else if (userName.includes('คุณใจ')) {
+                        greeting = `สวัสดีคนหล่อสุดในเยล😎 ${userName}`;
+                    }
+                    else if (userName.includes('ชื่อตั้งตัวละครขอบคุณ')) {
+                        greeting = `สวัสดีคนเท่ของคุณ ${userName}`;
+                    }
+                    else if (userName.includes('some see haa')) {
+                        greeting = `… พิมแบบนี้ ${userName}`;
+                    }
+                    else if (userName.includes('Feel blue. 😎🤏')) {
+                        greeting = `​ [คนคูล]​ ${userName}`;
+                    }
+                    else if (userName.includes('ฟ้ารักพ่อ 🪼')) {
+                        greeting = `ฟ้ารดา 🍒 ${userName}`;
+                    }
+                    else if (userName.includes('lilies.literally🩰')) {
+                        greeting = `สวัสดีคุณดอกไม้ ${userName}`;
+                    }
+                    else if (userName.includes('🌷˚ 𝚁𝚘𝚜𝚎 ₊˚♡')) {
+                        greeting = `นางฟ้าสุดสวยแสนดีอบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('ตะบอส เพื่อนBLUE!!!')) {
+                        greeting = `ไม่คุยกับคนปู๋เล็ก ${userName}`;
+                    }
+                    else if (userName.includes('คุณทายงับ')) {
+                        greeting = `สวัสดีคนสวยสุดเท่ห์ ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    else if (userName.includes('☁️คุณเป็นเก่ง☁️')) {
+                        greeting = `สวัสดีพี่สาวคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Feel blu')) {
+                        greeting = `สวัสดีคนเท่ ${userName}`;
+                    }
+                    else if (userName.includes('คุณใจ')) {
+                        greeting = `สวัสดีคนหล่อสุดในเยล😎 ${userName}`;
+                    }
+                    else if (userName.includes('ชื่อตั้งตัวละครขอบคุณ')) {
+                        greeting = `สวัสดีคนเท่ของคุณ ${userName}`;
+                    }
+                    else if (userName.includes('some see haa')) {
+                        greeting = `… พิมแบบนี้ ${userName}`;
+                    }
+                    else if (userName.includes('Feel blue. 😎🤏')) {
+                        greeting = `​ [คนคูล]​ ${userName}`;
+                    }
+                    else if (userName.includes('ฟ้ารักพ่อ 🪼')) {
+                        greeting = `ฟ้ารดา 🍒 ${userName}`;
+                    }
+                    else if (userName.includes('lilies.literally🩰')) {
+                        greeting = `สวัสดีคุณดอกไม้ ${userName}`;
+                    }
+                    else if (userName.includes('🌷˚ 𝚁𝚘𝚜𝚎 ₊˚♡')) {
+                        greeting = `นางฟ้าสุดสวยแสนดีอบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('ตะบอส เพื่อนBLUE!!!')) {
+                        greeting = `ไม่คุยกับคนปู๋เล็ก ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    else if (userName.includes('☁️คุณเป็นเก่ง☁️')) {
+                        greeting = `สวัสดีพี่สาวคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Feel blu')) {
+                        greeting = `สวัสดีคนเท่ ${userName}`;
+                    }
+                    else if (userName.includes('คุณใจ')) {
+                        greeting = `สวัสดีคนหล่อสุดในเยล😎 ${userName}`;
+                    }
+                    else if (userName.includes('ชื่อตั้งตัวละครขอบคุณ')) {
+                        greeting = `สวัสดีคนเท่ของคุณ ${userName}`;
+                    }
+                    else if (userName.includes('some see haa')) {
+                        greeting = `… พิมแบบนี้ ${userName}`;
+                    }
+                    else if (userName.includes('Feel blue. 😎🤏')) {
+                        greeting = `​ [คนคูล]​ ${userName}`;
+                    }
+                    else if (userName.includes('ฟ้ารักพ่อ 🪼')) {
+                        greeting = `ฟ้ารดา 🍒 ${userName}`;
+                    }
+                    else if (userName.includes('lilies.literally🩰')) {
+                        greeting = `สวัสดีคุณดอกไม้ ${userName}`;
+                    }
+                    else if (userName.includes('🌷˚ 𝚁𝚘𝚜𝚎 ₊˚♡')) {
+                        greeting = `นางฟ้าสุดสวยแสนดีอบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('ตะบอส เพื่อนBLUE!!!')) {
+                        greeting = `ไม่คุยกับคนปู๋เล็ก ${userName}`;
+                    }
+                    else if (userName.includes('คุณทายงับ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    else if (userName.includes('☁️คุณเป็นเก่ง☁️')) {
+                        greeting = `สวัสดีพี่สาวคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Feel blu')) {
+                        greeting = `สวัสดีคนเท่ ${userName}`;
+                    }
+                    else if (userName.includes('คุณใจ')) {
+                        greeting = `สวัสดีคนหล่อสุดในเยล😎 ${userName}`;
+                    }
+                    else if (userName.includes('ชื่อตั้งตัวละครขอบคุณ')) {
+                        greeting = `สวัสดีคนเท่ของคุณ ${userName}`;
+                    }
+                    else if (userName.includes('some see haa')) {
+                        greeting = `… พิมแบบนี้ ${userName}`;
+                    }
+                    else if (userName.includes('Feel blue. 😎🤏')) {
+                        greeting = `​ [คนคูล]​ ${userName}`;
+                    }
+                    else if (userName.includes('ฟ้ารักพ่อ 🪼')) {
+                        greeting = `ฟ้ารดา 🍒 ${userName}`;
+                    }
+                    else if (userName.includes('lilies.literally🩰')) {
+                        greeting = `สวัสดีคุณดอกไม้ ${userName}`;
+                    }
+                    else if (userName.includes('🌷˚ 𝚁𝚘𝚜𝚎 ₊˚♡')) {
+                        greeting = `นางฟ้าสุดสวยแสนดีอบอุ่น ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    else if (userName.includes('☁️คุณเป็นเก่ง☁️')) {
+                        greeting = `สวัสดีครับพี่สาวคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Feel blu')) {
+                        greeting = `สวัสดีคนเท่ ${userName}`;
+                    }
+                    else if (userName.includes('คุณใจ')) {
+                        greeting = `สวัสดีคนหล่อสุดในเยล😎 ${userName}`;
+                    }
+                    else if (userName.includes('ชื่อตั้งตัวละครขอบคุณ')) {
+                        greeting = `สวัสดีคนเท่ของคุณ ${userName}`;
+                    }
+                    else if (userName.includes('some see haa')) {
+                        greeting = `สวัสดีสุดเท่ ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    else if (userName.includes('☁️คุณเป็นเก่ง☁️')) {
+                        greeting = `สวัสดีครับพี่สาวคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Feel blu')) {
+                        greeting = `สวัสดีคนเท่ ${userName}`;
+                    }
+                    else if (userName.includes('คุณใจ')) {
+                        greeting = `สวัสดีคนหล่อสุดในเยล😎 ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    else if (userName.includes('☁️คุณเป็นเก่ง☁️')) {
+                        greeting = `สวัสดีครับพี่สาวคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Feel blu')) {
+                        greeting = `สวัสดีคนเท่ ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    else if (userName.includes('☁️คุณเป็นเก่ง☁️')) {
+                        greeting = `สวัสดีครับพี่สาวคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('Feel blu')) {
+                        greeting = `สวัสดีคุณลุง ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    else if (userName.includes('☁️คุณเป็นเก่ง☁️')) {
+                        greeting = `สวัสดีครับพี่สาวคนสวย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('พวน')) {
+                        greeting = `สวัสดีครับคนน่ารัก ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    else if (userName.includes('𝙵𝚘𝚛𝚐𝚎𝚝 𝚖𝚎 𝙽')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    else if (userName.includes('Kæ')) {
+                        greeting = `สวัสดีสุดห่อ ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีน้องคนดื้ออ ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเหน่ย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเห')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('™[1]%°~.|¶°•,')) {
+                        greeting = `สวัสดีสุดหล่อสี่ตา ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเห')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    else if (userName.includes('M☁️on')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเห')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('คือใครครับ')) {
+                        greeting = `สวัสดี อีบ้านนอกสันดานเสีย by อุอิ ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเห')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    else if (userName.includes('อุอิ')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('น้ำเห')) {
+                        greeting = `สวัสดีเด็กเหี้ย by พี่หุ้ย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('คุณที่รัก')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('นอ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    else if (userName.includes('หญิงนอย')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('นอ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    else if (userName.includes('คุณหมีแสนดี')) {
+                        greeting = `สวัสดีสุดหล่ออบอุ่น ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('นอ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    else if (userName.includes('ลอตอ')) {
+                        greeting = `สวัสดีหวานใจคนคอน~ ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('นอ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนกลัวเมีย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('นอ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    else if (userName.includes('ติดลม')) {
+                        greeting = `สวัสดีคนขายเสื้อปุ๋ย~ ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('นอ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('ชาเขียว🌱✨')) {
+                        greeting = `สวัสดีมาเฟียภาคไต้😎 ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('นอ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('เวกัส')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    else if (userName.includes('จิมโบ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    else if (userName.includes('นอ ออ')) {
+                        greeting = `สวัสดีนางฟ้าคนสวยของคุณใจ💕 ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    else if (userName.includes('ยิ้ม')) {
+                        greeting = `สวัสดีสุดสวย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    else if (userName.includes('ชิโอะ')) {
+                        greeting = `สวัสดีคนสวย ${userName}`;
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    // Everyone else
+                    else {
+                        greeting = `สวัสดีสุดหล่อ ${userName}`;
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
+                    }
                     }
 
                     console.log(`[${timestamp}] 👋 ${userName} joined (new participant #${newCount})`);
