@@ -1615,6 +1615,9 @@ app.post('/api/bot/start', async (req, res) => {
           console.log(`[${timestamp}] 🚪 Room ended - 0 participants detected`);
           console.log(`[${timestamp}] 🔄 Changing bot state to stopped/available`);
 
+          // Save room ID before clearing (needed for clearing unavailable list)
+          const endedRoomId = instance.state.currentRoom?.id;
+
           // Clean up and reset state
           instance.state.status = 'stopped';
           instance.state.currentRoom = null;
@@ -1632,8 +1635,8 @@ app.post('/api/bot/start', async (req, res) => {
           }
 
           // Clear this room from unavailable list since it ended
-          if (instance.state.currentRoom?.id) {
-            clearRoomUnavailable(instance.state.currentRoom.id);
+          if (endedRoomId) {
+            clearRoomUnavailable(endedRoomId);
           }
 
           // Notify portal
