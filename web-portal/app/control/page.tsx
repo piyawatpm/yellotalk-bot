@@ -726,143 +726,281 @@ export default function ControlPage() {
     new Map(rooms.map(r => [r.owner?.uuid, r.owner])).values()
   ).filter(Boolean)
 
+  // Helper to get uptime string for any bot
+  const getUptimeStr = (startTime: number | null) => {
+    if (!startTime) return '--:--'
+    const uptime = Math.floor((Date.now() - startTime) / 1000)
+    const mins = Math.floor(uptime / 60)
+    const secs = uptime % 60
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  // Count running bots
+  const runningBots = bots.filter(b => {
+    const state = botStates[b.id]
+    return state?.status === 'running' || state?.status === 'waiting'
+  })
+
   return (
     <div className="space-y-6">
-      {/* Large Status Banner */}
+      {/* ===== MULTI-BOT OVERVIEW HEADER ===== */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative overflow-hidden"
       >
-        <Card className={`border-0 shadow-xl ${
-          isRunning
-            ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600'
-            : isWaiting
-            ? 'bg-gradient-to-r from-amber-500 via-yellow-500 to-orange-500'
-            : 'bg-gradient-to-r from-slate-500 via-slate-600 to-slate-700'
-        }`}>
-          <CardContent className="p-6 lg:p-8">
-            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-              {/* Status Info */}
-              <div className="flex items-center gap-4">
-                <div className={`p-4 rounded-2xl ${(isRunning || isWaiting) ? 'bg-white/20' : 'bg-white/10'} backdrop-blur-sm`}>
-                  {isRunning ? (
-                    <Wifi className="h-10 w-10 text-white" />
-                  ) : isWaiting ? (
-                    <Clock className="h-10 w-10 text-white animate-pulse" />
-                  ) : (
-                    <WifiOff className="h-10 w-10 text-white/70" />
-                  )}
-                </div>
-                <div className="text-white">
-                  <div className="flex items-center gap-3 mb-1">
-                    <h2 className="text-2xl lg:text-3xl font-bold">
-                      {isRunning ? 'Bot is BUSY' : isWaiting ? 'Bot is WAITING' : 'Bot is FREE'}
-                    </h2>
-                    <div className={`w-3 h-3 rounded-full ${(isRunning || isWaiting) ? 'bg-white animate-pulse' : 'bg-white/40'}`} />
-                  </div>
-
-                  {/* Active Bot Badge */}
-                  {(isRunning || isWaiting) && (
-                    <div className="flex items-center gap-2 mb-2 bg-white/10 px-3 py-1.5 rounded-lg inline-flex">
-                      <Bot className="h-4 w-4" />
-                      <span className="text-sm font-medium">
-                        Using: {botState?.activeBotName || bots.find(b => b.id === selectedBotId)?.name || 'Bot'}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Follow Mode Status */}
-                  {isFollowMode && botState?.followUser && (
-                    <div className="flex items-center gap-2 mb-2 bg-white/10 px-3 py-1.5 rounded-lg inline-flex ml-2">
-                      <Users className="h-4 w-4" />
-                      <span className="text-sm font-medium">
-                        Following: {botState.followUser.name}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Room/Status Info */}
-                  {isRunning && botState?.currentRoom ? (
-                    <div className="space-y-1">
-                      <p className="text-white/90 text-lg font-medium truncate max-w-md">
-                        📍 {botState.currentRoom.topic}
-                      </p>
-                      {botState.currentRoom.owner && (
-                        <div className="flex items-center gap-2 text-white/80">
-                          <Crown className="h-4 w-4" />
-                          <span>Owner: {botState.currentRoom.owner.pin_name}</span>
-                        </div>
-                      )}
-                    </div>
-                  ) : isWaiting ? (
-                    <p className="text-white/90">
-                      {pollCheck ? (
-                        <span className="flex items-center gap-2">
-                          <span className="animate-pulse">🔍 Checking for rooms...</span>
-                          <span className="text-sm">(Check #{pollCheck.checkCount})</span>
-                        </span>
-                      ) : (
-                        'Waiting for user to create a room'
-                      )}
-                    </p>
-                  ) : (
-                    <p className="text-white/70">Ready to monitor a room</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Quick Stats */}
-              <div className="flex flex-wrap gap-4">
-                <div className="text-center px-5 py-3 rounded-xl bg-white/10 backdrop-blur-sm min-w-[100px]">
-                  <MessageSquare className="h-5 w-5 text-white/80 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-white">{botState?.messageCount || 0}</p>
-                  <p className="text-xs text-white/70">Messages</p>
-                </div>
-                <div className="text-center px-5 py-3 rounded-xl bg-white/10 backdrop-blur-sm min-w-[100px]">
-                  <Users className="h-5 w-5 text-white/80 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-white">{botState?.participants?.length || 0}</p>
-                  <p className="text-xs text-white/70">Online</p>
-                </div>
-                <div className="text-center px-5 py-3 rounded-xl bg-white/10 backdrop-blur-sm min-w-[100px]">
-                  <Clock className="h-5 w-5 text-white/80 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-white font-mono">{uptimeStr}</p>
-                  <p className="text-xs text-white/70">Uptime</p>
-                </div>
-              </div>
+        {/* Title Bar */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 shadow-lg shadow-rose-500/25">
+              <Bot className="h-6 w-6 text-white" />
             </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 shadow-lg shadow-rose-500/25">
-            <Settings2 className="h-5 w-5 text-white" />
+            <div>
+              <h1 className="text-2xl lg:text-3xl font-bold bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600 bg-clip-text text-transparent">
+                Multi-Bot Control Center
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {runningBots.length > 0
+                  ? `${runningBots.length} bot${runningBots.length > 1 ? 's' : ''} running`
+                  : 'All bots stopped'}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl lg:text-4xl font-bold bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600 bg-clip-text text-transparent">
-              Bot Control Center
-            </h1>
-            <p className="text-sm text-muted-foreground">Select a room and start monitoring</p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowAddBot(!showAddBot)}
+              className="border-blue-200 hover:bg-blue-50"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add Bot
+            </Button>
+            <Button
+              onClick={fetchRooms}
+              variant="outline"
+              size="sm"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
           </div>
         </div>
-        <Button
-          onClick={fetchRooms}
-          variant="outline"
-          className="border-rose-200 hover:bg-rose-50 dark:border-rose-800 transition-colors duration-300"
-        >
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh Rooms
-        </Button>
+
+        {/* Add Bot Form (Collapsible) */}
+        <AnimatePresence>
+          {showAddBot && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-4"
+            >
+              <Card className="border-2 border-dashed border-blue-300 bg-blue-50/50 dark:bg-blue-950/20">
+                <CardContent className="p-4">
+                  <div className="flex gap-3 items-end">
+                    <div className="flex-1">
+                      <Label className="text-xs text-blue-600 mb-1">Bot Name (optional)</Label>
+                      <Input
+                        placeholder="e.g. Siri, Gemini"
+                        value={newBotName}
+                        onChange={(e) => setNewBotName(e.target.value)}
+                        className="border-blue-200 h-9"
+                      />
+                    </div>
+                    <div className="flex-[2]">
+                      <Label className="text-xs text-blue-600 mb-1">JWT Token (required)</Label>
+                      <Input
+                        placeholder="Paste JWT token here..."
+                        value={newBotToken}
+                        onChange={(e) => setNewBotToken(e.target.value)}
+                        className="border-blue-200 font-mono text-xs h-9"
+                      />
+                    </div>
+                    <Button
+                      onClick={addBot}
+                      disabled={addingBot || !newBotToken.trim()}
+                      className="bg-blue-500 hover:bg-blue-600 h-9"
+                    >
+                      {addingBot ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setShowAddBot(false); setNewBotName(''); setNewBotToken(''); }}
+                      className="h-9"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Bot Cards Grid - Shows ALL bots at a glance */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {bots.map((bot) => {
+            const thisBotState = botStates[bot.id] || {}
+            const thisBotRunning = thisBotState.status === 'running'
+            const thisBotWaiting = thisBotState.status === 'waiting'
+            const isSelected = selectedBotId === bot.id
+            const thisBotUptime = getUptimeStr(thisBotState.startTime)
+
+            return (
+              <motion.div
+                key={bot.id}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <Card
+                  className={`cursor-pointer transition-all border-2 ${
+                    isSelected
+                      ? 'border-blue-500 shadow-lg shadow-blue-500/20'
+                      : thisBotRunning
+                      ? 'border-emerald-400 shadow-md'
+                      : thisBotWaiting
+                      ? 'border-amber-400 shadow-md'
+                      : 'border-transparent hover:border-gray-300'
+                  } ${
+                    thisBotRunning
+                      ? 'bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30'
+                      : thisBotWaiting
+                      ? 'bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/30'
+                      : 'bg-white dark:bg-gray-900'
+                  }`}
+                  onClick={() => selectBot(bot.id)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-lg ${
+                          thisBotRunning
+                            ? 'bg-gradient-to-br from-emerald-500 to-teal-500'
+                            : thisBotWaiting
+                            ? 'bg-gradient-to-br from-amber-500 to-yellow-500'
+                            : 'bg-gradient-to-br from-gray-400 to-gray-500'
+                        }`}>
+                          {bot.name.charAt(0).toUpperCase()}
+                          {(thisBotRunning || thisBotWaiting) && (
+                            <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full animate-pulse ${
+                              thisBotRunning ? 'bg-emerald-400' : 'bg-amber-400'
+                            }`} />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm">{bot.name}</p>
+                          <p className={`text-xs ${
+                            thisBotRunning ? 'text-emerald-600' : thisBotWaiting ? 'text-amber-600' : 'text-gray-500'
+                          }`}>
+                            {thisBotRunning ? '🟢 Running' : thisBotWaiting ? '🟡 Waiting' : '⚪ Stopped'}
+                          </p>
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <Badge className="bg-blue-500 text-white text-xs">Selected</Badge>
+                      )}
+                    </div>
+
+                    {/* Room info if running */}
+                    {(thisBotRunning || thisBotWaiting) && (
+                      <div className="mt-2 p-2 rounded-lg bg-white/60 dark:bg-black/20">
+                        <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                          📍 {thisBotState.currentRoom?.topic || 'Waiting for room...'}
+                        </p>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                          <span className="flex items-center gap-1">
+                            <Users className="h-3 w-3" />
+                            {thisBotState.participants?.length || 0}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MessageSquare className="h-3 w-3" />
+                            {thisBotState.messageCount || 0}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {thisBotUptime}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quick action buttons */}
+                    <div className="mt-3 flex gap-2">
+                      {(thisBotRunning || thisBotWaiting) ? (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="flex-1 h-8 text-xs"
+                          onClick={(e) => { e.stopPropagation(); stopBot(bot.id); }}
+                        >
+                          <Square className="h-3 w-3 mr-1" />
+                          Stop
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="flex-1 h-8 text-xs bg-emerald-500 hover:bg-emerald-600"
+                          onClick={(e) => { e.stopPropagation(); selectBot(bot.id); }}
+                        >
+                          <Play className="h-3 w-3 mr-1" />
+                          Select to Start
+                        </Button>
+                      )}
+                      {bots.length > 1 && !(thisBotRunning || thisBotWaiting) && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={(e) => { e.stopPropagation(); deleteBot(bot.id, bot.name); }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )
+          })}
+
+          {/* Empty state if no bots */}
+          {bots.length === 0 && (
+            <Card className="col-span-full border-2 border-dashed">
+              <CardContent className="p-8 text-center">
+                <Bot className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                <p className="text-gray-500">No bots configured</p>
+                <p className="text-sm text-gray-400">Click "Add Bot" to get started</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </motion.div>
 
+      {/* ===== CONTEXT INDICATOR ===== */}
+      {selectedBotId && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800"
+        >
+          <Bot className="h-4 w-4 text-blue-500" />
+          <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+            Currently controlling: <strong>{bots.find(b => b.id === selectedBotId)?.name || 'Unknown'}</strong>
+          </span>
+          {(isRunning || isWaiting) && (
+            <Badge className={isRunning ? 'bg-emerald-500' : 'bg-amber-500'}>
+              {isRunning ? 'Running' : 'Waiting'}
+            </Badge>
+          )}
+          {currentBotState?.currentRoom && (
+            <span className="text-xs text-gray-500 ml-2">
+              in "{currentBotState.currentRoom.topic}"
+            </span>
+          )}
+        </motion.div>
+      )}
+
+      {/* ===== MAIN CONTENT GRID ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Controls */}
         <motion.div
@@ -871,140 +1009,7 @@ export default function ControlPage() {
           transition={{ delay: 0.2 }}
           className="space-y-6"
         >
-          {/* Bot Selector Card */}
-          <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Bot className="h-5 w-5 text-blue-500" />
-                  Select Bot
-                </CardTitle>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowAddBot(!showAddBot)}
-                  className="border-blue-200 hover:bg-blue-50"
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add Bot
-                </Button>
-              </div>
-              <CardDescription>Choose which bot account to use</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {/* Add Bot Form */}
-              {showAddBot && (
-                <div className="p-3 border-2 border-dashed border-blue-300 rounded-xl bg-blue-50/50 space-y-3">
-                  <Input
-                    placeholder="Bot name (optional)"
-                    value={newBotName}
-                    onChange={(e) => setNewBotName(e.target.value)}
-                    className="border-blue-200"
-                  />
-                  <Input
-                    placeholder="JWT Token (required)"
-                    value={newBotToken}
-                    onChange={(e) => setNewBotToken(e.target.value)}
-                    className="border-blue-200 font-mono text-xs"
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={addBot}
-                      disabled={addingBot || !newBotToken.trim()}
-                      className="flex-1 bg-blue-500 hover:bg-blue-600"
-                    >
-                      {addingBot ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-                      Add
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => { setShowAddBot(false); setNewBotName(''); setNewBotToken(''); }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Bot List - Each bot shows its own status */}
-              <div className="space-y-2">
-                {bots.map((bot) => {
-                  const thisBotState = botStates[bot.id] || {}
-                  const thisBotRunning = thisBotState.status === 'running' || thisBotState.status === 'waiting'
-
-                  return (
-                    <div
-                      key={bot.id}
-                      onClick={() => selectBot(bot.id)}
-                      className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${
-                        selectedBotId === bot.id
-                          ? 'bg-blue-100 dark:bg-blue-900/40 ring-2 ring-blue-500'
-                          : thisBotRunning
-                          ? 'bg-green-50 dark:bg-green-900/20 ring-1 ring-green-400'
-                          : 'bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold ${
-                          thisBotRunning
-                            ? 'bg-gradient-to-br from-green-500 to-emerald-500'
-                            : 'bg-gradient-to-br from-blue-500 to-indigo-500'
-                        }`}>
-                          {bot.name.charAt(0).toUpperCase()}
-                          {thisBotRunning && (
-                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-pulse" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium">{bot.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {thisBotRunning
-                              ? `🟢 ${thisBotState.currentRoom?.topic || 'Running'}`
-                              : '⚪ Stopped'
-                            }
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {thisBotRunning ? (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="h-8"
-                            onClick={(e) => { e.stopPropagation(); stopBot(bot.id); }}
-                          >
-                            <Square className="h-3 w-3 mr-1" />
-                            Stop
-                          </Button>
-                        ) : (
-                          selectedBotId === bot.id && (
-                            <CheckCircle2 className="h-5 w-5 text-blue-500" />
-                          )
-                        )}
-                        {bots.length > 1 && !thisBotRunning && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                            onClick={(e) => { e.stopPropagation(); deleteBot(bot.id, bot.name); }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-                {bots.length === 0 && (
-                  <div className="text-center text-muted-foreground py-4">
-                    <Bot className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">No bots configured</p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
+          {/* Bot Control Card */}
           <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
