@@ -365,6 +365,8 @@ export default function ControlPage() {
 
       if (data.success) {
         setSelectedBotId(botId)
+        setSelectedRoom('') // Reset room selection when changing bots
+        setSelectedUser('') // Reset user selection (for follow mode) when changing bots
         // Update botState to show selected bot's state
         if (botStates[botId]) {
           setBotState(botStates[botId])
