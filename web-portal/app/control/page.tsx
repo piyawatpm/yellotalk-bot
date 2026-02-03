@@ -108,10 +108,14 @@ export default function ControlPage() {
   const [newBotToken, setNewBotToken] = useState('')
   const [addingBot, setAddingBot] = useState(false)
 
+  // Unavailable rooms tracking
+  const [unavailableRooms, setUnavailableRooms] = useState<any[]>([])
+
   useEffect(() => {
     connectToServer()
     fetchRooms()
     fetchBots()
+    fetchUnavailableRooms()
   }, [])
 
   // Keep selectedBotIdRef in sync with selectedBotId state
@@ -271,6 +275,11 @@ export default function ControlPage() {
         })
       })
 
+      // Listen for unavailable rooms updates
+      newSocket.on('unavailable-rooms-update', (rooms) => {
+        setUnavailableRooms(rooms)
+      })
+
       setSocket(newSocket)
     } catch (error) {
       setServerError(true)
@@ -299,6 +308,38 @@ export default function ControlPage() {
       }
     } catch (error) {
       console.error('Could not fetch bots')
+    }
+  }
+
+  // Fetch unavailable rooms
+  const fetchUnavailableRooms = async () => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/unavailable-rooms`)
+      const data = await res.json()
+      setUnavailableRooms(data.rooms || [])
+    } catch (error) {
+      console.error('Could not fetch unavailable rooms')
+    }
+  }
+
+  // Clear unavailable room
+  const clearUnavailableRoom = async (roomId: string) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/clear-unavailable-room`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({
+          title: 'Room Cleared',
+          description: 'Room removed from unavailable list'
+        })
+        fetchUnavailableRooms()
+      }
+    } catch (error) {
+      console.error('Could not clear room')
     }
   }
 
@@ -1395,6 +1436,54 @@ export default function ControlPage() {
                       <p className="text-xs">Click refresh to check again</p>
                     </div>
                   )}
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Unavailable Rooms */}
+          {unavailableRooms.length > 0 && !isRunning && (
+            <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <UserX className="h-5 w-5 text-red-500" />
+                      Unavailable Rooms
+                    </CardTitle>
+                    <CardDescription>Rooms that bots cannot join (blocked users or duplicates)</CardDescription>
+                  </div>
+                  <Badge className="bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">
+                    {unavailableRooms.length} blocked
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="h-[200px] pr-4">
+                  <div className="space-y-2">
+                    {unavailableRooms.map((room) => (
+                      <div
+                        key={room.id}
+                        className="flex items-center justify-between p-3 rounded-lg bg-red-50/50 dark:bg-red-950/20 border border-red-200/50 dark:border-red-800/30"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-medium truncate">{room.roomTopic || 'Unknown Room'}</h4>
+                          <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">{room.reason}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Blocked: {new Date(room.timestamp).toLocaleTimeString()}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-500 hover:text-red-700 hover:bg-red-100"
+                          onClick={() => clearUnavailableRoom(room.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
                 </ScrollArea>
               </CardContent>
             </Card>

@@ -46,6 +46,52 @@ app.use(express.json());
 // Map of active bot instances: botId -> { config, state, socket, followInterval, originalRoomOwner }
 const botInstances = new Map();
 
+// Track unavailable rooms: roomId -> { reason, timestamp, roomTopic, blockedBy }
+const unavailableRooms = new Map();
+
+// Blocked usernames - if these users are in a room, bot will leave
+const BLOCKED_USERNAMES = ['bottom', 'botyoi'];
+
+// Helper to check if room is available for bot
+function isRoomAvailable(roomId, botId) {
+  // Check if room is marked unavailable
+  if (unavailableRooms.has(roomId)) {
+    return { available: false, reason: unavailableRooms.get(roomId).reason };
+  }
+
+  // Check if any of our bots are already in this room
+  for (const [existingBotId, instance] of botInstances) {
+    if (existingBotId !== botId &&
+        instance.state.status === 'running' &&
+        instance.state.currentRoom?.id === roomId) {
+      return { available: false, reason: `Another bot (${instance.config.name}) already in room` };
+    }
+  }
+
+  return { available: true };
+}
+
+// Mark room as unavailable
+function markRoomUnavailable(roomId, reason, roomTopic = 'Unknown') {
+  unavailableRooms.set(roomId, {
+    reason,
+    roomTopic,
+    timestamp: Date.now()
+  });
+  console.log(`🚫 Room marked unavailable: ${roomTopic} - ${reason}`);
+  io.emit('unavailable-rooms-update', Array.from(unavailableRooms.entries()).map(([id, data]) => ({ id, ...data })));
+}
+
+// Clear room from unavailable list (when room ends)
+function clearRoomUnavailable(roomId) {
+  if (unavailableRooms.has(roomId)) {
+    const room = unavailableRooms.get(roomId);
+    console.log(`✅ Room cleared from unavailable list: ${room.roomTopic}`);
+    unavailableRooms.delete(roomId);
+    io.emit('unavailable-rooms-update', Array.from(unavailableRooms.entries()).map(([id, data]) => ({ id, ...data })));
+  }
+}
+
 // Create a fresh state object for a bot
 function createBotState() {
   return {
@@ -723,17 +769,33 @@ async function autoJoinRandomRoom(botId) {
       httpsAgent
     });
 
-    const rooms = roomsResp.data.json || [];
-    if (rooms.length === 0) {
+    const allRooms = roomsResp.data.json || [];
+    if (allRooms.length === 0) {
       console.log(`[${timestamp}] ⚠️ No rooms available`);
       // Retry after 30 seconds
       setTimeout(() => autoJoinRandomRoom(botId), 30000);
       return;
     }
 
-    // Pick a random room
-    const randomRoom = rooms[Math.floor(Math.random() * rooms.length)];
-    console.log(`[${timestamp}] 🎯 Selected random room: ${randomRoom.topic} (${randomRoom.id})`);
+    // Filter out unavailable rooms
+    const availableRooms = allRooms.filter(room => {
+      const check = isRoomAvailable(room.id, botId);
+      if (!check.available) {
+        console.log(`[${timestamp}] ⏭️ Skipping room "${room.topic}": ${check.reason}`);
+      }
+      return check.available;
+    });
+
+    if (availableRooms.length === 0) {
+      console.log(`[${timestamp}] ⚠️ No available rooms (all ${allRooms.length} rooms are blocked or occupied)`);
+      // Retry after 30 seconds
+      setTimeout(() => autoJoinRandomRoom(botId), 30000);
+      return;
+    }
+
+    // Pick a random room from available ones
+    const randomRoom = availableRooms[Math.floor(Math.random() * availableRooms.length)];
+    console.log(`[${timestamp}] 🎯 Selected random room: ${randomRoom.topic} (${randomRoom.id}) [${availableRooms.length}/${allRooms.length} available]`);
 
     // Start bot in this room using the existing API
     const response = await axios.post(`http://localhost:5353/api/bot/start`, {
@@ -1164,6 +1226,25 @@ app.get('/api/bot/status/:botId', (req, res) => {
   });
 });
 
+// Get unavailable rooms list
+app.get('/api/bot/unavailable-rooms', (req, res) => {
+  const rooms = Array.from(unavailableRooms.entries()).map(([id, data]) => ({
+    id,
+    ...data
+  }));
+  res.json({ success: true, rooms });
+});
+
+// Clear a specific room from unavailable list
+app.post('/api/bot/clear-unavailable-room', (req, res) => {
+  const { roomId } = req.body;
+  if (!roomId) {
+    return res.status(400).json({ error: 'roomId is required' });
+  }
+  clearRoomUnavailable(roomId);
+  res.json({ success: true, message: `Room ${roomId} cleared from unavailable list` });
+});
+
 // Start a specific bot
 app.post('/api/bot/start', async (req, res) => {
   const { mode, roomId, userUuid, botId } = req.body;
@@ -1518,6 +1599,11 @@ app.post('/api/bot/start', async (req, res) => {
             instance.socket.disconnect();
           }
 
+          // Clear this room from unavailable list since it ended
+          if (instance.state.currentRoom?.id) {
+            clearRoomUnavailable(instance.state.currentRoom.id);
+          }
+
           // Notify portal
           io.emit('room-ended', {
             botId: targetBotId,
@@ -1543,6 +1629,65 @@ app.post('/api/bot/start', async (req, res) => {
 
         // DEBUG: Confirm state was set
         console.log(`[${timestamp}] 💾 instance.state.participants set: ${instance.state.participants.length} items`);
+
+        // CHECK FOR BLOCKED USERS - if found, leave room immediately
+        const blockedUserFound = participants.find(p => {
+          const name = (p.pin_name || '').toLowerCase();
+          return BLOCKED_USERNAMES.some(blocked => name.includes(blocked.toLowerCase()));
+        });
+
+        if (blockedUserFound) {
+          const blockedName = blockedUserFound.pin_name;
+          console.log(`\n🚫🚫🚫 BLOCKED USER DETECTED: "${blockedName}" 🚫🚫🚫`);
+          console.log(`[${timestamp}] 🚪 Leaving room due to blocked user...`);
+
+          // Mark room as unavailable with reason
+          const roomId = instance.state.currentRoom?.id;
+          const roomTopic = instance.state.currentRoom?.topic || 'Unknown';
+          if (roomId) {
+            markRoomUnavailable(roomId, `Blocked user "${blockedName}" in room`, roomTopic);
+          }
+
+          // Send a message before leaving (optional)
+          sendMessageForBot(targetBotId, `ขอตัวก่อนนะคะ~ 👋`);
+
+          // Disconnect after a short delay
+          setTimeout(() => {
+            // Clean up and reset state
+            instance.state.status = 'stopped';
+            instance.state.currentRoom = null;
+            instance.state.participants = [];
+            instance.state.speakers = [];
+            instance.state.messages = [];
+            instance.state.connected = false;
+            instance.hasJoinedRoom = false;
+            instance.previousParticipants = new Map();
+            instance.participantJoinTimes = new Map();
+
+            // Disconnect socket
+            if (instance.socket && instance.socket.connected) {
+              instance.socket.disconnect();
+            }
+
+            // Notify portal
+            io.emit('room-ended', {
+              botId: targetBotId,
+              reason: `Blocked user "${blockedName}" detected - bot left`
+            });
+
+            broadcastBotState(targetBotId);
+
+            // Check if auto-join is enabled - rejoin random room after delay
+            if (instance.state.autoJoinRandomRoom) {
+              console.log(`[${timestamp}] 🎲 Auto-join enabled, will join another random room in 10 seconds...`);
+              setTimeout(() => {
+                autoJoinRandomRoom(targetBotId);
+              }, 10000);
+            }
+          }, 1500);
+
+          return; // Exit early
+        }
 
         // Build current participants map
         const currentParticipants = new Map();
