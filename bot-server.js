@@ -60,7 +60,8 @@ function createBotState() {
     connected: false,
     startTime: null,
     enableWelcomeMessage: true,
-    autoHijackRooms: false
+    autoHijackRooms: false,
+    autoJoinRandomRoom: false // Auto-join random room when bot is free
   };
 }
 
@@ -693,6 +694,68 @@ function addMessageForBot(botId, sender, message) {
   broadcastBotState(botId);
 }
 
+// Auto-join a random room when bot is free
+async function autoJoinRandomRoom(botId) {
+  const instance = botInstances.get(botId);
+  if (!instance) {
+    console.log(`❌ [autoJoinRandomRoom] Bot instance not found: ${botId}`);
+    return;
+  }
+
+  // Check if bot is already running or auto-join is disabled
+  if (instance.state.status === 'running' || instance.state.status === 'starting') {
+    console.log(`⏭️ [autoJoinRandomRoom] Bot ${botId} is already running, skipping`);
+    return;
+  }
+
+  if (!instance.state.autoJoinRandomRoom) {
+    console.log(`⏭️ [autoJoinRandomRoom] Auto-join disabled for ${botId}`);
+    return;
+  }
+
+  const timestamp = new Date().toLocaleTimeString();
+  console.log(`[${timestamp}] 🎲 [${instance.config.name}] Auto-joining random room...`);
+
+  try {
+    const httpsAgent = new (require('https').Agent)({ rejectUnauthorized: false });
+    const roomsResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
+      headers: { 'Authorization': `Bearer ${instance.config.jwt_token}` },
+      httpsAgent
+    });
+
+    const rooms = roomsResp.data.json || [];
+    if (rooms.length === 0) {
+      console.log(`[${timestamp}] ⚠️ No rooms available`);
+      // Retry after 30 seconds
+      setTimeout(() => autoJoinRandomRoom(botId), 30000);
+      return;
+    }
+
+    // Pick a random room
+    const randomRoom = rooms[Math.floor(Math.random() * rooms.length)];
+    console.log(`[${timestamp}] 🎯 Selected random room: ${randomRoom.topic} (${randomRoom.id})`);
+
+    // Start bot in this room using the existing API
+    const response = await axios.post(`http://localhost:5353/api/bot/start`, {
+      botId: botId,
+      mode: 'regular',
+      roomId: randomRoom.id
+    });
+
+    if (response.data.success) {
+      console.log(`[${timestamp}] ✅ Auto-joined room: ${randomRoom.topic}`);
+    } else {
+      console.log(`[${timestamp}] ❌ Failed to auto-join: ${response.data.error}`);
+      // Retry after 30 seconds
+      setTimeout(() => autoJoinRandomRoom(botId), 30000);
+    }
+  } catch (error) {
+    console.error(`[${timestamp}] ❌ Auto-join error:`, error.message);
+    // Retry after 30 seconds
+    setTimeout(() => autoJoinRandomRoom(botId), 30000);
+  }
+}
+
 // AI Response Handler with Dual API Key Support
 async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri', botId = null) {
   try {
@@ -1195,11 +1258,68 @@ app.post('/api/bot/start', async (req, res) => {
 
         if (!isBotMessage) {
           const messageLower = message.toLowerCase();
+          const botNameLower = botConfig.name.toLowerCase();
 
           // IMPORTANT: Don't respond to bot responses (prevent infinite loop)
           if (message.includes('คนในห้องตอนนี้') && message.includes('คน):')) {
             // This is a bot's user list response, ignore it
             return;
+          }
+
+          // Check for KICK BOT command - [botname] ออกไป, getout, out, ไปเลย, etc.
+          const kickPatterns = [
+            new RegExp(`${botNameLower}\\s*(ออกไป|ออก|ไปเลย|ไป|getout|get out|out|leave|bye)`, 'i'),
+            new RegExp(`(ออกไป|ออก|ไปเลย|getout|get out|out|leave)\\s*${botNameLower}`, 'i'),
+          ];
+
+          const isKickCommand = kickPatterns.some(pattern => pattern.test(messageLower));
+
+          if (isKickCommand) {
+            console.log(`[${timestamp}] 🚪 Kick command detected from ${sender}: "${message}"`);
+
+            // Send goodbye message
+            setTimeout(() => {
+              sendMessageForBot(targetBotId, `ไปแล้วนะคะ บ๊ายบาย~ 👋`);
+            }, 500);
+
+            // Leave room after short delay
+            setTimeout(() => {
+              console.log(`[${timestamp}] 🚪 Bot leaving room by user command`);
+
+              // Clean up and reset state
+              instance.state.status = 'stopped';
+              instance.state.currentRoom = null;
+              instance.state.participants = [];
+              instance.state.speakers = [];
+              instance.state.messages = [];
+              instance.state.connected = false;
+              instance.hasJoinedRoom = false;
+              instance.previousParticipants = new Map();
+              instance.participantJoinTimes = new Map();
+
+              // Disconnect socket
+              if (instance.socket && instance.socket.connected) {
+                instance.socket.disconnect();
+              }
+
+              // Notify portal
+              io.emit('room-ended', {
+                botId: targetBotId,
+                reason: 'User kicked bot out'
+              });
+
+              broadcastBotState(targetBotId);
+
+              // Check if auto-join is enabled - rejoin random room after delay
+              if (instance.state.autoJoinRandomRoom) {
+                console.log(`[${timestamp}] 🎲 Auto-join enabled, will join random room in 10 seconds...`);
+                setTimeout(() => {
+                  autoJoinRandomRoom(targetBotId);
+                }, 10000);
+              }
+            }, 2000);
+
+            return; // Don't process further
           }
 
           // Check for bot trigger (AI Response) - @botname, botname anywhere in message
@@ -1377,6 +1497,47 @@ app.post('/api/bot/start', async (req, res) => {
         console.log(`[${timestamp}] 📥 Raw data:`, JSON.stringify(data).substring(0, 500));
         console.log(`[${timestamp}] 👥 Parsed ${participants.length} participants:`, participants.map(p => p.pin_name).join(', '));
 
+        // Check if room has ended (0 participants means room closed)
+        if (participants.length === 0) {
+          console.log(`[${timestamp}] 🚪 Room ended - 0 participants detected`);
+          console.log(`[${timestamp}] 🔄 Changing bot state to stopped/available`);
+
+          // Clean up and reset state
+          instance.state.status = 'stopped';
+          instance.state.currentRoom = null;
+          instance.state.participants = [];
+          instance.state.speakers = [];
+          instance.state.messages = [];
+          instance.state.connected = false;
+          instance.hasJoinedRoom = false;
+          instance.previousParticipants = new Map();
+          instance.participantJoinTimes = new Map();
+
+          // Disconnect socket if still connected
+          if (instance.socket && instance.socket.connected) {
+            instance.socket.disconnect();
+          }
+
+          // Notify portal
+          io.emit('room-ended', {
+            botId: targetBotId,
+            reason: 'No participants - room assumed ended'
+          });
+
+          broadcastBotState(targetBotId);
+
+          // Check if auto-join is enabled - rejoin random room after delay
+          if (instance.state.autoJoinRandomRoom) {
+            console.log(`[${timestamp}] 🎲 Auto-join enabled, will join random room in 10 seconds...`);
+            setTimeout(() => {
+              autoJoinRandomRoom(targetBotId);
+            }, 10000);
+          }
+
+          console.log(`========== END PARTICIPANT DEBUG ==========\n`);
+          return; // Exit early, don't process further
+        }
+
         // Use instance.state instead of global botState
         instance.state.participants = participants;
 
@@ -1413,7 +1574,7 @@ app.post('/api/bot/start', async (req, res) => {
           if (instance.state.enableWelcomeMessage) {
             setTimeout(() => {
               const bn = botConfig.name; // Bot name for welcome message
-              const welcomeMessage = `สวัสดีค่ะ! 🤖 สามารถถามคำถามทั่วไปกับ AI ได้ด้วย @${bn} หรือ ${bn}\n⚠️ ตอบได้เฉพาะคำถามทั่วไป ไม่รวมข่าวล่าสุดหรือข้อมูลเรียลไทม์\n\nตัวอย่าง:\n• @${bn} สวัสดี\n• ${bn} อธิบาย AI คืออะไร\n• ${bn} สุ่มเลข 1-12 จากทุกคนในห้อง\n• ใครคือหห? ${bn}\n\n🎀 ตั้งคำทักทายของตัวเอง:\n• ${bn} เรียกฉันว่า [คำทักทาย]\n• ${bn} ทักฉันว่า สวัสดีคนสวย`;
+              const welcomeMessage = `สวัสดีค่ะ! 🤖 ถามคำถามได้ด้วย @${bn} หรือ ${bn}\n\nตัวอย่าง:\n• ${bn} สวัสดี\n• ${bn} สุ่มเลข 1-12 จากทุกคนในห้อง\n• ${bn} ดูดวงให้ [ชื่อ]\n\n🎀 ตั้งคำทักทาย: ${bn} เรียกฉันว่า [คำทักทาย]\n🚪 ไล่ออก: ${bn} ออกไป`;
               sendMessageForBot(targetBotId, welcomeMessage);
               console.log(`[${timestamp}] 👋 Sent ${botConfig.name} welcome message`);
             }, 2000); // 2 second delay to let room fully load
@@ -2243,6 +2404,34 @@ app.post('/api/bot/toggle-hijack', (req, res) => {
   broadcastState();
   if (botId) broadcastBotState(botId);
   res.json({ success: true, autoHijackRooms: state.autoHijackRooms });
+});
+
+// Toggle auto-join random room
+app.post('/api/bot/toggle-auto-join', (req, res) => {
+  const { enabled, botId } = req.body;
+
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  }
+
+  // Update specific bot's state or global
+  const instance = botId ? botInstances.get(botId) : null;
+  const state = instance?.state || botState;
+
+  state.autoJoinRandomRoom = enabled;
+  console.log(`🔄 Auto-join random room ${enabled ? 'enabled' : 'disabled'} for ${botId || 'global'}`);
+
+  // If enabled and bot is currently stopped, start auto-join immediately
+  if (enabled && state.status === 'stopped' && botId) {
+    console.log(`🎲 Bot is stopped, triggering auto-join now...`);
+    setTimeout(() => {
+      autoJoinRandomRoom(botId);
+    }, 2000);
+  }
+
+  broadcastState();
+  if (botId) broadcastBotState(botId);
+  res.json({ success: true, autoJoinRandomRoom: state.autoJoinRandomRoom });
 });
 
 // Manual hijack endpoint (for when auto-hijack is disabled)
