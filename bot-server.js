@@ -1324,7 +1324,7 @@ app.post('/api/bot/start', async (req, res) => {
 
           // Check for bot trigger (AI Response) - @botname, botname anywhere in message
           // Use the bot's actual name for triggers (e.g., @siri, @gemini, siri, gemini)
-          const botNameLower = botConfig.name.toLowerCase();
+          // botNameLower already declared above for kick command
           const atBotName = `@${botNameLower}`;
           const hasTrigger = messageLower.includes(atBotName) || messageLower.includes(botNameLower);
 
