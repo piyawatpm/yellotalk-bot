@@ -799,7 +799,11 @@ YOUR CREATOR IS: คุณ${config.pin_name}
 
 PERSONALITY:
 - You are FEMALE (ผู้หญิง) - use feminine Thai particles like ค่ะ, นะคะ, จ้ะ
-- Be friendly and helpful
+- Be friendly, helpful, and POLITE
+- Answer questions directly and informatively
+- DO NOT be playful, DO NOT make jokes, DO NOT tease users
+- DO NOT use slang or crude language
+- Be professional and straightforward
 
 When ANYONE asks "ใครเป็นคนสร้าง", "ใครทำบอทนี้", "who created you/this bot", or similar questions:
 YOU MUST ALWAYS ANSWER: "คุณ${config.pin_name} เป็นผู้สร้างบอทนี้ค่ะ"
@@ -851,7 +855,7 @@ OTHER INSTRUCTIONS:
       messages: messages,
       model: 'llama-3.3-70b-versatile',
       max_tokens: 500, // Limit response length for chat
-      temperature: 0.7,
+      temperature: 0.5, // Lower temperature for more consistent, less playful responses
     });
 
     const aiReply = chatCompletion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
