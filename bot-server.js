@@ -104,10 +104,15 @@ function getAllBotStates() {
 function broadcastBotState(botId) {
   const instance = botInstances.get(botId);
   if (instance) {
-    io.emit('bot-state-update', {
-      botId,
-      state: { ...instance.state, id: botId, name: instance.config.name }
-    });
+    const stateToSend = { ...instance.state, id: botId, name: instance.config.name };
+
+    // DEBUG: Log what we're broadcasting
+    console.log(`📡 [broadcastBotState] Bot: ${botId}`);
+    console.log(`   - participants: ${stateToSend.participants?.length || 0}`);
+    console.log(`   - status: ${stateToSend.status}`);
+    console.log(`   - currentRoom: ${stateToSend.currentRoom?.topic || 'none'}`);
+
+    io.emit('bot-state-update', { botId, state: stateToSend });
   }
   // Also emit all states for clients that want the full picture
   io.emit('all-bot-states', getAllBotStates());
@@ -1339,10 +1344,18 @@ app.post('/api/bot/start', async (req, res) => {
       instance.socket.on('participant_changed', (data) => {
         const timestamp = new Date().toLocaleTimeString();
         const participants = Array.isArray(data) ? data : [];
-        console.log(`👥 [${botConfig.name}] ${participants.length} participants:`, participants.map(p => p.pin_name).join(', '));
+
+        // DEBUG: Log raw data received
+        console.log(`\n========== PARTICIPANT DEBUG [${botConfig.name}] ==========`);
+        console.log(`[${timestamp}] 📥 Raw data type: ${typeof data}, isArray: ${Array.isArray(data)}`);
+        console.log(`[${timestamp}] 📥 Raw data:`, JSON.stringify(data).substring(0, 500));
+        console.log(`[${timestamp}] 👥 Parsed ${participants.length} participants:`, participants.map(p => p.pin_name).join(', '));
 
         // Use instance.state instead of global botState
         instance.state.participants = participants;
+
+        // DEBUG: Confirm state was set
+        console.log(`[${timestamp}] 💾 instance.state.participants set: ${instance.state.participants.length} items`);
 
         // Build current participants map
         const currentParticipants = new Map();
@@ -1512,6 +1525,10 @@ app.post('/api/bot/start', async (req, res) => {
 
         // Update previous participants for next comparison
         instance.previousParticipants = new Map(currentParticipants);
+
+        // DEBUG: Final state before broadcast
+        console.log(`[${timestamp}] 📤 Broadcasting state with ${instance.state.participants.length} participants`);
+        console.log(`========== END PARTICIPANT DEBUG ==========\n`);
 
         io.emit('participant-update', participants);
         broadcastBotState(targetBotId);
