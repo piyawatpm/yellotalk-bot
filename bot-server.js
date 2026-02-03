@@ -151,6 +151,38 @@ function getAllBotStates() {
 function broadcastBotState(botId) {
   const instance = botInstances.get(botId);
   if (instance) {
+    // AUTO-CLOSE: If status is running/waiting but no currentRoom, reset to stopped
+    // This handles "Waiting for room..." state - should close like clicking stop button
+    if ((instance.state.status === 'running' || instance.state.status === 'waiting') &&
+        !instance.state.currentRoom) {
+      // Exception: follow mode with a follow user set (actively polling)
+      if (!(instance.state.mode === 'follow' && instance.state.followUser)) {
+        console.log(`🔄 [broadcastBotState] Auto-closing bot ${botId} - no currentRoom`);
+        instance.state.status = 'stopped';
+        instance.state.mode = null;
+        instance.state.participants = [];
+        instance.state.speakers = [];
+        instance.state.messages = [];
+        instance.state.connected = false;
+        instance.hasJoinedRoom = false;
+        instance.previousParticipants = new Map();
+        instance.participantJoinTimes = new Map();
+
+        // Disconnect socket if connected
+        if (instance.socket && instance.socket.connected) {
+          instance.socket.disconnect();
+        }
+
+        // Trigger auto-join if enabled
+        if (instance.state.autoJoinRandomRoom) {
+          console.log(`🎲 [broadcastBotState] Auto-join enabled, will join random room in 10 seconds...`);
+          setTimeout(() => {
+            autoJoinRandomRoom(botId);
+          }, 10000);
+        }
+      }
+    }
+
     const stateToSend = { ...instance.state, id: botId, name: instance.config.name };
 
     // DEBUG: Log what we're broadcasting
@@ -748,9 +780,9 @@ async function autoJoinRandomRoom(botId) {
     return;
   }
 
-  // Check if bot is already running or auto-join is disabled
-  if (instance.state.status === 'running' || instance.state.status === 'starting') {
-    console.log(`⏭️ [autoJoinRandomRoom] Bot ${botId} is already running, skipping`);
+  // Check if bot is already running/starting/waiting or auto-join is disabled
+  if (instance.state.status === 'running' || instance.state.status === 'starting' || instance.state.status === 'waiting') {
+    console.log(`⏭️ [autoJoinRandomRoom] Bot ${botId} is already ${instance.state.status}, skipping`);
     return;
   }
 
