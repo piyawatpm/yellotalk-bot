@@ -1227,24 +1227,26 @@ app.post('/api/bot/start', async (req, res) => {
             }
 
             if (customGreeting && customGreeting.length > 0) {
-              console.log(`[${timestamp}] 🎉 ${sender} wants to set custom greeting: "${customGreeting}"`);
+              console.log(`[${timestamp}] 🎉 ${sender} (${senderUuid}) wants to set custom greeting: "${customGreeting}"`);
 
               // Add/update greeting in greetingsConfig
               if (!greetingsConfig.customGreetings) {
                 greetingsConfig.customGreetings = {};
               }
 
-              // Use a key that will match the user's name (partial match)
-              // Find a unique identifier from their name
-              const greetingKey = sender;
-              greetingsConfig.customGreetings[greetingKey] = customGreeting;
+              // Store by UUID for exact matching (priority), with name for reference
+              // Format: { greeting: "text", name: "username" } or just "text" for legacy
+              greetingsConfig.customGreetings[senderUuid] = {
+                greeting: customGreeting,
+                name: sender
+              };
 
               // Save to file
               try {
                 const fs = require('fs');
                 const greetingsPath = require('path').join(__dirname, 'greetings.json');
                 fs.writeFileSync(greetingsPath, JSON.stringify(greetingsConfig, null, 2), 'utf8');
-                console.log(`[${timestamp}] ✅ Saved custom greeting for ${sender}`);
+                console.log(`[${timestamp}] ✅ Saved custom greeting for ${sender} (UUID: ${senderUuid})`);
 
                 // Confirm to user
                 setTimeout(() => {
@@ -1409,20 +1411,37 @@ app.post('/api/bot/start', async (req, res) => {
               // Generate greeting using greetings.json
               let greeting;
               const lowerUserName = userName.toLowerCase();
-
-              // Check custom greetings
               let matched = false;
-              const customKeys = Object.keys(greetingsConfig.customGreetings || {});
-              console.log(`[${timestamp}] 🔎 Matching "${lowerUserName}" against ${customKeys.length} keys: [${customKeys.join(', ')}]`);
-              
-              for (const [key, greetingText] of Object.entries(greetingsConfig.customGreetings || {})) {
-                const keyLower = key.toLowerCase();
-                const isMatch = lowerUserName.includes(keyLower);
-                if (isMatch) {
-                  console.log(`[${timestamp}] ✅ MATCH "${keyLower}" in "${lowerUserName}" -> "${greetingText}"`);
-                  greeting = `${greetingText} ${userName}`;
-                  matched = true;
-                  break;
+
+              // PRIORITY 1: Check by UUID (exact match) - highest priority
+              const uuidGreeting = greetingsConfig.customGreetings?.[uuid];
+              if (uuidGreeting) {
+                // Support both new format { greeting, name } and legacy string format
+                const greetingText = typeof uuidGreeting === 'object' ? uuidGreeting.greeting : uuidGreeting;
+                console.log(`[${timestamp}] ✅ UUID MATCH for ${uuid} -> "${greetingText}"`);
+                greeting = `${greetingText} ${userName}`;
+                matched = true;
+              }
+
+              // PRIORITY 2: Fall back to name-based matching
+              if (!matched) {
+                const customKeys = Object.keys(greetingsConfig.customGreetings || {});
+                console.log(`[${timestamp}] 🔎 Matching "${lowerUserName}" against ${customKeys.length} keys`);
+
+                for (const [key, greetingData] of Object.entries(greetingsConfig.customGreetings || {})) {
+                  // Skip UUID keys (they contain hyphens and are uppercase)
+                  if (key.includes('-') && key === key.toUpperCase()) continue;
+
+                  // Support both new format { greeting, name } and legacy string format
+                  const greetingText = typeof greetingData === 'object' ? greetingData.greeting : greetingData;
+                  const keyLower = key.toLowerCase();
+                  const isMatch = lowerUserName.includes(keyLower);
+                  if (isMatch) {
+                    console.log(`[${timestamp}] ✅ NAME MATCH "${keyLower}" in "${lowerUserName}" -> "${greetingText}"`);
+                    greeting = `${greetingText} ${userName}`;
+                    matched = true;
+                    break;
+                  }
                 }
               }
 
