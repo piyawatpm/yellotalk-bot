@@ -1377,6 +1377,38 @@ app.post('/api/bot/start', async (req, res) => {
         console.log(`[${timestamp}] 📥 Raw data:`, JSON.stringify(data).substring(0, 500));
         console.log(`[${timestamp}] 👥 Parsed ${participants.length} participants:`, participants.map(p => p.pin_name).join(', '));
 
+        // Check if room has ended (0 participants means room closed)
+        if (participants.length === 0) {
+          console.log(`[${timestamp}] 🚪 Room ended - 0 participants detected`);
+          console.log(`[${timestamp}] 🔄 Changing bot state to stopped/available`);
+
+          // Clean up and reset state
+          instance.state.status = 'stopped';
+          instance.state.currentRoom = null;
+          instance.state.participants = [];
+          instance.state.speakers = [];
+          instance.state.messages = [];
+          instance.state.connected = false;
+          instance.hasJoinedRoom = false;
+          instance.previousParticipants = new Map();
+          instance.participantJoinTimes = new Map();
+
+          // Disconnect socket if still connected
+          if (instance.socket && instance.socket.connected) {
+            instance.socket.disconnect();
+          }
+
+          // Notify portal
+          io.emit('room-ended', {
+            botId: targetBotId,
+            reason: 'No participants - room assumed ended'
+          });
+
+          broadcastBotState(targetBotId);
+          console.log(`========== END PARTICIPANT DEBUG ==========\n`);
+          return; // Exit early, don't process further
+        }
+
         // Use instance.state instead of global botState
         instance.state.participants = participants;
 
