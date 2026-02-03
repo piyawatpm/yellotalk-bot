@@ -2414,24 +2414,33 @@ app.post('/api/bot/toggle-auto-join', (req, res) => {
     return res.status(400).json({ error: 'enabled must be a boolean' });
   }
 
-  // Update specific bot's state or global
-  const instance = botId ? botInstances.get(botId) : null;
-  const state = instance?.state || botState;
+  // Get or create bot instance
+  let instance = botId ? botInstances.get(botId) : null;
 
-  state.autoJoinRandomRoom = enabled;
-  console.log(`🔄 Auto-join random room ${enabled ? 'enabled' : 'disabled'} for ${botId || 'global'}`);
+  // If no instance exists, try to create one
+  if (!instance && botId) {
+    instance = getBotInstance(botId);
+  }
+
+  if (!instance) {
+    return res.status(400).json({ error: 'Bot not found' });
+  }
+
+  instance.state.autoJoinRandomRoom = enabled;
+  console.log(`🔄 Auto-join random room ${enabled ? 'enabled' : 'disabled'} for ${instance.config?.name || botId}`);
+  console.log(`   Current status: ${instance.state.status}`);
 
   // If enabled and bot is currently stopped, start auto-join immediately
-  if (enabled && state.status === 'stopped' && botId) {
-    console.log(`🎲 Bot is stopped, triggering auto-join now...`);
+  if (enabled && instance.state.status === 'stopped') {
+    console.log(`🎲 Bot is stopped, triggering auto-join in 2 seconds...`);
     setTimeout(() => {
       autoJoinRandomRoom(botId);
     }, 2000);
   }
 
   broadcastState();
-  if (botId) broadcastBotState(botId);
-  res.json({ success: true, autoJoinRandomRoom: state.autoJoinRandomRoom });
+  broadcastBotState(botId);
+  res.json({ success: true, autoJoinRandomRoom: instance.state.autoJoinRandomRoom });
 });
 
 // Manual hijack endpoint (for when auto-hijack is disabled)

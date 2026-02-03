@@ -1155,11 +1155,23 @@ export default function ControlPage() {
                         checked={currentBotState?.autoJoinRandomRoom ?? false}
                         onCheckedChange={async (checked) => {
                           try {
-                            await fetch(`${getApiUrl()}/api/bot/toggle-auto-join`, {
+                            const res = await fetch(`${getApiUrl()}/api/bot/toggle-auto-join`, {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ enabled: checked, botId: selectedBotId })
                             })
+                            const data = await res.json()
+                            if (data.success) {
+                              // Update local state immediately
+                              setBotStates((prev: any) => ({
+                                ...prev,
+                                [selectedBotId]: {
+                                  ...prev[selectedBotId],
+                                  autoJoinRandomRoom: checked
+                                }
+                              }))
+                              setBotState((prev: any) => prev ? ({ ...prev, autoJoinRandomRoom: checked }) : prev)
+                            }
                             toast({
                               title: checked ? 'Auto-Join Enabled' : 'Auto-Join Disabled',
                               description: checked ? 'Bot will auto-join random rooms when free' : 'Bot stays idle when free'
