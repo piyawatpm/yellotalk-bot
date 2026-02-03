@@ -96,6 +96,7 @@ export default function ControlPage() {
   const [speakers, setSpeakers] = useState<any[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
   const startTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const startingBotIdRef = useRef<string | null>(null) // Track which bot we're starting
 
   // Multi-bot management state
   const [bots, setBots] = useState<any[]>([])
@@ -153,28 +154,36 @@ export default function ControlPage() {
       newSocket.on('bot-state-update', ({ botId, state }) => {
         setBotStates((prev: any) => ({ ...prev, [botId]: state }))
 
-        // Update main botState if this is the selected bot
-        if (botId === selectedBotId) {
-          setBotState(state)
-          if (state.speakers?.length > 0) {
-            setSpeakers(state.speakers)
+        // Update main botState if this is the bot we're starting or selected
+        setBotState((prev: any) => {
+          // Update if this bot is the one we're starting
+          if (botId === startingBotIdRef.current) {
+            if (state.speakers?.length > 0) {
+              setSpeakers(state.speakers)
+            }
+            return state
           }
-        }
+          return prev
+        })
 
-        // Clear timeout and reset starting state
-        if (startTimeoutRef.current) {
-          clearTimeout(startTimeoutRef.current)
-          startTimeoutRef.current = null
-        }
+        // Reset loading state if this is the bot we're starting
+        if (botId === startingBotIdRef.current) {
+          if (startTimeoutRef.current) {
+            clearTimeout(startTimeoutRef.current)
+            startTimeoutRef.current = null
+          }
 
-        if (state.status === 'running') {
-          toast({
-            title: `${state.name || 'Bot'} Started!`,
-            description: `Now monitoring: ${state.currentRoom?.topic || 'room'}`
-          })
-          setStarting(false)
-        } else if (state.status === 'error' || state.status === 'stopped') {
-          setStarting(false)
+          if (state.status === 'running') {
+            toast({
+              title: `${state.name || 'Bot'} Started!`,
+              description: `Now monitoring: ${state.currentRoom?.topic || 'room'}`
+            })
+            setStarting(false)
+            startingBotIdRef.current = null
+          } else if (state.status === 'error' || state.status === 'stopped') {
+            setStarting(false)
+            startingBotIdRef.current = null
+          }
         }
       })
 
@@ -425,11 +434,13 @@ export default function ControlPage() {
     }
 
     setStarting(true)
+    startingBotIdRef.current = selectedBotId // Track which bot we're starting
 
     // Safety timeout - reset starting after 10 seconds no matter what
     startTimeoutRef.current = setTimeout(() => {
       console.log('Starting timeout - resetting state')
       setStarting(false)
+      startingBotIdRef.current = null
       toast({
         title: 'Timeout',
         description: 'Bot took too long to start. Please try again.',
@@ -463,6 +474,7 @@ export default function ControlPage() {
         clearTimeout(startTimeoutRef.current)
         startTimeoutRef.current = null
       }
+      startingBotIdRef.current = null
       toast({
         title: 'Start Failed',
         description: 'Could not start bot. Check if bot-server.js is running',
