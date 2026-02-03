@@ -1296,7 +1296,7 @@ app.post('/api/bot/start', async (req, res) => {
             // Build numbered user list with time
             const userList = usersWithoutBot
               .map((p, i) => {
-                const joinInfo = participantJoinTimes.get(p.uuid);
+                const joinInfo = instance.participantJoinTimes.get(p.uuid);
                 if (joinInfo) {
                   const now = new Date();
                   const duration = now - joinInfo.joinTime;
@@ -1351,20 +1351,21 @@ app.post('/api/bot/start', async (req, res) => {
         });
 
         // FIRST TIME: Save existing participants, DON'T greet anyone
-        if (!hasJoinedRoom) {
-          previousParticipants = new Map(currentParticipants);
+        // Use instance-level tracking (not global) for multi-bot support
+        if (!instance.hasJoinedRoom) {
+          instance.previousParticipants = new Map(currentParticipants);
 
           // Record join times for everyone currently in room (for future bye messages)
           participants.forEach(p => {
             if (!p.pin_name?.includes(botConfig.name)) {
-              participantJoinTimes.set(p.uuid, {
+              instance.participantJoinTimes.set(p.uuid, {
                 name: p.pin_name || 'User',
                 joinTime: new Date()
               });
             }
           });
 
-          hasJoinedRoom = true;
+          instance.hasJoinedRoom = true;
           console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
 
           // Send welcome message explaining bot feature (if enabled)
@@ -1389,7 +1390,7 @@ app.post('/api/bot/start', async (req, res) => {
         // Find NEW participants (joined)
         let newCount = 0;
         console.log(`[${timestamp}] 🔍 Checking for new participants...`);
-        console.log(`[${timestamp}] 📝 Previous participants:`, Array.from(previousParticipants.values()));
+        console.log(`[${timestamp}] 📝 Previous participants:`, Array.from(instance.previousParticipants.values()));
 
         participants.forEach((p, index) => {
           const uuid = p.uuid;
@@ -1401,13 +1402,13 @@ app.post('/api/bot/start', async (req, res) => {
           console.log(`[${timestamp}] 🔎 Checking ${userName} (${uuid})`);
 
           // New participant detected!
-          if (!previousParticipants.has(uuid)) {
+          if (!instance.previousParticipants.has(uuid)) {
             console.log(`[${timestamp}] ✨ ${userName} is NEW!`);
             // Also check if we already have join time (prevent duplicate greets)
-            if (!participantJoinTimes.has(uuid)) {
+            if (!instance.participantJoinTimes.has(uuid)) {
               newCount++;
               const joinTime = new Date();
-              participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
+              instance.participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
 
               // Generate greeting using greetings.json
               let greeting;
@@ -1466,18 +1467,18 @@ app.post('/api/bot/start', async (req, res) => {
         });
 
         // Debug: Show if we should have detected someone
-        if (newCount === 0 && participants.length > previousParticipants.size) {
+        if (newCount === 0 && participants.length > instance.previousParticipants.size) {
           console.log(`[${timestamp}] 🐛 DEBUG: Participant count increased but no new UUIDs detected`);
-          console.log(`           Previous: ${previousParticipants.size}, Current: ${participants.length}`);
+          console.log(`           Previous: ${instance.previousParticipants.size}, Current: ${participants.length}`);
         }
 
         // Find participants who LEFT
         let leftCount = 0;
-        previousParticipants.forEach((prevName, prevUuid) => {
+        instance.previousParticipants.forEach((prevName, prevUuid) => {
           if (!prevName?.includes(botConfig.name) && !currentParticipants.has(prevUuid)) {
             leftCount++;
             // This participant left!
-            const joinInfo = participantJoinTimes.get(prevUuid);
+            const joinInfo = instance.participantJoinTimes.get(prevUuid);
             if (joinInfo) {
               const leaveTime = new Date();
               const duration = leaveTime - joinInfo.joinTime;
@@ -1496,7 +1497,7 @@ app.post('/api/bot/start', async (req, res) => {
               }, 800);
 
               // Clean up
-              participantJoinTimes.delete(prevUuid);
+              instance.participantJoinTimes.delete(prevUuid);
             } else {
               console.log(`[${timestamp}] 🐛 ${prevName} left but no join time found (UUID: ${prevUuid.substring(0, 20)}...)`);
             }
@@ -1504,13 +1505,13 @@ app.post('/api/bot/start', async (req, res) => {
         });
 
         // Debug: Show if someone should have left
-        if (leftCount === 0 && participants.length < previousParticipants.size) {
+        if (leftCount === 0 && participants.length < instance.previousParticipants.size) {
           console.log(`[${timestamp}] 🐛 DEBUG: Count decreased but no one detected as leaving`);
-          console.log(`           Previous: ${previousParticipants.size}, Current: ${participants.length}`);
+          console.log(`           Previous: ${instance.previousParticipants.size}, Current: ${participants.length}`);
         }
 
         // Update previous participants for next comparison
-        previousParticipants = new Map(currentParticipants);
+        instance.previousParticipants = new Map(currentParticipants);
 
         io.emit('participant-update', participants);
         broadcastBotState(targetBotId);
