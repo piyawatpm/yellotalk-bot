@@ -1361,6 +1361,12 @@ app.post('/api/bot/start', async (req, res) => {
         const message = data.message || '';
         const senderUuid = data.uuid;
 
+        // Ignore messages if room is no longer active
+        if (instance.state.status !== 'running' || !instance.state.currentRoom) {
+          console.log(`[${timestamp}] ⚠️ [${botConfig.name}] Ignoring message - room closed (status: ${instance.state.status})`);
+          return;
+        }
+
         console.log(`\n[${timestamp}] [${botConfig.name}] 💬 ${sender}:`);
         console.log(`           ${message}`);
         addMessageForBot(targetBotId, sender, message);
@@ -1413,6 +1419,12 @@ app.post('/api/bot/start', async (req, res) => {
               // Disconnect socket
               if (instance.socket && instance.socket.connected) {
                 instance.socket.disconnect();
+              }
+
+              // Stop room health check interval
+              if (instance.roomHealthInterval) {
+                clearInterval(instance.roomHealthInterval);
+                instance.roomHealthInterval = null;
               }
 
               // Notify portal
@@ -1634,6 +1646,12 @@ app.post('/api/bot/start', async (req, res) => {
             instance.socket.disconnect();
           }
 
+          // Stop room health check interval
+          if (instance.roomHealthInterval) {
+            clearInterval(instance.roomHealthInterval);
+            instance.roomHealthInterval = null;
+          }
+
           // Clear this room from unavailable list since it ended
           if (endedRoomId) {
             clearRoomUnavailable(endedRoomId);
@@ -1702,6 +1720,12 @@ app.post('/api/bot/start', async (req, res) => {
             // Disconnect socket
             if (instance.socket && instance.socket.connected) {
               instance.socket.disconnect();
+            }
+
+            // Stop room health check interval
+            if (instance.roomHealthInterval) {
+              clearInterval(instance.roomHealthInterval);
+              instance.roomHealthInterval = null;
             }
 
             // Notify portal
@@ -1962,6 +1986,9 @@ app.post('/api/bot/start', async (req, res) => {
       instance.socket.on('live_end', (data) => {
         console.log(`🔚 [${botConfig.name}] Room ended!`, data);
 
+        // Save room ID before clearing (needed for clearing unavailable list)
+        const endedRoomId = instance.state.currentRoom?.id;
+
         // Emit to web portal
         io.emit('room-ended', {
           botId: targetBotId,
@@ -1970,11 +1997,42 @@ app.post('/api/bot/start', async (req, res) => {
           reason: data?.event || 'live_end'
         });
 
-        // Clear room state
+        // Full cleanup - room is closed, bot must leave
+        instance.state.status = 'stopped';
         instance.state.currentRoom = null;
         instance.state.speakers = [];
         instance.state.participants = [];
+        instance.state.messages = [];
+        instance.state.connected = false;
+        instance.hasJoinedRoom = false;
+        instance.previousParticipants = new Map();
+        instance.participantJoinTimes = new Map();
+
+        // Disconnect socket
+        if (instance.socket && instance.socket.connected) {
+          instance.socket.disconnect();
+        }
+
+        // Clear this room from unavailable list since it ended
+        if (endedRoomId) {
+          clearRoomUnavailable(endedRoomId);
+        }
+
+        // Stop room health check interval
+        if (instance.roomHealthInterval) {
+          clearInterval(instance.roomHealthInterval);
+          instance.roomHealthInterval = null;
+        }
+
         broadcastBotState(targetBotId);
+
+        // Check if auto-join is enabled - rejoin random room after delay
+        if (instance.state.autoJoinRandomRoom) {
+          console.log(`🎲 [${botConfig.name}] Auto-join enabled, will join random room in 10 seconds...`);
+          setTimeout(() => {
+            autoJoinRandomRoom(targetBotId);
+          }, 10000);
+        }
       });
 
       instance.socket.on('disconnect', () => {
@@ -2062,6 +2120,83 @@ app.post('/api/bot/start', async (req, res) => {
           console.log('📜 Requesting message history...');
           instance.socket.emit('load_message', { room: roomId });
         }, 2000); // Increased to 2s to let hijack complete first
+
+        // Start periodic room health check - verify room still exists on server
+        if (instance.roomHealthInterval) {
+          clearInterval(instance.roomHealthInterval);
+        }
+        instance.roomHealthInterval = setInterval(async () => {
+          // Skip if bot is not running or no room
+          if (instance.state.status !== 'running' || !instance.state.currentRoom) {
+            clearInterval(instance.roomHealthInterval);
+            instance.roomHealthInterval = null;
+            return;
+          }
+
+          try {
+            const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+            const roomsResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
+              headers: { 'Authorization': `Bearer ${botConfig.jwt_token}` },
+              httpsAgent,
+              timeout: 10000
+            });
+
+            const rooms = roomsResp.data.json || [];
+            const currentRoomId = instance.state.currentRoom?.id;
+            const roomStillExists = rooms.some(r => r.id === currentRoomId);
+
+            if (!roomStillExists) {
+              console.log(`\n💀 [${botConfig.name}] ROOM HEALTH CHECK: Room "${instance.state.currentRoom?.topic}" no longer exists on server!`);
+              console.log(`   Room ID: ${currentRoomId} not found in ${rooms.length} active rooms`);
+
+              // Save room ID before clearing
+              const endedRoomId = currentRoomId;
+
+              // Full cleanup
+              instance.state.status = 'stopped';
+              instance.state.currentRoom = null;
+              instance.state.speakers = [];
+              instance.state.participants = [];
+              instance.state.messages = [];
+              instance.state.connected = false;
+              instance.hasJoinedRoom = false;
+              instance.previousParticipants = new Map();
+              instance.participantJoinTimes = new Map();
+
+              // Disconnect socket
+              if (instance.socket && instance.socket.connected) {
+                instance.socket.disconnect();
+              }
+
+              // Clear from unavailable list
+              if (endedRoomId) {
+                clearRoomUnavailable(endedRoomId);
+              }
+
+              // Stop this interval
+              clearInterval(instance.roomHealthInterval);
+              instance.roomHealthInterval = null;
+
+              // Notify portal
+              io.emit('room-ended', {
+                botId: targetBotId,
+                reason: 'Room no longer exists (health check)'
+              });
+
+              broadcastBotState(targetBotId);
+
+              // Auto-join if enabled
+              if (instance.state.autoJoinRandomRoom) {
+                console.log(`🎲 [${botConfig.name}] Auto-join enabled, will join random room in 10 seconds...`);
+                setTimeout(() => {
+                  autoJoinRandomRoom(targetBotId);
+                }, 10000);
+              }
+            }
+          } catch (error) {
+            console.log(`⚠️ [${botConfig.name}] Room health check error: ${error.message}`);
+          }
+        }, 30000); // Check every 30 seconds
       });
     } else if (mode === 'follow' && userUuid) {
       // Follow user mode - find the user first (using selected bot)
@@ -2475,6 +2610,12 @@ function stopBotInstance(botId) {
   if (instance.followInterval) {
     clearInterval(instance.followInterval);
     instance.followInterval = null;
+  }
+
+  // Clear room health check interval
+  if (instance.roomHealthInterval) {
+    clearInterval(instance.roomHealthInterval);
+    instance.roomHealthInterval = null;
   }
 
   // Handle leaving based on whether we hijacked or not
