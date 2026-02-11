@@ -1001,6 +1001,7 @@ export default function ControlPage() {
                                 ? `Auto-join in ${ajStatus.remaining}s`
                                 : ajStatus.step === 'searching' ? 'Searching rooms...'
                                 : ajStatus.step === 'joining' ? `Joining ${ajStatus.room || '...'}`
+                                : ajStatus.step === 'waiting' ? 'Waiting for rooms...'
                                 : ajStatus.reason || 'Auto-joining...'}
                             </span>
                           </div>
@@ -1281,12 +1282,15 @@ export default function ControlPage() {
                               <Zap className="h-4 w-4 text-amber-500 animate-pulse" />
                             ) : ajStatus.step === 'joined' ? (
                               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                            ) : ajStatus.step === 'waiting' ? (
+                              <Clock className="h-4 w-4 text-amber-500" />
                             ) : null}
                             <span className="text-sm font-semibold text-purple-700 dark:text-purple-300">
                               {ajStatus.step === 'countdown' ? 'Auto-Join Countdown' :
                                ajStatus.step === 'searching' ? 'Searching Rooms...' :
                                ajStatus.step === 'joining' ? 'Joining Room...' :
-                               ajStatus.step === 'joined' ? 'Joined!' : 'Auto-Join'}
+                               ajStatus.step === 'joined' ? 'Joined!' :
+                               ajStatus.step === 'waiting' ? 'Waiting for Rooms' : 'Auto-Join'}
                             </span>
                           </div>
                           <p className="text-xs text-purple-600 dark:text-purple-400">{ajStatus.reason}</p>

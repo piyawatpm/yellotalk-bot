@@ -59,10 +59,10 @@ function isRoomAvailable(roomId, botId) {
     return { available: false, reason: unavailableRooms.get(roomId).reason };
   }
 
-  // Check if any of our bots are already in this room
+  // Check if any of our bots are already in this room (running, starting, or waiting)
   for (const [existingBotId, instance] of botInstances) {
     if (existingBotId !== botId &&
-        instance.state.status === 'running' &&
+        (instance.state.status === 'running' || instance.state.status === 'starting' || instance.state.status === 'waiting') &&
         instance.state.currentRoom?.id === roomId) {
       return { available: false, reason: `Another bot (${instance.config.name}) already in room` };
     }
@@ -836,8 +836,9 @@ async function autoJoinRandomRoom(botId) {
 
     const allRooms = roomsResp.data.json || [];
     if (allRooms.length === 0) {
-      console.log(`[${timestamp}] ⚠️ No rooms available`);
-      startAutoJoinCountdown(botId, 30, 'No rooms available — retrying', () => autoJoinRandomRoom(botId));
+      console.log(`[${timestamp}] ⚠️ No rooms available — waiting`);
+      instance._autoJoinWaiting = true;
+      emitAutoJoinStatus(botId, { step: 'waiting', reason: 'No rooms available — waiting for new rooms' });
       return;
     }
 
@@ -851,8 +852,9 @@ async function autoJoinRandomRoom(botId) {
     });
 
     if (availableRooms.length === 0) {
-      console.log(`[${timestamp}] ⚠️ No available rooms (all ${allRooms.length} rooms are blocked or occupied)`);
-      startAutoJoinCountdown(botId, 30, `All ${allRooms.length} rooms blocked — retrying`, () => autoJoinRandomRoom(botId));
+      console.log(`[${timestamp}] ⚠️ No available rooms (all ${allRooms.length} rooms blocked/occupied) — waiting`);
+      instance._autoJoinWaiting = true;
+      emitAutoJoinStatus(botId, { step: 'waiting', reason: `All ${allRooms.length} rooms occupied by other bots — waiting` });
       return;
     }
 
@@ -878,6 +880,22 @@ async function autoJoinRandomRoom(botId) {
   } catch (error) {
     console.error(`[${timestamp}] ❌ Auto-join error:`, error.message);
     startAutoJoinCountdown(botId, 30, `Error: ${error.message} — retrying`, () => autoJoinRandomRoom(botId));
+  }
+}
+
+// Wake up any bots that are waiting for rooms (called when a room becomes available)
+function wakeUpWaitingBots() {
+  for (const [botId, instance] of botInstances) {
+    if (!instance) continue;
+    const ajStatus = instance._autoJoinWaiting;
+    // Check if bot is stopped, has auto-join on, and is in 'waiting' state
+    if (instance.state.status === 'stopped' &&
+        instance.state.autoJoinRandomRoom &&
+        ajStatus) {
+      console.log(`🔔 Waking up ${instance.config.name} — a room may be available now`);
+      instance._autoJoinWaiting = false;
+      startAutoJoinCountdown(botId, 5, 'New room available — auto-joining', () => autoJoinRandomRoom(botId));
+    }
   }
 }
 
@@ -2701,6 +2719,9 @@ function stopBotInstance(botId) {
     console.log(`🎲 [${instance.config.name}] Auto-join still enabled after stop, will join random room in 10 seconds...`);
     startAutoJoinCountdown(botId, 10, 'Bot stopped — auto-joining', () => autoJoinRandomRoom(botId));
   }
+
+  // Wake up other waiting bots — this bot left a room so one may be free now
+  setTimeout(() => wakeUpWaitingBots(), 2000);
 }
 
 
