@@ -2695,6 +2695,12 @@ function stopBotInstance(botId) {
   instance.state.connected = false;
 
   broadcastBotState(botId);
+
+  // Re-trigger auto-join if still enabled
+  if (instance.state.autoJoinRandomRoom) {
+    console.log(`🎲 [${instance.config.name}] Auto-join still enabled after stop, will join random room in 10 seconds...`);
+    startAutoJoinCountdown(botId, 10, 'Bot stopped — auto-joining', () => autoJoinRandomRoom(botId));
+  }
 }
 
 
