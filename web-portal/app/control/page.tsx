@@ -111,6 +111,9 @@ export default function ControlPage() {
   // Unavailable rooms tracking
   const [unavailableRooms, setUnavailableRooms] = useState<any[]>([])
 
+  // Auto-join status tracking
+  const [autoJoinStatus, setAutoJoinStatus] = useState<Record<string, any>>({})
+
   useEffect(() => {
     connectToServer()
     fetchRooms()
@@ -278,6 +281,11 @@ export default function ControlPage() {
       // Listen for unavailable rooms updates
       newSocket.on('unavailable-rooms-update', (rooms) => {
         setUnavailableRooms(rooms)
+      })
+
+      // Listen for auto-join status updates
+      newSocket.on('auto-join-status', (data) => {
+        setAutoJoinStatus(prev => ({ ...prev, [data.botId]: data }))
       })
 
       setSocket(newSocket)
@@ -975,6 +983,39 @@ export default function ControlPage() {
                       </div>
                     )}
 
+                    {/* Auto-join status on bot card */}
+                    {(() => {
+                      const ajStatus = autoJoinStatus[bot.id]
+                      if (!ajStatus || ajStatus.step === 'idle' || !thisBotState?.autoJoinRandomRoom) return null
+                      if (thisBotRunning || thisBotWaiting) return null
+                      return (
+                        <div className="mt-2 p-2 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800">
+                          <div className="flex items-center gap-1.5">
+                            {ajStatus.step === 'countdown' ? (
+                              <Clock className="h-3 w-3 text-purple-500 animate-pulse" />
+                            ) : (
+                              <Loader2 className="h-3 w-3 text-purple-500 animate-spin" />
+                            )}
+                            <span className="text-xs font-medium text-purple-600 dark:text-purple-400 truncate">
+                              {ajStatus.step === 'countdown'
+                                ? `Auto-join in ${ajStatus.remaining}s`
+                                : ajStatus.step === 'searching' ? 'Searching rooms...'
+                                : ajStatus.step === 'joining' ? `Joining ${ajStatus.room || '...'}`
+                                : ajStatus.reason || 'Auto-joining...'}
+                            </span>
+                          </div>
+                          {ajStatus.step === 'countdown' && ajStatus.remaining != null && (
+                            <div className="w-full bg-purple-200 dark:bg-purple-800 rounded-full h-1 mt-1.5 overflow-hidden">
+                              <div
+                                className="bg-gradient-to-r from-purple-500 to-pink-500 h-full rounded-full transition-all duration-1000 ease-linear"
+                                style={{ width: `${((ajStatus.total - ajStatus.remaining) / ajStatus.total) * 100}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
                     {/* Quick action buttons */}
                     <div className="mt-3 flex gap-2">
                       {(thisBotRunning || thisBotWaiting) ? (
@@ -1224,6 +1265,51 @@ export default function ControlPage() {
                       />
                     </div>
 
+                    {/* Auto-Join Status Panel */}
+                    {(() => {
+                      const ajStatus = autoJoinStatus[selectedBotId]
+                      if (!ajStatus || ajStatus.step === 'idle' || !currentBotState?.autoJoinRandomRoom) return null
+
+                      return (
+                        <div className="p-3 rounded-xl border-2 border-purple-200 bg-purple-50/50 dark:border-purple-800 dark:bg-purple-950/30 space-y-2">
+                          <div className="flex items-center gap-2">
+                            {ajStatus.step === 'countdown' ? (
+                              <Clock className="h-4 w-4 text-purple-500 animate-pulse" />
+                            ) : ajStatus.step === 'searching' ? (
+                              <Loader2 className="h-4 w-4 text-purple-500 animate-spin" />
+                            ) : ajStatus.step === 'joining' ? (
+                              <Zap className="h-4 w-4 text-amber-500 animate-pulse" />
+                            ) : ajStatus.step === 'joined' ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                            ) : null}
+                            <span className="text-sm font-semibold text-purple-700 dark:text-purple-300">
+                              {ajStatus.step === 'countdown' ? 'Auto-Join Countdown' :
+                               ajStatus.step === 'searching' ? 'Searching Rooms...' :
+                               ajStatus.step === 'joining' ? 'Joining Room...' :
+                               ajStatus.step === 'joined' ? 'Joined!' : 'Auto-Join'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-purple-600 dark:text-purple-400">{ajStatus.reason}</p>
+                          {ajStatus.step === 'countdown' && ajStatus.remaining != null && (
+                            <div className="space-y-1">
+                              <div className="w-full bg-purple-200 dark:bg-purple-800 rounded-full h-2 overflow-hidden">
+                                <div
+                                  className="bg-gradient-to-r from-purple-500 to-pink-500 h-full rounded-full transition-all duration-1000 ease-linear"
+                                  style={{ width: `${((ajStatus.total - ajStatus.remaining) / ajStatus.total) * 100}%` }}
+                                />
+                              </div>
+                              <p className="text-xs text-center font-mono text-purple-500">{ajStatus.remaining}s</p>
+                            </div>
+                          )}
+                          {ajStatus.room && ajStatus.step === 'joining' && (
+                            <p className="text-xs text-amber-600 dark:text-amber-400 font-medium truncate">
+                              {ajStatus.room}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })()}
+
                     <Button
                       onClick={startBot}
                       className="w-full h-12 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25 transition-all duration-300"
@@ -1299,6 +1385,14 @@ export default function ControlPage() {
                       <RefreshCw className="mr-2 h-4 w-4" />
                       Reload Greetings
                     </Button>
+
+                    {/* Room health check indicator */}
+                    {currentBotState?.status === 'running' && currentBotState?.currentRoom && (
+                      <div className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-500">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                        <span>Room health check active (every 30s)</span>
+                      </div>
+                    )}
 
                     {/* Additional info for follow mode */}
                     {isFollowMode && (

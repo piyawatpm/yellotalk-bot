@@ -176,9 +176,7 @@ function broadcastBotState(botId) {
         // Trigger auto-join if enabled
         if (instance.state.autoJoinRandomRoom) {
           console.log(`🎲 [broadcastBotState] Auto-join enabled, will join random room in 10 seconds...`);
-          setTimeout(() => {
-            autoJoinRandomRoom(botId);
-          }, 10000);
+          startAutoJoinCountdown(botId, 10, 'Room closed — auto-joining', () => autoJoinRandomRoom(botId));
         }
       }
     }
@@ -773,6 +771,38 @@ function addMessageForBot(botId, sender, message) {
 }
 
 // Auto-join a random room when bot is free
+// Emit auto-join status to the UI
+function emitAutoJoinStatus(botId, status) {
+  io.emit('auto-join-status', { botId, ...status });
+}
+
+// Start a countdown and emit ticks to UI, then call callback
+function startAutoJoinCountdown(botId, seconds, reason, callback) {
+  const instance = botInstances.get(botId);
+  if (!instance) return;
+
+  // Clear any existing countdown
+  if (instance.autoJoinCountdownInterval) {
+    clearInterval(instance.autoJoinCountdownInterval);
+    instance.autoJoinCountdownInterval = null;
+  }
+
+  let remaining = seconds;
+  emitAutoJoinStatus(botId, { step: 'countdown', reason, remaining, total: seconds });
+
+  instance.autoJoinCountdownInterval = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(instance.autoJoinCountdownInterval);
+      instance.autoJoinCountdownInterval = null;
+      emitAutoJoinStatus(botId, { step: 'searching', reason: 'Looking for rooms...' });
+      callback();
+    } else {
+      emitAutoJoinStatus(botId, { step: 'countdown', reason, remaining, total: seconds });
+    }
+  }, 1000);
+}
+
 async function autoJoinRandomRoom(botId) {
   const instance = botInstances.get(botId);
   if (!instance) {
@@ -783,16 +813,19 @@ async function autoJoinRandomRoom(botId) {
   // Check if bot is already running/starting/waiting or auto-join is disabled
   if (instance.state.status === 'running' || instance.state.status === 'starting' || instance.state.status === 'waiting') {
     console.log(`⏭️ [autoJoinRandomRoom] Bot ${botId} is already ${instance.state.status}, skipping`);
+    emitAutoJoinStatus(botId, { step: 'idle' });
     return;
   }
 
   if (!instance.state.autoJoinRandomRoom) {
     console.log(`⏭️ [autoJoinRandomRoom] Auto-join disabled for ${botId}`);
+    emitAutoJoinStatus(botId, { step: 'idle' });
     return;
   }
 
   const timestamp = new Date().toLocaleTimeString();
   console.log(`[${timestamp}] 🎲 [${instance.config.name}] Auto-joining random room...`);
+  emitAutoJoinStatus(botId, { step: 'searching', reason: 'Fetching room list...' });
 
   try {
     const httpsAgent = new (require('https').Agent)({ rejectUnauthorized: false });
@@ -804,8 +837,7 @@ async function autoJoinRandomRoom(botId) {
     const allRooms = roomsResp.data.json || [];
     if (allRooms.length === 0) {
       console.log(`[${timestamp}] ⚠️ No rooms available`);
-      // Retry after 30 seconds
-      setTimeout(() => autoJoinRandomRoom(botId), 30000);
+      startAutoJoinCountdown(botId, 30, 'No rooms available — retrying', () => autoJoinRandomRoom(botId));
       return;
     }
 
@@ -820,14 +852,14 @@ async function autoJoinRandomRoom(botId) {
 
     if (availableRooms.length === 0) {
       console.log(`[${timestamp}] ⚠️ No available rooms (all ${allRooms.length} rooms are blocked or occupied)`);
-      // Retry after 30 seconds
-      setTimeout(() => autoJoinRandomRoom(botId), 30000);
+      startAutoJoinCountdown(botId, 30, `All ${allRooms.length} rooms blocked — retrying`, () => autoJoinRandomRoom(botId));
       return;
     }
 
     // Pick a random room from available ones
     const randomRoom = availableRooms[Math.floor(Math.random() * availableRooms.length)];
     console.log(`[${timestamp}] 🎯 Selected random room: ${randomRoom.topic} (${randomRoom.id}) [${availableRooms.length}/${allRooms.length} available]`);
+    emitAutoJoinStatus(botId, { step: 'joining', reason: `Joining "${randomRoom.topic}"...`, room: randomRoom.topic });
 
     // Start bot in this room using the existing API
     const response = await axios.post(`http://localhost:5353/api/bot/start`, {
@@ -838,15 +870,14 @@ async function autoJoinRandomRoom(botId) {
 
     if (response.data.success) {
       console.log(`[${timestamp}] ✅ Auto-joined room: ${randomRoom.topic}`);
+      emitAutoJoinStatus(botId, { step: 'joined', reason: `Joined "${randomRoom.topic}"`, room: randomRoom.topic });
     } else {
       console.log(`[${timestamp}] ❌ Failed to auto-join: ${response.data.error}`);
-      // Retry after 30 seconds
-      setTimeout(() => autoJoinRandomRoom(botId), 30000);
+      startAutoJoinCountdown(botId, 30, `Failed to join — retrying`, () => autoJoinRandomRoom(botId));
     }
   } catch (error) {
     console.error(`[${timestamp}] ❌ Auto-join error:`, error.message);
-    // Retry after 30 seconds
-    setTimeout(() => autoJoinRandomRoom(botId), 30000);
+    startAutoJoinCountdown(botId, 30, `Error: ${error.message} — retrying`, () => autoJoinRandomRoom(botId));
   }
 }
 
@@ -1438,9 +1469,7 @@ app.post('/api/bot/start', async (req, res) => {
               // Check if auto-join is enabled - rejoin random room after delay
               if (instance.state.autoJoinRandomRoom) {
                 console.log(`[${timestamp}] 🎲 Auto-join enabled, will join random room in 10 seconds...`);
-                setTimeout(() => {
-                  autoJoinRandomRoom(targetBotId);
-                }, 10000);
+                startAutoJoinCountdown(targetBotId, 10, 'Kicked — auto-joining', () => autoJoinRandomRoom(targetBotId));
               }
             }, 2000);
 
@@ -1668,9 +1697,7 @@ app.post('/api/bot/start', async (req, res) => {
           // Check if auto-join is enabled - rejoin random room after delay
           if (instance.state.autoJoinRandomRoom) {
             console.log(`[${timestamp}] 🎲 Auto-join enabled, will join random room in 10 seconds...`);
-            setTimeout(() => {
-              autoJoinRandomRoom(targetBotId);
-            }, 10000);
+            startAutoJoinCountdown(targetBotId, 10, 'Room empty — auto-joining', () => autoJoinRandomRoom(targetBotId));
           }
 
           console.log(`========== END PARTICIPANT DEBUG ==========\n`);
@@ -1739,9 +1766,7 @@ app.post('/api/bot/start', async (req, res) => {
             // Check if auto-join is enabled - rejoin random room after delay
             if (instance.state.autoJoinRandomRoom) {
               console.log(`[${timestamp}] 🎲 Auto-join enabled, will join another random room in 10 seconds...`);
-              setTimeout(() => {
-                autoJoinRandomRoom(targetBotId);
-              }, 10000);
+              startAutoJoinCountdown(targetBotId, 10, 'Blocked user — auto-joining', () => autoJoinRandomRoom(targetBotId));
             }
           }, 1500);
 
@@ -2029,9 +2054,7 @@ app.post('/api/bot/start', async (req, res) => {
         // Check if auto-join is enabled - rejoin random room after delay
         if (instance.state.autoJoinRandomRoom) {
           console.log(`🎲 [${botConfig.name}] Auto-join enabled, will join random room in 10 seconds...`);
-          setTimeout(() => {
-            autoJoinRandomRoom(targetBotId);
-          }, 10000);
+          startAutoJoinCountdown(targetBotId, 10, 'Room ended — auto-joining', () => autoJoinRandomRoom(targetBotId));
         }
       });
 
@@ -2188,9 +2211,7 @@ app.post('/api/bot/start', async (req, res) => {
               // Auto-join if enabled
               if (instance.state.autoJoinRandomRoom) {
                 console.log(`🎲 [${botConfig.name}] Auto-join enabled, will join random room in 10 seconds...`);
-                setTimeout(() => {
-                  autoJoinRandomRoom(targetBotId);
-                }, 10000);
+                startAutoJoinCountdown(targetBotId, 10, 'Room gone (health check) — auto-joining', () => autoJoinRandomRoom(targetBotId));
               }
             }
           } catch (error) {
@@ -2618,6 +2639,13 @@ function stopBotInstance(botId) {
     instance.roomHealthInterval = null;
   }
 
+  // Clear auto-join countdown
+  if (instance.autoJoinCountdownInterval) {
+    clearInterval(instance.autoJoinCountdownInterval);
+    instance.autoJoinCountdownInterval = null;
+  }
+  emitAutoJoinStatus(botId, { step: 'idle' });
+
   // Handle leaving based on whether we hijacked or not
   if (instance.socket && instance.socket.connected) {
     if (instance.state.autoHijackRooms && instance.state.currentRoom) {
@@ -2753,10 +2781,15 @@ app.post('/api/bot/toggle-auto-join', (req, res) => {
 
   // If enabled and bot is currently stopped, start auto-join immediately
   if (enabled && instance.state.status === 'stopped') {
-    console.log(`🎲 Bot is stopped, triggering auto-join in 2 seconds...`);
-    setTimeout(() => {
-      autoJoinRandomRoom(botId);
-    }, 2000);
+    console.log(`🎲 Bot is stopped, triggering auto-join in 5 seconds...`);
+    startAutoJoinCountdown(botId, 5, 'Auto-join enabled — starting', () => autoJoinRandomRoom(botId));
+  }
+
+  // If disabled, clear any running countdown
+  if (!enabled && instance.autoJoinCountdownInterval) {
+    clearInterval(instance.autoJoinCountdownInterval);
+    instance.autoJoinCountdownInterval = null;
+    emitAutoJoinStatus(botId, { step: 'idle' });
   }
 
   broadcastState();
