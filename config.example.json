@@ -1,0 +1,29 @@
+{
+  "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiWU9VUi1VVUlELUhFUkUiLCJpYXQiOjE3MDAwMDAwMDB9.your_signature_here",
+  "user_uuid": "YOUR-UUID-HERE",
+  "pin_name": "Your Bot Name",
+  "avatar_id": 0,
+  "websocket_url": "wss://live.yellotalk.co:8443/socket.io/?EIO=4&transport=websocket",
+  "api_base_url": "https://live.yellotalk.co",
+  "groq_api_keys": [
+    "gsk_your_groq_api_key_here"
+  ],
+  "bots": [
+    {
+      "id": "bot-1",
+      "name": "Bot Name 1",
+      "bot_name": "Bot Display Name 1",
+      "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiQk9ULVVVSUQtMSIsImlhdCI6MTcwMDAwMDAwMH0.signature",
+      "user_uuid": "BOT-UUID-1",
+      "avatar_id": 0
+    },
+    {
+      "id": "bot-2",
+      "name": "Bot Name 2",
+      "bot_name": "Bot Display Name 2",
+      "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiQk9ULVVVSUQtMiIsImlhdCI6MTcwMDAwMDAwMH0.signature",
+      "user_uuid": "BOT-UUID-2",
+      "avatar_id": 0
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "customGreetings": {
+    "username1": "Hello! Welcome to the room!",
+    "username2": "Hey there! Nice to see you!",
+    "user_uuid_example": {
+      "greeting": "Welcome back!",
+      "name": "Display Name"
+    }
+  },
+  "defaultGreeting": "Hello everyone!",
+  "keywords": {
+    "listUsers": [
+      "list",
+      "users",
+      "who",
+      "who's here"
+    ]
+  }
+}
