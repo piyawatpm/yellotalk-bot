@@ -1,0 +1,37 @@
+{
+  "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiQzRBNUQ4NDktM0M0MS00MUUzLUE2QjItN0U5MkI2RjYyOTBGIiwiaWF0IjoxNzY4Mjk4OTMxfQ.cadtequXu0leWX1bpRzYCYf9Eajv-tq2UPXKJ_C9aw4",
+  "user_uuid": "957EE518-04A7-4A03-947F-A10F95D0F285",
+  "pin_name": "some see haa",
+  "avatar_id": 0,
+  "websocket_url": "wss://live.yellotalk.co:8443/socket.io/?EIO=4&transport=websocket",
+  "api_base_url": "https://live.yellotalk.co",
+  "groq_api_keys": [
+    "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",
+    "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"
+  ],
+  "bots": [
+    {
+      "id": "bot-1",
+      "name": "Siri",
+      "bot_name": "Siri",
+      "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiQzRBNUQ4NDktM0M0MS00MUUzLUE2QjItN0U5MkI2RjYyOTBGIiwiaWF0IjoxNzY4Mjk4OTMxfQ.cadtequXu0leWX1bpRzYCYf9Eajv-tq2UPXKJ_C9aw4",
+      "user_uuid": "957EE518-04A7-4A03-947F-A10F95D0F285",
+      "avatar_id": 0
+    },
+    {
+      "id": "bot-1769851907114",
+      "name": "Gemini",
+      "bot_name": "Gemini",
+      "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiNTdBNzVEQjYtQUU0Ri00MTkzLUEyRTQtNjYxQzlDRURDNEZEIiwiaWF0IjoxNzY4NDE2MjA1fQ.jyyi5MPFP1h90F9J7HOAceQuOdigwS_fcX_IuR2fyfM",
+      "user_uuid": "57A75DB6-AE4F-4193-A2E4-661C9CEDC4FD",
+      "avatar_id": 0
+    },
+    {
+      "id": "bot-1770117089724",
+      "name": "Javis",
+      "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiMTc1ODNDODQtQjFDNy00RjVFLTk5MUItQ0E2NkJCNzMxOUYyIiwiaWF0IjoxNzcwMTE1OTU5fQ.WUD1htZ1PGNyKEPu2z2nrZr-kRbzF2qroETJLQLiUdM",
+      "user_uuid": "17583C84-B1C7-4F5E-991B-CA66BB7319F2",
+      "avatar_id": 0
+    }
+  ]
+}

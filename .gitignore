@@ -1,5 +1,4 @@
 # YelloTalk Bot
-config.json
 *.pyc
 __pycache__/
 .venv/
