@@ -788,7 +788,7 @@ export default function ControlPage() {
 
   const fetchMusicStatus = async () => {
     try {
-      const res = await fetch(`${getApiUrl()}/api/music/status`)
+      const res = await fetch(`${getApiUrl()}/api/music/status?botId=${selectedBotId}`)
       const data = await res.json()
       setMusicStatus(data)
       return data
@@ -842,7 +842,11 @@ export default function ControlPage() {
   const musicLeaveRoom = async () => {
     addMusicLog('Leaving GME voice room...')
     try {
-      const res = await fetch(`${getApiUrl()}/api/music/leave`, { method: 'POST' })
+      const res = await fetch(`${getApiUrl()}/api/music/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId: selectedBotId })
+      })
       const data = await res.json()
       addMusicLog(data.success ? 'Left GME room' : `Leave failed: ${data.error}`)
       await fetchMusicStatus()
@@ -862,7 +866,7 @@ export default function ControlPage() {
       const res = await fetch(`${getApiUrl()}/api/music/play`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file: musicFile, loop: musicLoop })
+        body: JSON.stringify({ file: musicFile, loop: musicLoop, botId: selectedBotId })
       })
       const data = await res.json()
       if (data.success) {
@@ -883,7 +887,11 @@ export default function ControlPage() {
   const musicStop = async () => {
     addMusicLog('Stopping music...')
     try {
-      await fetch(`${getApiUrl()}/api/music/stop`, { method: 'POST' })
+      await fetch(`${getApiUrl()}/api/music/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId: selectedBotId })
+      })
       addMusicLog('Stopped')
       await fetchMusicStatus()
     } catch (error: any) {
@@ -893,7 +901,11 @@ export default function ControlPage() {
 
   const musicPause = async () => {
     try {
-      await fetch(`${getApiUrl()}/api/music/pause`, { method: 'POST' })
+      await fetch(`${getApiUrl()}/api/music/pause`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId: selectedBotId })
+      })
       addMusicLog('Paused')
     } catch (error: any) {
       addMusicLog(`Pause error: ${error.message}`)
@@ -902,7 +914,11 @@ export default function ControlPage() {
 
   const musicResume = async () => {
     try {
-      await fetch(`${getApiUrl()}/api/music/resume`, { method: 'POST' })
+      await fetch(`${getApiUrl()}/api/music/resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId: selectedBotId })
+      })
       addMusicLog('Resumed')
     } catch (error: any) {
       addMusicLog(`Resume error: ${error.message}`)
@@ -917,7 +933,7 @@ export default function ControlPage() {
       await fetch(`${getApiUrl()}/api/music/volume`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vol: gmeVol })
+        body: JSON.stringify({ vol: gmeVol, botId: selectedBotId })
       })
       addMusicLog(`Volume: ${vol}% (GME: ${gmeVol})`)
     } catch (error: any) {
@@ -970,7 +986,7 @@ export default function ControlPage() {
       const res = await fetch(`${getApiUrl()}/api/music/youtube`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, loop: false })
+        body: JSON.stringify({ url, loop: false, botId: selectedBotId })
       })
       const data = await res.json()
       if (data.success) {
@@ -1009,7 +1025,7 @@ export default function ControlPage() {
       const res = await fetch(`${getApiUrl()}/api/music/auto-play-toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !autoPlayEnabled })
+        body: JSON.stringify({ enabled: !autoPlayEnabled, botId: selectedBotId })
       })
       const data = await res.json()
       setAutoPlayEnabled(data.enabled)

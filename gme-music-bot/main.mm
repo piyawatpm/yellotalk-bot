@@ -6,7 +6,7 @@
  * HTTP thread only parses requests and queues commands.
  * Main thread loop processes commands + calls Poll().
  *
- * Controlled via HTTP on port 9876:
+ * Controlled via HTTP (default port 9876, override with --port):
  *   POST /join    {"room": "gme_room_id", "user": "numeric_gme_id", "uuid": "real_uuid"}
  *   POST /play    {"file": "path/to/song.mp3", "loop": true}
  *   POST /stop
@@ -30,7 +30,11 @@
 // YelloTalk GME credentials (from APK reverse engineering)
 #define GME_APP_ID    "1400113874"
 #define GME_APP_KEY   "IWajGHr5VTo3fd63"
-#define HTTP_PORT     9876
+
+// Runtime config (overridable via CLI args)
+static int g_httpPort = 9876;
+static char g_botId[128] = {0};
+static char g_callbackUrl[512] = "http://localhost:5353/api/music/song-ended";
 
 // ==================== GLOBAL STATE ====================
 static volatile bool g_running = true;
@@ -695,14 +699,14 @@ void* httpServerThread(void* arg) {
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(HTTP_PORT);
+    addr.sin_port = htons(g_httpPort);
 
     if (bind(serverFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        printf("❌ HTTP bind failed on port %d\n", HTTP_PORT); fflush(stdout);
+        printf("❌ HTTP bind failed on port %d\n", g_httpPort); fflush(stdout);
         return NULL;
     }
     listen(serverFd, 5);
-    printf("🌐 HTTP server listening on port %d\n", HTTP_PORT); fflush(stdout);
+    printf("🌐 HTTP server listening on port %d\n", g_httpPort); fflush(stdout);
 
     while (g_running) {
         int clientFd = accept(serverFd, NULL, NULL);
@@ -733,9 +737,22 @@ int main(int argc, char* argv[]) {
         signal(SIGINT, signalHandler);
         signal(SIGTERM, signalHandler);
 
+        // Parse --port, --bot-id, --callback-url flags
+        for (int i = 1; i < argc; i++) {
+            if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
+                g_httpPort = atoi(argv[++i]);
+            } else if (strcmp(argv[i], "--bot-id") == 0 && i + 1 < argc) {
+                strncpy(g_botId, argv[++i], sizeof(g_botId) - 1);
+            } else if (strcmp(argv[i], "--callback-url") == 0 && i + 1 < argc) {
+                strncpy(g_callbackUrl, argv[++i], sizeof(g_callbackUrl) - 1);
+            }
+        }
+
         printf("🎵 GME Music Bot for YelloTalk\n");
         printf("   AppID: %s\n", GME_APP_ID);
-        printf("   HTTP Control: http://localhost:%d\n", HTTP_PORT);
+        printf("   HTTP Control: http://localhost:%d\n", g_httpPort);
+        if (g_botId[0]) printf("   Bot ID: %s\n", g_botId);
+        printf("   Callback URL: %s\n", g_callbackUrl);
         printf("   Threading: GME on main thread, HTTP on background thread\n\n");
         fflush(stdout);
 
@@ -743,14 +760,25 @@ int main(int argc, char* argv[]) {
         pthread_t httpThread;
         pthread_create(&httpThread, NULL, httpServerThread, NULL);
 
-        // If CLI args provided, auto-join (already on main thread)
-        if (argc >= 3) {
-            const char* roomId = argv[1];
-            const char* userId = argv[2];
-            const char* authId = (argc >= 4 && argv[3][0] != '/' && argv[3][0] != '.') ? argv[3] : NULL;
+        // If positional CLI args provided, auto-join (already on main thread)
+        // Skip flag args: count non-flag positional args
+        int posArgCount = 0;
+        const char* posArgs[10] = {0};
+        for (int i = 1; i < argc && posArgCount < 10; i++) {
+            if (strcmp(argv[i], "--port") == 0 || strcmp(argv[i], "--bot-id") == 0 || strcmp(argv[i], "--callback-url") == 0) {
+                i++; // skip the value
+                continue;
+            }
+            posArgs[posArgCount++] = argv[i];
+        }
+
+        if (posArgCount >= 2) {
+            const char* roomId = posArgs[0];
+            const char* userId = posArgs[1];
+            const char* authId = (posArgCount >= 3 && posArgs[2][0] != '/' && posArgs[2][0] != '.') ? posArgs[2] : NULL;
             const char* musicFile = NULL;
-            if (argc >= 5) musicFile = argv[4];
-            else if (argc >= 4 && !authId) musicFile = argv[3];
+            if (posArgCount >= 4) musicFile = posArgs[3];
+            else if (posArgCount >= 3 && !authId) musicFile = posArgs[2];
 
             printf("🎵 CLI: room=%s, user=%s, auth=%s, music=%s\n",
                    roomId, userId, authId ? authId : "(=user)", musicFile ? musicFile : "none");
@@ -772,8 +800,8 @@ int main(int argc, char* argv[]) {
                 printf("❌ Failed to enter room within 10s\n"); fflush(stdout);
             }
         } else {
-            printf("Usage: %s [room_id] [gme_user_id] [uuid] [music.mp3]\n", argv[0]);
-            printf("   Or control via HTTP API on port %d\n\n", HTTP_PORT);
+            printf("Usage: %s [--port PORT] [--bot-id ID] [--callback-url URL] [room_id] [gme_user_id] [uuid] [music.mp3]\n", argv[0]);
+            printf("   Or control via HTTP API on port %d\n\n", g_httpPort);
             printf("Waiting for HTTP commands...\n"); fflush(stdout);
         }
 
@@ -795,20 +823,22 @@ int main(int argc, char* argv[]) {
             if (g_songFinished) {
                 g_songFinished = false;
                 NSString *fileStr = [NSString stringWithUTF8String:g_currentFile];
+                NSString *botIdStr = [NSString stringWithUTF8String:g_botId];
+                NSString *callbackUrlStr = [NSString stringWithUTF8String:g_callbackUrl];
                 dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                     @autoreleasepool {
-                        NSURL *url = [NSURL URLWithString:@"http://localhost:5353/api/music/song-ended"];
+                        NSURL *url = [NSURL URLWithString:callbackUrlStr];
                         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
                         request.HTTPMethod = @"POST";
                         [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-                        NSString *body = [NSString stringWithFormat:@"{\"file\":\"%@\"}", fileStr];
+                        NSString *body = [NSString stringWithFormat:@"{\"file\":\"%@\",\"botId\":\"%@\"}", fileStr, botIdStr];
                         request.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
                         NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request
                             completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
                                 if (error) {
                                     printf("⚠️ [GME] Song-ended callback failed: %s\n", error.localizedDescription.UTF8String);
                                 } else {
-                                    printf("✅ [GME] Song-ended callback sent\n");
+                                    printf("✅ [GME] Song-ended callback sent (botId=%s)\n", g_botId);
                                 }
                                 fflush(stdout);
                             }];

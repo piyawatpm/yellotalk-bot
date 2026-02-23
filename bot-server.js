@@ -107,24 +107,63 @@ function createBotState() {
     startTime: null,
     enableWelcomeMessage: true,
     autoHijackRooms: false,
-    autoJoinRandomRoom: false // Auto-join random room when bot is free
+    autoJoinRandomRoom: false, // Auto-join random room when bot is free
+    autoPlayState: {
+      enabled: true,
+      history: [],
+      maxHistory: 20,
+      isSearching: false
+    },
+    isDownloading: false
   };
+}
+
+// Helper to get auto-play state for a bot (lazy-init)
+function getAutoPlayState(botId) {
+  const instance = botInstances.get(botId);
+  if (!instance) return null;
+  if (!instance.state.autoPlayState) {
+    instance.state.autoPlayState = {
+      enabled: true,
+      history: [],
+      maxHistory: 20,
+      isSearching: false
+    };
+  }
+  return instance.state.autoPlayState;
+}
+
+// Fetch ALL rooms with pagination (API returns max ~20 per page)
+async function fetchAllRooms(jwtToken) {
+  const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+  const PAGE_SIZE = 50;
+  let allRooms = [];
+  let offset = 0;
+
+  while (true) {
+    const resp = await axios.get(`https://live.yellotalk.co/v1/rooms/popular?limit=${PAGE_SIZE}&offset=${offset}`, {
+      headers: {
+        'Authorization': `Bearer ${jwtToken}`,
+        'User-Agent': 'ios'
+      },
+      httpsAgent,
+      timeout: 10000
+    });
+
+    const rooms = resp.data.json || [];
+    allRooms = allRooms.concat(rooms);
+
+    if (rooms.length < PAGE_SIZE) break; // No more pages
+    offset += PAGE_SIZE;
+  }
+
+  return allRooms;
 }
 
 // Fetch the bot's gme_user_id from its own follow list (target_user contains gme_user_id)
 async function fetchBotGmeUserId(botConfig) {
   try {
-    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-    // The bot's own profile shows up as the owner in rooms it creates, or we can
-    // find it by fetching a following entry that has the user data
-    // Simplest: fetch rooms/popular and look for any user object to get format,
-    // then fetch the bot's own follow entry
-    const resp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-      headers: { 'Authorization': `Bearer ${botConfig.jwt_token}` },
-      httpsAgent,
-      timeout: 10000
-    });
-    const rooms = resp.data.json || [];
+    const rooms = await fetchAllRooms(botConfig.jwt_token);
     // Look through all participants/owners for the bot's UUID
     for (const room of rooms) {
       if (room.owner?.uuid === botConfig.user_uuid && room.owner?.gme_user_id) {
@@ -380,6 +419,10 @@ function getNextClient() {
 
 // Store conversation history per user (for memory)
 const conversationHistory = new Map();
+
+// Rate limiter: per-user cooldown to prevent token waste
+const AI_COOLDOWN_MS = 5000; // 5 seconds between requests per user
+const userLastAiRequest = new Map();
 
 // Load greetings configuration
 let greetingsConfig = { customGreetings: {}, defaultGreeting: 'สวัสดี' };
@@ -891,13 +934,7 @@ async function autoJoinRandomRoom(botId) {
   emitAutoJoinStatus(botId, { step: 'searching', reason: 'Fetching room list...' });
 
   try {
-    const httpsAgent = new (require('https').Agent)({ rejectUnauthorized: false });
-    const roomsResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-      headers: { 'Authorization': `Bearer ${instance.config.jwt_token}` },
-      httpsAgent
-    });
-
-    const allRooms = roomsResp.data.json || [];
+    const allRooms = await fetchAllRooms(instance.config.jwt_token);
     if (allRooms.length === 0) {
       console.log(`[${timestamp}] ⚠️ No rooms available — waiting`);
       instance._autoJoinWaiting = true;
@@ -966,6 +1003,17 @@ function wakeUpWaitingBots() {
 async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri', botId = null) {
   try {
     const timestamp = new Date().toLocaleTimeString();
+
+    // Per-user rate limit: 5s cooldown between AI requests
+    const lastReq = userLastAiRequest.get(userUuid);
+    const now = Date.now();
+    if (lastReq && (now - lastReq) < AI_COOLDOWN_MS) {
+      const waitSec = Math.ceil((AI_COOLDOWN_MS - (now - lastReq)) / 1000);
+      console.log(`[${timestamp}] ⏳ [${botName}] Rate limited ${userName} (${waitSec}s left)`);
+      return `ใจเย็นๆ ค่ะ รอสักครู่นะคะ 😊`;
+    }
+    userLastAiRequest.set(userUuid, now);
+
     console.log(`[${timestamp}] 🤖 [${botName}] ${userName} asking AI: "${userQuestion}"`);
 
     // Get bot instance for correct state (multi-bot support)
@@ -983,14 +1031,14 @@ async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri',
     const groqClient = getNextClient();
 
     // Get current date/time for context
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('en-US', {
+    const currentDate = new Date();
+    const dateStr = currentDate.toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
       day: 'numeric'
     });
-    const timeStr = now.toLocaleTimeString('en-US', {
+    const timeStr = currentDate.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
       timeZoneName: 'short'
@@ -1041,7 +1089,7 @@ async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri',
           // Add time duration if available - use currentJoinTimes for multi-bot
           const joinInfo = currentJoinTimes.get(p.uuid);
           if (joinInfo) {
-            const duration = now - joinInfo.joinTime;
+            const duration = currentDate - joinInfo.joinTime;
             const minutes = Math.floor(duration / 60000);
             const seconds = Math.floor((duration % 60000) / 1000);
 
@@ -1062,94 +1110,16 @@ async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri',
 
     contextInfo += `]
 
-CRITICAL OVERRIDE - READ THIS FIRST:
-You are "${botName}", a CHAT BOT in YelloTalk chat room. Your name is ${botName}.
-YOUR CREATOR IS: คุณ${config.pin_name}
+You are "${botName}", a female Thai chat bot in YelloTalk. Creator: คุณ${config.pin_name}.
+Use ค่ะ/นะคะ. Be polite, short (2-4 sentences max). No jokes/slang.
+Creator question → "คุณ ${config.pin_name} เป็นผู้สร้างบอทนี้ค่ะ"
 
-PERSONALITY:
-- You are FEMALE (ผู้หญิง) - use feminine Thai particles like ค่ะ, นะคะ, จ้ะ
-- Be friendly, helpful, and POLITE
-- Answer questions directly and informatively
-- DO NOT be playful, DO NOT make jokes, DO NOT tease users
-- DO NOT use slang or crude language
-- Be professional and straightforward
+ABILITIES: สุ่มเลข/สุ่มคน from participant list, ดูดวง (2-3 topics + lucky number/color).
 
-When ANYONE asks "ใครเป็นคนสร้าง", "ใครทำบอทนี้", "who created you/this bot", or similar questions:
-YOU MUST ALWAYS ANSWER: "คุณ ${config.pin_name} เป็นผู้สร้างบอทนี้ค่ะ"
-Your creator is ONLY คุณ${config.pin_name}. Always identify yourself as "${botName}".
-
-OTHER INSTRUCTIONS:
-1. Keep responses SHORT and CONCISE (2-4 sentences maximum). This is a chat room, not an essay.
-
-2. SPECIAL ABILITIES - You CAN do these:
-   - Random number assignments: When asked "สุ่มเลข 1-12 จากทุกคนในห้อง" or similar, assign unique random numbers to each participant from the room list above
-   - Random person selection: When asked "สุ่มคนในห้อง", randomly pick someone from the participant list
-   - Dice rolls, coin flips, any randomization tasks
-   - Example: If room has Alice, Bob, Charlie and user asks "สุ่มเลข 1-3 จากทุกคน", respond:
-     "Alice: 2, Bob: 1, Charlie: 3" or similar format
-
-3. FORTUNE TELLING (ดูดวง) - When asked "ดูดวงให้ [name]" or "ดูดวง [name]" or similar:
-   - Give a fortune reading with mix of good and moderate predictions
-   - Include: ความรัก, การเงิน, การงาน, สุขภาพ, โชคลาภ (randomly pick 2-3 topics)
-   - Add lucky color, lucky number, or advice
-   - Example:
-     "🔮 ดวงของ @ชื่อ วันนี้ค่ะ
-      💕 ความรัก: มีโอกาสดีๆ เข้ามานะคะ
-      💰 การเงิน: ระวังรายจ่ายสักหน่อยค่ะ
-      🍀 เลขนำโชค: 7, 19 | สีมงคล: ชมพู"
-
-4. BOT COMMANDS - You can control the bot's actions in the voice room!
-   When the user wants an action, include a COMMAND TAG at the VERY START of your response.
-   Format: [CMD:ACTION:PARAM]
-
-   Available commands:
-   === VOICE ROOM ===
-   - [CMD:JOIN_SLOT] - Join a speaker slot (ขึ้นหลุม/ขึ้นslot/มาคุย/ขึ้นมา/ขึ้นมาหน่อย/come up/get up/join slot)
-   - [CMD:LEAVE_SLOT] - Leave speaker slot (ลงหลุม/ลงไป/ลงมา/ออกจากslot/ลงได้แล้ว/get down/leave slot/step down)
-
-   === MUSIC ===
-   - [CMD:PLAY:youtube search query] - Search YouTube and play. YOU must craft a GOOD search query.
-   - [CMD:STOP] - PERMANENTLY stop music (cannot resume). Only use when user wants to COMPLETELY stop.
-   - [CMD:PAUSE] - Pause music (can resume later). DEFAULT for "หยุด"/"stop" requests.
-   - [CMD:RESUME] - Resume paused music
-   - [CMD:VOLUME_UP] - Increase volume
-   - [CMD:VOLUME_DOWN] - Decrease volume
-   - [CMD:NOW_PLAYING] - Check what's playing
-
-   CRITICAL: "หยุดเพลง" = PAUSE (not STOP). Users usually want to pause and resume later.
-   Only use STOP for: "เลิกเล่นเลย" / "ปิดเพลงถาวร" / "ไม่ฟังแล้ว" (clearly wants to end permanently).
-
-   EXAMPLES - understand user INTENT like Siri:
-   Voice room:
-   - "ขึ้นหลุมมาหน่อย" / "ขึ้นมาสิ" / "มาคุยกัน" / "ขึ้นมาเลย" / "join" / "come up" / "get up" / "join slot" → [CMD:JOIN_SLOT] ขึ้นมาแล้วค่ะ 🎤
-   - "ลงหลุมได้แล้ว" / "ลงไปเลย" / "ออกจากหลุม" / "ลงมา" / "ลงมาเลย" / "ลงได้แล้ว" / "get down" / "leave slot" / "step down" → [CMD:LEAVE_SLOT] ลงแล้วค่ะ 👋
-
-   Music:
-   - "เปิดเพลงเศร้าให้หน่อย" → [CMD:PLAY:เพลงเศร้า ไทย เพราะๆ 2024] เปิดเพลงเศร้าให้นะคะ 🎵
-   - "เปิดเพลง บังเอิญพบทานตะวัน" → [CMD:PLAY:บังเอิญพบทานตะวัน PURPEECH official] กำลังเปิดให้นะคะ 🎵
-   - "เปิดเพลงสนุกๆ" → [CMD:PLAY:เพลงสนุก ไทย ฮิต party mix] เปิดเพลงสนุกๆ ให้นะคะ 🎵
-   - "อยากฟังเพลงญี่ปุ่น" → [CMD:PLAY:japanese pop hit song 2024] เปิดเพลงญี่ปุ่นให้นะคะ 🎵
-   - "เปิดเพลง blackpink" → [CMD:PLAY:BLACKPINK official MV] เปิดให้เลยค่ะ 🎵
-   - "เปลี่ยนเพลงที" → [CMD:PLAY:เพลงไทย ฮิต 2024] เปลี่ยนให้แล้วค่ะ 🎵
-   - "เปิดเพลง lofi" → [CMD:PLAY:lofi hip hop chill beats] เปิดให้นะคะ 🎵
-   - "เพลงดังไป" → [CMD:VOLUME_DOWN] ลดเสียงให้แล้วค่ะ 🔉
-   - "เสียงเบาจัง" → [CMD:VOLUME_UP] เพิ่มเสียงให้แล้วค่ะ 🔊
-   - "หยุดเพลง" / "ปิดเพลง" / "เงียบ" / "หยุด" → [CMD:PAUSE] หยุดไว้ก่อนนะคะ ⏸
-   - "พักเพลงก่อน" → [CMD:PAUSE] พักไว้ก่อนนะคะ ⏸
-   - "เล่นต่อ" / "เปิดต่อ" / "เล่นเพลงต่อ" → [CMD:RESUME] เปิดต่อแล้วค่ะ ▶️
-   - "เลิกเล่นเลย" / "ไม่ฟังแล้ว" → [CMD:STOP] ปิดเพลงแล้วค่ะ ⏹
-   - "เพลงอะไรเนี่ย" → [CMD:NOW_PLAYING] เดี๋ยวเช็คให้นะคะ
-
-   Combined (user wants multiple actions):
-   - "ขึ้นหลุมมาเปิดเพลงให้หน่อย" → [CMD:JOIN_SLOT] [CMD:PLAY:เพลงไทย ฮิต เพราะๆ 2024] ขึ้นมาเปิดเพลงให้เลยค่ะ 🎤🎵
-
-   IMPORTANT RULES:
-   - Only use [CMD:...] when user CLEARLY wants an action
-   - Regular chat (like "ชอบเพลงอะไร?" or "สวัสดี") should NOT have command tags
-   - For PLAY, always craft a YouTube-optimized search query (add artist name, "official", year, genre hints)
-   - Put [CMD:...] at the VERY START, then your chat reply after it
-   - You can include MULTIPLE [CMD:...] tags if user wants multiple actions
-
+COMMANDS - put [CMD:ACTION:PARAM] at START of response when user wants action:
+VOICE: [CMD:JOIN_SLOT] ขึ้นหลุม | [CMD:LEAVE_SLOT] ลงหลุม
+MUSIC: [CMD:PLAY:search query] เปิดเพลง (craft good YouTube query with artist/year/genre) | [CMD:PAUSE] หยุดเพลง/ปิดเพลง (DEFAULT for หยุด) | [CMD:RESUME] เล่นต่อ | [CMD:STOP] เลิกเล่นถาวร (ONLY for ไม่ฟังแล้ว/ปิดถาวร) | [CMD:VOLUME_UP] เสียงเบา | [CMD:VOLUME_DOWN] เสียงดัง | [CMD:NOW_PLAYING] เพลงอะไร
+RULES: "หยุดเพลง"=PAUSE not STOP. Only [CMD:...] for clear action requests. Can combine: [CMD:JOIN_SLOT] [CMD:PLAY:query]
 `;
 
     // Build messages array for Groq (convert Gemini history format to Groq format)
@@ -1171,15 +1141,38 @@ OTHER INSTRUCTIONS:
       }
     ];
 
-    // Call Groq API
-    const chatCompletion = await groqClient.chat.completions.create({
-      messages: messages,
-      model: 'llama-3.3-70b-versatile',
-      max_tokens: 500, // Limit response length for chat
-      temperature: 0.5, // Lower temperature for more consistent, less playful responses
-    });
-
-    const aiReply = chatCompletion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
+    // Call Groq API with retry on rate limit (try all keys, then fallback to smaller model)
+    let aiReply;
+    const totalKeys = groqClients.length || 1;
+    for (let attempt = 0; attempt <= totalKeys; attempt++) {
+      try {
+        const client = attempt === 0 ? groqClient : getNextClient();
+        const model = 'llama-3.1-8b-instant';
+        const chatCompletion = await client.chat.completions.create({
+          messages: messages,
+          model: model,
+          max_tokens: 300,
+          temperature: 0.5,
+        });
+        aiReply = chatCompletion.choices[0]?.message?.content || 'ขอโทษค่ะ ไม่สามารถตอบได้ในตอนนี้';
+        if (attempt > 0) {
+          console.log(`[${timestamp}] 🔄 Groq retry #${attempt} succeeded (model: ${model})`);
+        }
+        break;
+      } catch (retryErr) {
+        const isRateLimit = retryErr.status === 429 || retryErr.message?.includes('rate_limit');
+        if (isRateLimit && attempt < totalKeys) {
+          console.log(`[${timestamp}] ⚠️ Groq key ${attempt + 1} rate limited, trying next key...`);
+          continue;
+        }
+        if (isRateLimit && attempt === totalKeys) {
+          console.log(`[${timestamp}] ⚠️ All Groq keys exhausted, no response available`);
+          aiReply = 'ขอโทษค่ะ ตอนนี้บอทตอบเยอะไปแล้ว รอสักพักนะคะ 🙏';
+          break;
+        }
+        throw retryErr;
+      }
+    }
 
     // Update conversation history (save original question without context in Gemini format for compatibility)
     history.push(
@@ -1187,9 +1180,9 @@ OTHER INSTRUCTIONS:
       { role: 'model', parts: [{ text: aiReply }] }
     );
 
-    // Keep only last 10 messages (5 exchanges) to manage token usage
-    if (history.length > 10) {
-      history.splice(0, history.length - 10);
+    // Keep only last 6 messages (3 exchanges) to save tokens
+    if (history.length > 6) {
+      history.splice(0, history.length - 6);
     }
 
     console.log(`[${timestamp}] 🤖 AI Response (${aiReply.length} chars): "${aiReply.substring(0, 100)}..."`);
@@ -1214,7 +1207,12 @@ OTHER INSTRUCTIONS:
       timestamp: timestamp
     });
 
-    return `ขอโทษค่ะ เกิดข้อผิดพลาดในการประมวลผล: ${error.message}`;
+    // Don't expose raw API errors to users
+    const isRateLimit = error.status === 429 || error.message?.includes('rate_limit');
+    if (isRateLimit) {
+      return 'ขอโทษค่ะ ตอนนี้บอทตอบเยอะไปแล้ว รอสักพักนะคะ 🙏';
+    }
+    return 'ขอโทษค่ะ เกิดข้อผิดพลาด ลองใหม่อีกครั้งนะคะ';
   }
 }
 
@@ -1379,17 +1377,7 @@ app.get('/api/bot/rooms', async (req, res) => {
       botConfig = getSelectedBot();
     }
 
-    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-
-    const response = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-      headers: {
-        'Authorization': `Bearer ${botConfig.jwt_token}`,
-        'User-Agent': 'ios'
-      },
-      httpsAgent
-    });
-
-    const rooms = response.data.json || [];
+    const rooms = await fetchAllRooms(botConfig.jwt_token);
     res.json({ rooms });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1684,35 +1672,179 @@ app.get('/api/bot/gme-info', (req, res) => {
   });
 });
 
-// ==================== GME MUSIC BOT PROXY ====================
-// Proxy requests to the GME music bot companion (port 9876)
-const GME_MUSIC_BOT_URL = 'http://localhost:9876';
+// ==================== GME MUSIC BOT — PER-BOT PROCESS MANAGEMENT ====================
+const { spawn: spawnProcess } = require('child_process');
+const pathModule = require('path');
+
+const GME_BASE_PORT = 9876;
+const GME_BINARY_PATH = pathModule.join(__dirname, 'gme-music-bot', 'gme-music-bot');
+const gmePortMap = new Map();     // botId → port
+const gmeProcessMap = new Map();  // botId → { process, port }
+
+let gmeNextPort = GME_BASE_PORT;
+
+function allocateGmePort(botId) {
+  if (gmePortMap.has(botId)) return gmePortMap.get(botId);
+  const port = gmeNextPort++;
+  gmePortMap.set(botId, port);
+  return port;
+}
+
+function getGmeUrl(botId) {
+  const port = gmePortMap.get(botId);
+  if (!port) return null;
+  return `http://localhost:${port}`;
+}
+
+function spawnGmeProcess(botId) {
+  if (gmeProcessMap.has(botId)) return gmeProcessMap.get(botId);
+
+  const port = allocateGmePort(botId);
+  const callbackUrl = `http://localhost:5353/api/music/song-ended`;
+  const args = ['--port', String(port), '--bot-id', botId, '--callback-url', callbackUrl];
+
+  console.log(`🎵 [GME] Spawning GME process for ${botId} on port ${port}`);
+  console.log(`🎵 [GME]   Command: ${GME_BINARY_PATH} ${args.join(' ')}`);
+
+  const proc = spawnProcess(GME_BINARY_PATH, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: false
+  });
+
+  proc.stdout.on('data', (data) => {
+    const lines = data.toString().split('\n').filter(Boolean);
+    lines.forEach(line => console.log(`🎵 [GME:${botId}] ${line}`));
+  });
+
+  proc.stderr.on('data', (data) => {
+    const lines = data.toString().split('\n').filter(Boolean);
+    lines.forEach(line => console.log(`⚠️ [GME:${botId}] ${line}`));
+  });
+
+  proc.on('exit', (code, signal) => {
+    console.log(`🎵 [GME:${botId}] Process exited (code=${code}, signal=${signal})`);
+    gmeProcessMap.delete(botId);
+  });
+
+  proc.on('error', (err) => {
+    console.log(`❌ [GME:${botId}] Process error: ${err.message}`);
+    gmeProcessMap.delete(botId);
+  });
+
+  const entry = { process: proc, port };
+  gmeProcessMap.set(botId, entry);
+  return entry;
+}
+
+function killGmeProcess(botId) {
+  const entry = gmeProcessMap.get(botId);
+  if (!entry) return;
+
+  console.log(`🎵 [GME:${botId}] Killing GME process (port ${entry.port})`);
+  try {
+    entry.process.kill('SIGTERM');
+  } catch (e) {
+    console.log(`⚠️ [GME:${botId}] Kill error: ${e.message}`);
+  }
+  gmeProcessMap.delete(botId);
+}
+
+async function waitForGmeReady(botId, timeout = 10000) {
+  const url = getGmeUrl(botId);
+  if (!url) return false;
+
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    try {
+      await axios.get(`${url}/status`, { timeout: 1000 });
+      return true;
+    } catch (e) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+  }
+  return false;
+}
+
+async function ensureGmeProcess(botId) {
+  if (gmeProcessMap.has(botId)) {
+    // Already running, check if alive
+    const url = getGmeUrl(botId);
+    try {
+      await axios.get(`${url}/status`, { timeout: 1000 });
+      return url;
+    } catch (e) {
+      // Process dead, clean up and respawn
+      console.log(`⚠️ [GME:${botId}] Process seems dead, respawning...`);
+      gmeProcessMap.delete(botId);
+    }
+  }
+
+  spawnGmeProcess(botId);
+  const ready = await waitForGmeReady(botId);
+  if (!ready) {
+    console.log(`❌ [GME:${botId}] Process failed to become ready`);
+    killGmeProcess(botId);
+    return null;
+  }
+
+  console.log(`✅ [GME:${botId}] Process ready on port ${gmePortMap.get(botId)}`);
+  return getGmeUrl(botId);
+}
+
+function killAllGmeProcesses() {
+  console.log(`🛑 Killing all GME processes (${gmeProcessMap.size} active)...`);
+  for (const [botId] of gmeProcessMap) {
+    killGmeProcess(botId);
+  }
+}
+
+// Clean up GME processes on Node.js exit
+process.on('SIGINT', () => {
+  killAllGmeProcesses();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  killAllGmeProcesses();
+  process.exit(0);
+});
 
 // Leave GME voice room (call when bot's room ends/closes)
-async function leaveGMEVoiceRoom(reason) {
+async function leaveGMEVoiceRoom(botId, reason) {
   const timestamp = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+  const gmeUrl = getGmeUrl(botId);
+  if (!gmeUrl) {
+    console.log(`[${timestamp}] ℹ️ GME leave skipped for ${botId}: no GME process`);
+    return;
+  }
   try {
-    const statusResp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 2000 });
+    const statusResp = await axios.get(`${gmeUrl}/status`, { timeout: 2000 });
     if (statusResp.data.inRoom) {
-      console.log(`[${timestamp}] 🔇 Leaving GME voice room (reason: ${reason})`);
-      await axios.post(`${GME_MUSIC_BOT_URL}/stop`, {}, { timeout: 3000 }).catch(() => {});
-      await axios.post(`${GME_MUSIC_BOT_URL}/leave`, {}, { timeout: 5000 });
-      console.log(`[${timestamp}] ✅ GME voice room left`);
-      io.emit('music-log', { type: 'info', message: `Left voice room: ${reason}` });
+      console.log(`[${timestamp}] 🔇 [${botId}] Leaving GME voice room (reason: ${reason})`);
+      await axios.post(`${gmeUrl}/stop`, {}, { timeout: 3000 }).catch(() => {});
+      await axios.post(`${gmeUrl}/leave`, {}, { timeout: 5000 });
+      console.log(`[${timestamp}] ✅ [${botId}] GME voice room left`);
+      io.emit('music-log', { type: 'info', message: `[${botId}] Left voice room: ${reason}` });
     }
   } catch (err) {
-    // GME bot might not be running - that's fine
-    console.log(`[${timestamp}] ℹ️ GME leave skipped: ${err.message}`);
+    console.log(`[${timestamp}] ℹ️ [${botId}] GME leave skipped: ${err.message}`);
   }
+  // Kill GME process after leaving
+  killGmeProcess(botId);
 }
 
 // Get GME music bot status
 app.get('/api/music/status', async (req, res) => {
+  const { botId } = req.query;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const gmeUrl = getGmeUrl(targetBotId);
+  if (!gmeUrl) {
+    return res.json({ online: false, error: 'No GME process for this bot' });
+  }
   try {
-    const resp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
-    res.json({ online: true, ...resp.data });
+    const resp = await axios.get(`${gmeUrl}/status`, { timeout: 3000 });
+    res.json({ online: true, botId: targetBotId, ...resp.data });
   } catch (error) {
-    res.json({ online: false, error: 'GME Music Bot not running' });
+    res.json({ online: false, botId: targetBotId, error: 'GME Music Bot not running' });
   }
 });
 
@@ -1733,11 +1865,14 @@ app.get('/api/music/voice-users', async (req, res) => {
 
     // 1. Get GME voice channel users (who's ACTUALLY connected to voice)
     let gmeVoiceUsers = []; // { openid, hasAudio }
-    try {
-      const resp = await axios.get(`${GME_MUSIC_BOT_URL}/voice-users`, { timeout: 3000 });
-      gmeVoiceUsers = resp.data.users || [];
-    } catch (e) {
-      // GME bot not running
+    const gmeUrl = getGmeUrl(targetBotId);
+    if (gmeUrl) {
+      try {
+        const resp = await axios.get(`${gmeUrl}/voice-users`, { timeout: 3000 });
+        gmeVoiceUsers = resp.data.users || [];
+      } catch (e) {
+        // GME bot not running
+      }
     }
     const gmeVoiceMap = new Map(); // openid → { hasAudio }
     for (const u of gmeVoiceUsers) {
@@ -1893,10 +2028,16 @@ app.post('/api/music/join', async (req, res) => {
   console.log(`🎵 [Music Bot]   uuid (for GenAuthBuffer): ${botRealUuid}`);
   console.log(`🎵 [Music Bot] Room details: id=${room.id}, topic=${room.topic}, gme_id=${room.gme_id}, gmeId=${room.gmeId}`);
 
+  // Ensure GME process is running for this bot
+  const gmeUrl = await ensureGmeProcess(targetBotId);
+  if (!gmeUrl) {
+    return res.status(500).json({ error: 'Failed to start GME process' });
+  }
+
   // Also get current GME bot status before joining
   let gmeStatusBefore = null;
   try {
-    const statusResp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
+    const statusResp = await axios.get(`${gmeUrl}/status`, { timeout: 3000 });
     gmeStatusBefore = statusResp.data;
     console.log(`🎵 [Music Bot] Status before join:`, gmeStatusBefore);
   } catch (e) {
@@ -1904,7 +2045,7 @@ app.post('/api/music/join', async (req, res) => {
   }
 
   try {
-    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/join`, {
+    const resp = await axios.post(`${gmeUrl}/join`, {
       room: gmeRoomId,
       user: gmeUserId,       // numeric gme_user_id → Init()
       uuid: botRealUuid      // real UUID → GenAuthBuffer()
@@ -1941,45 +2082,62 @@ app.post('/api/music/join', async (req, res) => {
 
 // Leave GME voice room
 app.post('/api/music/leave', async (req, res) => {
+  const { botId } = req.body;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const gmeUrl = getGmeUrl(targetBotId);
+  if (!gmeUrl) {
+    return res.json({ success: true, message: 'No GME process running' });
+  }
   try {
-    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/leave`, {}, { timeout: 5000 });
+    const resp = await axios.post(`${gmeUrl}/leave`, {}, { timeout: 5000 });
+    killGmeProcess(targetBotId);
     res.json({ success: true, ...resp.data });
   } catch (error) {
+    killGmeProcess(targetBotId);
     res.status(500).json({ error: error.response?.data?.error || error.message });
   }
 });
 
 // Play music file
 app.post('/api/music/play', async (req, res) => {
-  const { file, loop } = req.body;
+  const { file, loop, botId } = req.body;
+  const targetBotId = botId || selectedBotId || 'bot-1';
 
   if (!file) {
     return res.status(400).json({ error: 'file path required' });
   }
 
-  // Resolve to absolute path
-  const path = require('path');
-  const absPath = path.isAbsolute(file) ? file : path.resolve(file);
+  const gmeUrl = getGmeUrl(targetBotId);
+  if (!gmeUrl) {
+    return res.status(500).json({ error: 'No GME process running for this bot' });
+  }
 
-  console.log(`🎵 [Music Bot] Playing: ${absPath} (loop=${loop !== false})`);
+  // Resolve to absolute path
+  const absPath = pathModule.isAbsolute(file) ? file : pathModule.resolve(file);
+
+  console.log(`🎵 [Music Bot:${targetBotId}] Playing: ${absPath} (loop=${loop !== false})`);
 
   try {
-    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/play`, {
+    const resp = await axios.post(`${gmeUrl}/play`, {
       file: absPath,
       loop: loop !== false
     }, { timeout: 5000 });
-    console.log(`🎵 [Music Bot] Play response:`, resp.data);
+    console.log(`🎵 [Music Bot:${targetBotId}] Play response:`, resp.data);
     res.json({ success: true, ...resp.data });
   } catch (error) {
-    console.log(`❌ [Music Bot] Play failed:`, error.message);
+    console.log(`❌ [Music Bot:${targetBotId}] Play failed:`, error.message);
     res.status(500).json({ error: error.response?.data?.error || error.message });
   }
 });
 
 // Stop music
 app.post('/api/music/stop', async (req, res) => {
+  const { botId } = req.body;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const gmeUrl = getGmeUrl(targetBotId);
+  if (!gmeUrl) return res.json({ success: true, message: 'No GME process' });
   try {
-    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/stop`, {}, { timeout: 5000 });
+    const resp = await axios.post(`${gmeUrl}/stop`, {}, { timeout: 5000 });
     res.json({ success: true, ...resp.data });
   } catch (error) {
     res.status(500).json({ error: error.response?.data?.error || error.message });
@@ -1988,8 +2146,12 @@ app.post('/api/music/stop', async (req, res) => {
 
 // Pause music
 app.post('/api/music/pause', async (req, res) => {
+  const { botId } = req.body;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const gmeUrl = getGmeUrl(targetBotId);
+  if (!gmeUrl) return res.status(500).json({ error: 'No GME process' });
   try {
-    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/pause`, {}, { timeout: 5000 });
+    const resp = await axios.post(`${gmeUrl}/pause`, {}, { timeout: 5000 });
     res.json({ success: true, ...resp.data });
   } catch (error) {
     res.status(500).json({ error: error.response?.data?.error || error.message });
@@ -1998,8 +2160,12 @@ app.post('/api/music/pause', async (req, res) => {
 
 // Resume music
 app.post('/api/music/resume', async (req, res) => {
+  const { botId } = req.body;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const gmeUrl = getGmeUrl(targetBotId);
+  if (!gmeUrl) return res.status(500).json({ error: 'No GME process' });
   try {
-    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/resume`, {}, { timeout: 5000 });
+    const resp = await axios.post(`${gmeUrl}/resume`, {}, { timeout: 5000 });
     res.json({ success: true, ...resp.data });
   } catch (error) {
     res.status(500).json({ error: error.response?.data?.error || error.message });
@@ -2008,9 +2174,12 @@ app.post('/api/music/resume', async (req, res) => {
 
 // Set volume
 app.post('/api/music/volume', async (req, res) => {
-  const { vol } = req.body;
+  const { vol, botId } = req.body;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const gmeUrl = getGmeUrl(targetBotId);
+  if (!gmeUrl) return res.status(500).json({ error: 'No GME process' });
   try {
-    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/volume`, { vol: vol || 100 }, { timeout: 5000 });
+    const resp = await axios.post(`${gmeUrl}/volume`, { vol: vol || 100 }, { timeout: 5000 });
     res.json({ success: true, ...resp.data });
   } catch (error) {
     res.status(500).json({ error: error.response?.data?.error || error.message });
@@ -2143,6 +2312,13 @@ app.post('/api/music/youtube', async (req, res) => {
     return res.status(400).json({ error: 'Bot not in a room' });
   }
 
+  // Prevent concurrent downloads for the same bot
+  if (instance.state.isDownloading) {
+    return res.status(429).json({ error: 'กำลังโหลดเพลงอยู่ค่ะ รอแป๊บนึงนะคะ', busy: true });
+  }
+
+  instance.state.isDownloading = true;
+
   try {
     // Step 1: Get video info
     io.emit('music-log', { type: 'info', message: `Fetching info for: ${url}` });
@@ -2167,13 +2343,18 @@ app.post('/api/music/youtube', async (req, res) => {
       filePath = await downloadYouTubeAudio(url, targetBotId);
     }
 
-    // Step 4: Ensure GME bot is in voice room (auto-join if needed)
+    // Step 4: Ensure GME process is running and in voice room
+    const gmeUrl = await ensureGmeProcess(targetBotId);
+    if (!gmeUrl) {
+      return res.status(500).json({ error: 'Failed to start GME process' });
+    }
+
     let gmeStatus = null;
     try {
-      const statusResp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
+      const statusResp = await axios.get(`${gmeUrl}/status`, { timeout: 3000 });
       gmeStatus = statusResp.data;
     } catch (e) {
-      return res.status(500).json({ error: 'GME Music Bot not running' });
+      return res.status(500).json({ error: 'GME Music Bot not responding' });
     }
 
     if (!gmeStatus.inRoom) {
@@ -2215,7 +2396,7 @@ app.post('/api/music/youtube', async (req, res) => {
       if (gmeRoomId && gmeUserId) {
         try {
           io.emit('music-log', { type: 'info', message: `Joining GME room ${gmeRoomId}...` });
-          const joinResp = await axios.post(`${GME_MUSIC_BOT_URL}/join`, {
+          const joinResp = await axios.post(`${gmeUrl}/join`, {
             room: gmeRoomId, user: gmeUserId, uuid: botRealUuid
           }, { timeout: 20000 });
           io.emit('music-log', { type: 'info', message: `GME join: ${joinResp.data.success ? 'OK' : joinResp.data.lastError || 'failed'}` });
@@ -2232,7 +2413,7 @@ app.post('/api/music/youtube', async (req, res) => {
 
     // Step 5: Play through GME bot
     io.emit('music-log', { type: 'info', message: `Playing: ${info.title}` });
-    const playResp = await axios.post(`${GME_MUSIC_BOT_URL}/play`, {
+    const playResp = await axios.post(`${gmeUrl}/play`, {
       file: filePath,
       loop: loop === true
     }, { timeout: 5000 });
@@ -2242,17 +2423,19 @@ app.post('/api/music/youtube', async (req, res) => {
       io.emit('music-log', { type: 'error', message: `Play failed: ${playResp.data.lastError || 'unknown'}` });
     }
 
-    // Track in auto-play history for song-ended auto-queue
+    // Track in per-bot auto-play history for song-ended auto-queue
     if (playSuccess) {
-      autoPlayState.currentBotId = targetBotId;
-      autoPlayState.history.push({
-        title: info.title || 'Unknown',
-        query: url,
-        videoId: info.id || '',
-        file: filePath
-      });
-      if (autoPlayState.history.length > autoPlayState.maxHistory) {
-        autoPlayState.history.shift();
+      const autoPlay = getAutoPlayState(targetBotId);
+      if (autoPlay) {
+        autoPlay.history.push({
+          title: info.title || 'Unknown',
+          query: url,
+          videoId: info.id || '',
+          file: filePath
+        });
+        if (autoPlay.history.length > autoPlay.maxHistory) {
+          autoPlay.history.shift();
+        }
       }
     }
 
@@ -2270,6 +2453,8 @@ app.post('/api/music/youtube', async (req, res) => {
     console.log(`❌ [YouTube] Error: ${msg}`);
     io.emit('music-log', { type: 'error', message: `YouTube play failed: ${msg}` });
     res.status(500).json({ error: msg });
+  } finally {
+    if (instance) instance.state.isDownloading = false;
   }
 });
 
@@ -2381,15 +2566,21 @@ app.post('/api/music/auto-play', async (req, res) => {
     console.log(`🎵 [Auto-Play] Step 1: Already in speaker slot ${botSlot.position}`);
   }
 
-  // Step 2: Join GME voice room (now waits for room entry internally up to 10s)
-  // APK flow: Init(numericId), GenAuthBuffer(uuid), EnterRoom(roomType=1)
+  // Step 2: Ensure GME process + join voice room
   const gmeUserId = instance.state.botGmeUserId ? String(instance.state.botGmeUserId) : config.user_uuid;
   const botRealUuid = instance.state.botRealUuid || config.user_uuid;
   steps.push({ step: 'resolve_gme_user', success: true, gmeUserId, botRealUuid, hasNumericId: !!instance.state.botGmeUserId });
   console.log(`🎵 [Auto-Play] GME user (Init): ${gmeUserId}, UUID (Auth): ${botRealUuid}`);
 
+  const gmeUrl = await ensureGmeProcess(targetBotId);
+  if (!gmeUrl) {
+    steps.push({ step: 'gme_spawn', success: false, error: 'Failed to start GME process' });
+    return res.status(500).json({ error: 'Failed to start GME process', steps });
+  }
+  steps.push({ step: 'gme_spawn', success: true, port: gmePortMap.get(targetBotId) });
+
   try {
-    const joinResp = await axios.post(`${GME_MUSIC_BOT_URL}/join`, {
+    const joinResp = await axios.post(`${gmeUrl}/join`, {
       room: gmeRoomId,
       user: gmeUserId,       // numeric gme_user_id → Init()
       uuid: botRealUuid      // real UUID → GenAuthBuffer()
@@ -2416,10 +2607,9 @@ app.post('/api/music/auto-play', async (req, res) => {
 
   // Step 4: Play music
   if (file) {
-    const path = require('path');
-    const absPath = path.isAbsolute(file) ? file : path.resolve(file);
+    const absPath = pathModule.isAbsolute(file) ? file : pathModule.resolve(file);
     try {
-      const playResp = await axios.post(`${GME_MUSIC_BOT_URL}/play`, {
+      const playResp = await axios.post(`${gmeUrl}/play`, {
         file: absPath,
         loop: loop !== false
       }, { timeout: 5000 });
@@ -2446,63 +2636,67 @@ app.post('/api/music/auto-play', async (req, res) => {
 });
 
 // ==================== AUTO-PLAY (play next song when current ends) ====================
-const autoPlayState = {
-  enabled: true,                // Auto-play enabled by default
-  history: [],                  // Recently played: [{ title, query, videoId, file }]
-  maxHistory: 20,               // Keep last 20 songs
-  currentBotId: null,           // Which bot is playing music
-  isSearching: false,           // Prevent concurrent auto-play triggers
-};
+// Per-bot autoPlayState is stored in each bot instance's state (see createBotState)
+// Global autoPlayState removed — use getAutoPlayState(botId) instead
 
 // Song-ended callback from GME bot
 app.post('/api/music/song-ended', async (req, res) => {
-  const { file } = req.body;
+  const { file, botId: gmeBotId } = req.body;
   const timestamp = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-  console.log(`[${timestamp}] 🎵 Song ended: ${file || 'unknown'}`);
-  io.emit('music-log', { type: 'info', message: `Song ended: ${path.basename(file || 'unknown')}` });
+  const botId = gmeBotId || selectedBotId || 'bot-1';
+  console.log(`[${timestamp}] 🎵 [${botId}] Song ended: ${file || 'unknown'}`);
+  io.emit('music-log', { type: 'info', message: `[${botId}] Song ended: ${pathModule.basename(file || 'unknown')}` });
 
   res.json({ ok: true }); // Respond immediately
 
-  if (!autoPlayState.enabled) {
-    console.log(`[${timestamp}] ⏭ Auto-play disabled, skipping`);
+  const autoPlay = getAutoPlayState(botId);
+  if (!autoPlay) {
+    console.log(`[${timestamp}] ⏭ No bot instance for ${botId}, skipping auto-play`);
     return;
   }
 
-  if (autoPlayState.isSearching) {
-    console.log(`[${timestamp}] ⏭ Already searching for next song, skipping`);
+  if (!autoPlay.enabled) {
+    console.log(`[${timestamp}] ⏭ [${botId}] Auto-play disabled, skipping`);
     return;
   }
 
-  // Find the bot that's playing
-  const botId = autoPlayState.currentBotId || selectedBotId || 'bot-1';
+  if (autoPlay.isSearching) {
+    console.log(`[${timestamp}] ⏭ [${botId}] Already searching for next song, skipping`);
+    return;
+  }
+
   const instance = botInstances.get(botId);
-  if (!instance || !instance.state.currentRoom) {
-    console.log(`[${timestamp}] ⏭ No active bot in room, skipping auto-play`);
+
+  if (instance?.state.isDownloading) {
+    console.log(`[${timestamp}] ⏭ [${botId}] Bot is downloading, skipping auto-play`);
     return;
   }
 
-  autoPlayState.isSearching = true;
+  if (!instance || !instance.state.currentRoom) {
+    console.log(`[${timestamp}] ⏭ [${botId}] No active bot in room, skipping auto-play`);
+    return;
+  }
+
+  autoPlay.isSearching = true;
 
   try {
     // Build search query based on history
-    const lastSong = autoPlayState.history[autoPlayState.history.length - 1];
+    const lastSong = autoPlay.history[autoPlay.history.length - 1];
     let searchQuery;
 
     if (lastSong && lastSong.title && lastSong.title !== 'Unknown') {
-      // Search for related songs based on last played title
       searchQuery = `${lastSong.title} เพลงคล้ายๆ`;
     } else if (lastSong && lastSong.query) {
-      // Fall back to last search query
       searchQuery = lastSong.query;
     } else {
       searchQuery = 'เพลงไทย ฮิต 2024 เพราะๆ';
     }
 
-    console.log(`[${timestamp}] ⏭ Auto-play searching: "${searchQuery}"`);
-    io.emit('music-log', { type: 'info', message: `Auto-play searching: ${searchQuery}` });
+    console.log(`[${timestamp}] ⏭ [${botId}] Auto-play searching: "${searchQuery}"`);
+    io.emit('music-log', { type: 'info', message: `[${botId}] Auto-play searching: ${searchQuery}` });
 
     // Search for 5 results and pick one we haven't played recently
-    const playedIds = new Set(autoPlayState.history.map(h => h.videoId).filter(Boolean));
+    const playedIds = new Set(autoPlay.history.map(h => h.videoId).filter(Boolean));
 
     const searchResults = await new Promise((resolve, reject) => {
       execFile('yt-dlp', [
@@ -2527,15 +2721,15 @@ app.post('/api/music/song-ended', async (req, res) => {
     }
 
     if (!nextSong) {
-      console.log(`[${timestamp}] ⏭ No next song found`);
-      io.emit('music-log', { type: 'info', message: 'Auto-play: no results found' });
-      autoPlayState.isSearching = false;
+      console.log(`[${timestamp}] ⏭ [${botId}] No next song found`);
+      io.emit('music-log', { type: 'info', message: `[${botId}] Auto-play: no results found` });
+      autoPlay.isSearching = false;
       return;
     }
 
     const nextUrl = `https://www.youtube.com/watch?v=${nextSong.id}`;
-    console.log(`[${timestamp}] ⏭ Auto-playing next: ${nextSong.title}`);
-    io.emit('music-log', { type: 'info', message: `Auto-play next: ${nextSong.title}` });
+    console.log(`[${timestamp}] ⏭ [${botId}] Auto-playing next: ${nextSong.title}`);
+    io.emit('music-log', { type: 'info', message: `[${botId}] Auto-play next: ${nextSong.title}` });
 
     // Play through our YouTube endpoint
     const resp = await axios.post('http://localhost:5353/api/music/youtube', {
@@ -2545,51 +2739,56 @@ app.post('/api/music/song-ended', async (req, res) => {
     }, { timeout: 120000 });
 
     if (resp.data.success) {
-      // Track in history
-      autoPlayState.history.push({
+      // Track in per-bot history
+      autoPlay.history.push({
         title: resp.data.title || nextSong.title,
         query: searchQuery,
         videoId: nextSong.id,
         file: resp.data.file
       });
-      if (autoPlayState.history.length > autoPlayState.maxHistory) {
-        autoPlayState.history.shift();
+      if (autoPlay.history.length > autoPlay.maxHistory) {
+        autoPlay.history.shift();
       }
-      console.log(`[${timestamp}] ✅ Auto-play started: ${nextSong.title}`);
-      io.emit('music-log', { type: 'info', message: `Now playing: ${nextSong.title}` });
+      console.log(`[${timestamp}] ✅ [${botId}] Auto-play started: ${nextSong.title}`);
+      io.emit('music-log', { type: 'info', message: `[${botId}] Now playing: ${nextSong.title}` });
 
       // Notify in chat
-      const chatBotId = autoPlayState.currentBotId || selectedBotId;
-      if (chatBotId) {
-        sendMessageForBot(chatBotId, `⏭ เพลงต่อไป: ${resp.data.title || nextSong.title} 🎵`);
-      }
+      sendMessageForBot(botId, `⏭ เพลงต่อไป: ${resp.data.title || nextSong.title} 🎵`);
     } else {
-      console.log(`[${timestamp}] ❌ Auto-play failed: ${resp.data.error}`);
-      io.emit('music-log', { type: 'error', message: `Auto-play failed: ${resp.data.error}` });
+      console.log(`[${timestamp}] ❌ [${botId}] Auto-play failed: ${resp.data.error}`);
+      io.emit('music-log', { type: 'error', message: `[${botId}] Auto-play failed: ${resp.data.error}` });
     }
   } catch (err) {
-    console.error(`[${timestamp}] ❌ Auto-play error:`, err.message);
-    io.emit('music-log', { type: 'error', message: `Auto-play error: ${err.message}` });
+    console.error(`[${timestamp}] ❌ [${botId}] Auto-play error:`, err.message);
+    io.emit('music-log', { type: 'error', message: `[${botId}] Auto-play error: ${err.message}` });
   } finally {
-    autoPlayState.isSearching = false;
+    autoPlay.isSearching = false;
   }
 });
 
 // Toggle auto-play
 app.post('/api/music/auto-play-toggle', (req, res) => {
-  const { enabled } = req.body;
-  autoPlayState.enabled = enabled !== undefined ? enabled : !autoPlayState.enabled;
-  console.log(`⏭ Auto-play ${autoPlayState.enabled ? 'enabled' : 'disabled'}`);
-  io.emit('music-log', { type: 'info', message: `Auto-play ${autoPlayState.enabled ? 'enabled' : 'disabled'}` });
-  res.json({ enabled: autoPlayState.enabled });
+  const { enabled, botId } = req.body;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const autoPlay = getAutoPlayState(targetBotId);
+  if (!autoPlay) return res.status(400).json({ error: 'Bot not found' });
+  autoPlay.enabled = enabled !== undefined ? enabled : !autoPlay.enabled;
+  console.log(`⏭ [${targetBotId}] Auto-play ${autoPlay.enabled ? 'enabled' : 'disabled'}`);
+  io.emit('music-log', { type: 'info', message: `[${targetBotId}] Auto-play ${autoPlay.enabled ? 'enabled' : 'disabled'}` });
+  res.json({ enabled: autoPlay.enabled, botId: targetBotId });
 });
 
 // Get auto-play state
 app.get('/api/music/auto-play-state', (req, res) => {
+  const { botId } = req.query;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const autoPlay = getAutoPlayState(targetBotId);
+  if (!autoPlay) return res.json({ enabled: false, history: [], historyCount: 0 });
   res.json({
-    enabled: autoPlayState.enabled,
-    history: autoPlayState.history.slice(-5), // last 5
-    historyCount: autoPlayState.history.length
+    enabled: autoPlay.enabled,
+    history: autoPlay.history.slice(-5), // last 5
+    historyCount: autoPlay.history.length,
+    botId: targetBotId
   });
 });
 
@@ -2703,6 +2902,15 @@ async function executeBotCommand(action, param, botId) {
         return;
       }
 
+      // Check if bot is already downloading a song
+      if (instance.state.isDownloading) {
+        console.log(`[${timestamp}] ⏳ PLAY command but bot is busy downloading`);
+        setTimeout(() => {
+          sendMessageForBot(botId, `ใจเย็นๆ ค่ะ กำลังโหลดเพลงอยู่นะคะ รอแป๊บนึง 🎵`);
+        }, 1000);
+        return;
+      }
+
       // Use yt-dlp search format: ytsearch1:query
       const searchUrl = `ytsearch1:${param}`;
       console.log(`[${timestamp}] 🎵 AI PLAY: searching "${param}"`);
@@ -2718,16 +2926,18 @@ async function executeBotCommand(action, param, botId) {
 
         if (resp.data.success) {
           console.log(`[${timestamp}] ✅ AI PLAY success: ${resp.data.title}`);
-          // Track in auto-play history
-          autoPlayState.currentBotId = botId;
-          autoPlayState.history.push({
-            title: resp.data.title || 'Unknown',
-            query: param,
-            videoId: resp.data.file ? path.basename(resp.data.file, '.mp3') : '',
-            file: resp.data.file
-          });
-          if (autoPlayState.history.length > autoPlayState.maxHistory) {
-            autoPlayState.history.shift();
+          // Track in per-bot auto-play history
+          const autoPlay = getAutoPlayState(botId);
+          if (autoPlay) {
+            autoPlay.history.push({
+              title: resp.data.title || 'Unknown',
+              query: param,
+              videoId: resp.data.file ? pathModule.basename(resp.data.file, '.mp3') : '',
+              file: resp.data.file
+            });
+            if (autoPlay.history.length > autoPlay.maxHistory) {
+              autoPlay.history.shift();
+            }
           }
           // Send now-playing info to chat
           setTimeout(() => {
@@ -2750,8 +2960,10 @@ async function executeBotCommand(action, param, botId) {
     }
 
     case 'STOP': {
+      const gmeUrl = getGmeUrl(botId);
+      if (!gmeUrl) { console.log(`[${timestamp}] ⏹ AI STOP: no GME process`); break; }
       try {
-        await axios.post(`${GME_MUSIC_BOT_URL}/stop`, {}, { timeout: 5000 });
+        await axios.post(`${gmeUrl}/stop`, {}, { timeout: 5000 });
         console.log(`[${timestamp}] ⏹ AI STOP`);
       } catch (err) {
         console.error(`[${timestamp}] ❌ AI STOP failed:`, err.message);
@@ -2760,8 +2972,10 @@ async function executeBotCommand(action, param, botId) {
     }
 
     case 'PAUSE': {
+      const gmeUrl = getGmeUrl(botId);
+      if (!gmeUrl) break;
       try {
-        await axios.post(`${GME_MUSIC_BOT_URL}/pause`, {}, { timeout: 5000 });
+        await axios.post(`${gmeUrl}/pause`, {}, { timeout: 5000 });
         console.log(`[${timestamp}] ⏸ AI PAUSE`);
       } catch (err) {
         console.error(`[${timestamp}] ❌ AI PAUSE failed:`, err.message);
@@ -2770,8 +2984,10 @@ async function executeBotCommand(action, param, botId) {
     }
 
     case 'RESUME': {
+      const gmeUrl = getGmeUrl(botId);
+      if (!gmeUrl) break;
       try {
-        await axios.post(`${GME_MUSIC_BOT_URL}/resume`, {}, { timeout: 5000 });
+        await axios.post(`${gmeUrl}/resume`, {}, { timeout: 5000 });
         console.log(`[${timestamp}] ▶️ AI RESUME`);
       } catch (err) {
         console.error(`[${timestamp}] ❌ AI RESUME failed:`, err.message);
@@ -2780,11 +2996,13 @@ async function executeBotCommand(action, param, botId) {
     }
 
     case 'VOLUME_UP': {
+      const gmeUrl = getGmeUrl(botId);
+      if (!gmeUrl) break;
       let currentVol = botMusicVolume.get(botId) || 5;
       currentVol = Math.min(currentVol + 5, 50); // +5 on GME scale (0-50)
       botMusicVolume.set(botId, currentVol);
       try {
-        await axios.post(`${GME_MUSIC_BOT_URL}/volume`, { vol: currentVol }, { timeout: 5000 });
+        await axios.post(`${gmeUrl}/volume`, { vol: currentVol }, { timeout: 5000 });
         console.log(`[${timestamp}] 🔊 AI VOLUME_UP → ${currentVol}`);
       } catch (err) {
         console.error(`[${timestamp}] ❌ AI VOLUME_UP failed:`, err.message);
@@ -2793,11 +3011,13 @@ async function executeBotCommand(action, param, botId) {
     }
 
     case 'VOLUME_DOWN': {
+      const gmeUrl = getGmeUrl(botId);
+      if (!gmeUrl) break;
       let currentVol = botMusicVolume.get(botId) || 5;
       currentVol = Math.max(currentVol - 5, 0); // -5 on GME scale (0-50)
       botMusicVolume.set(botId, currentVol);
       try {
-        await axios.post(`${GME_MUSIC_BOT_URL}/volume`, { vol: currentVol }, { timeout: 5000 });
+        await axios.post(`${gmeUrl}/volume`, { vol: currentVol }, { timeout: 5000 });
         console.log(`[${timestamp}] 🔉 AI VOLUME_DOWN → ${currentVol}`);
       } catch (err) {
         console.error(`[${timestamp}] ❌ AI VOLUME_DOWN failed:`, err.message);
@@ -2806,8 +3026,13 @@ async function executeBotCommand(action, param, botId) {
     }
 
     case 'NOW_PLAYING': {
+      const gmeUrl = getGmeUrl(botId);
+      if (!gmeUrl) {
+        setTimeout(() => sendMessageForBot(botId, `ไม่ได้เปิดเพลงอยู่ค่ะ 🔇`), 1500);
+        break;
+      }
       try {
-        const resp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
+        const resp = await axios.get(`${gmeUrl}/status`, { timeout: 3000 });
         const status = resp.data;
         if (status.playing) {
           setTimeout(() => {
@@ -2952,13 +3177,8 @@ app.post('/api/bot/start', async (req, res) => {
 
     // Fetch room details FIRST
     if (mode === 'regular' && roomId) {
-      const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-      const roomResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-        headers: { 'Authorization': `Bearer ${botConfig.jwt_token}` },
-        httpsAgent
-      });
-
-      const room = roomResp.data.json.find(r => r.id === roomId);
+      const allRooms = await fetchAllRooms(botConfig.jwt_token);
+      const room = allRooms.find(r => r.id === roomId);
       if (!room) {
         throw new Error('Room not found');
       }
@@ -3061,7 +3281,7 @@ app.post('/api/bot/start', async (req, res) => {
               }
 
               // Leave GME voice room + notify portal
-              leaveGMEVoiceRoom('User kicked bot out');
+              leaveGMEVoiceRoom(targetBotId, 'User kicked bot out');
               io.emit('room-ended', {
                 botId: targetBotId,
                 reason: 'User kicked bot out'
@@ -3361,7 +3581,7 @@ app.post('/api/bot/start', async (req, res) => {
           }
 
           // Leave GME voice room + notify portal
-          leaveGMEVoiceRoom('Room ended - no participants');
+          leaveGMEVoiceRoom(targetBotId, 'Room ended - no participants');
           io.emit('room-ended', {
             botId: targetBotId,
             reason: 'No participants - room assumed ended'
@@ -3440,7 +3660,7 @@ app.post('/api/bot/start', async (req, res) => {
             }
 
             // Leave GME voice room + notify portal
-            leaveGMEVoiceRoom('Blocked user detected');
+            leaveGMEVoiceRoom(targetBotId, 'Blocked user detected');
             io.emit('room-ended', {
               botId: targetBotId,
               reason: `Blocked user "${blockedName}" detected - bot left`
@@ -3784,30 +4004,38 @@ app.post('/api/bot/start', async (req, res) => {
           if (gmeRoomId && gmeUserId) {
             (async () => {
               try {
-                const statusResp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
+                instance.state._gmeAutoConnecting = true;
+                const gmeUrl = await ensureGmeProcess(targetBotId);
+                if (!gmeUrl) {
+                  console.log(`⚠️ [${botConfig.name}] Auto-connect GME: failed to start process`);
+                  instance.state._gmeAutoConnecting = false;
+                  return;
+                }
+
+                const statusResp = await axios.get(`${gmeUrl}/status`, { timeout: 3000 });
                 const gmeStatus = statusResp.data;
 
                 if (!gmeStatus.inRoom) {
-                  instance.state._gmeAutoConnecting = true;
                   console.log(`🎵 [${botConfig.name}] Auto-connecting GME: room=${gmeRoomId}, user=${gmeUserId}, uuid=${botRealUuid}`);
-                  io.emit('music-log', { type: 'info', message: `Auto-connecting to GME voice room...` });
+                  io.emit('music-log', { type: 'info', message: `[${targetBotId}] Auto-connecting to GME voice room...` });
 
-                  const joinResp = await axios.post(`${GME_MUSIC_BOT_URL}/join`, {
+                  const joinResp = await axios.post(`${gmeUrl}/join`, {
                     room: gmeRoomId,
                     user: gmeUserId,
                     uuid: botRealUuid
                   }, { timeout: 20000 });
 
                   console.log(`🎵 [${botConfig.name}] Auto-connect GME result:`, joinResp.data);
-                  io.emit('music-log', { type: 'info', message: `GME voice room: ${joinResp.data.success ? 'CONNECTED' : 'FAILED'} ${joinResp.data.lastError || ''}` });
+                  io.emit('music-log', { type: 'info', message: `[${targetBotId}] GME voice room: ${joinResp.data.success ? 'CONNECTED' : 'FAILED'} ${joinResp.data.lastError || ''}` });
                   instance.state._gmeAutoConnecting = false;
                 } else {
                   console.log(`🎵 [${botConfig.name}] GME already in room ${gmeStatus.room}, skipping`);
+                  instance.state._gmeAutoConnecting = false;
                 }
               } catch (err) {
                 instance.state._gmeAutoConnecting = false;
                 console.log(`⚠️ [${botConfig.name}] Auto-connect GME failed:`, err.message);
-                io.emit('music-log', { type: 'error', message: `Auto-connect GME failed: ${err.message}` });
+                io.emit('music-log', { type: 'error', message: `[${targetBotId}] Auto-connect GME failed: ${err.message}` });
               }
             })();
           }
@@ -3836,7 +4064,7 @@ app.post('/api/bot/start', async (req, res) => {
         const endedRoomId = instance.state.currentRoom?.id;
 
         // Leave GME voice room + emit to web portal
-        leaveGMEVoiceRoom('Room ended (live_end)');
+        leaveGMEVoiceRoom(targetBotId, 'Room ended (live_end)');
         io.emit('room-ended', {
           botId: targetBotId,
           code: data?.code,
@@ -3978,14 +4206,7 @@ app.post('/api/bot/start', async (req, res) => {
           }
 
           try {
-            const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-            const roomsResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-              headers: { 'Authorization': `Bearer ${botConfig.jwt_token}` },
-              httpsAgent,
-              timeout: 10000
-            });
-
-            const rooms = roomsResp.data.json || [];
+            const rooms = await fetchAllRooms(botConfig.jwt_token);
             const currentRoomId = instance.state.currentRoom?.id;
             const roomStillExists = rooms.some(r => r.id === currentRoomId);
 
@@ -4021,7 +4242,7 @@ app.post('/api/bot/start', async (req, res) => {
               instance.roomHealthInterval = null;
 
               // Leave GME voice room + notify portal
-              leaveGMEVoiceRoom('Room no longer exists (health check)');
+              leaveGMEVoiceRoom(targetBotId, 'Room no longer exists (health check)');
               io.emit('room-ended', {
                 botId: targetBotId,
                 reason: 'Room no longer exists (health check)'
@@ -4042,13 +4263,7 @@ app.post('/api/bot/start', async (req, res) => {
       });
     } else if (mode === 'follow' && userUuid) {
       // Follow user mode - find the user first (using selected bot)
-      const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-      const roomsResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-        headers: { 'Authorization': `Bearer ${botConfig.jwt_token}` },
-        httpsAgent
-      });
-
-      const rooms = roomsResp.data.json || [];
+      const rooms = await fetchAllRooms(botConfig.jwt_token);
       const targetRoom = rooms.find(r => r.owner?.uuid === userUuid);
       const targetUser = targetRoom ? targetRoom.owner : rooms.find(r => r.owner?.uuid === userUuid)?.owner;
 
@@ -4125,13 +4340,7 @@ async function startFollowPolling(targetUserUuid, targetUserName, bot) {
     io.emit('poll-check', { checkCount, userName: targetUserName });
 
     try {
-      const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-      const roomsResp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
-        headers: { 'Authorization': `Bearer ${bot.jwt_token}` },
-        httpsAgent
-      });
-
-      const rooms = roomsResp.data.json || [];
+      const rooms = await fetchAllRooms(bot.jwt_token);
       const targetRoom = rooms.find(r => r.owner?.uuid === targetUserUuid);
 
       if (targetRoom) {
@@ -4323,7 +4532,7 @@ function setupSocketListeners(socket, roomId, bot) {
     console.log('🔚 Room ended!', data);
 
     // Leave GME voice room + emit to web portal
-    leaveGMEVoiceRoom('Room ended (legacy live_end)');
+    leaveGMEVoiceRoom(selectedBotId || 'bot-1', 'Room ended (legacy live_end)');
     io.emit('room-ended', {
       code: data?.code,
       description: data?.description || 'Room ended',
@@ -4467,6 +4676,9 @@ function stopBotInstance(botId) {
     instance.autoJoinCountdownInterval = null;
   }
   emitAutoJoinStatus(botId, { step: 'idle' });
+
+  // Kill GME process for this bot
+  killGmeProcess(botId);
 
   // Handle leaving based on whether we hijacked or not
   if (instance.socket && instance.socket.connected) {
