@@ -111,6 +111,53 @@ function createBotState() {
   };
 }
 
+// Fetch the bot's gme_user_id from its own follow list (target_user contains gme_user_id)
+async function fetchBotGmeUserId(botConfig) {
+  try {
+    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+    // The bot's own profile shows up as the owner in rooms it creates, or we can
+    // find it by fetching a following entry that has the user data
+    // Simplest: fetch rooms/popular and look for any user object to get format,
+    // then fetch the bot's own follow entry
+    const resp = await axios.get('https://live.yellotalk.co/v1/rooms/popular', {
+      headers: { 'Authorization': `Bearer ${botConfig.jwt_token}` },
+      httpsAgent,
+      timeout: 10000
+    });
+    const rooms = resp.data.json || [];
+    // Look through all participants/owners for the bot's UUID
+    for (const room of rooms) {
+      if (room.owner?.uuid === botConfig.user_uuid && room.owner?.gme_user_id) {
+        console.log(`🎵 [${botConfig.name}] Found gme_user_id from room owner: ${room.owner.gme_user_id}`);
+        return room.owner.gme_user_id;
+      }
+    }
+    // If not found as owner, try to check the follow list
+    const followResp = await axios.get(`https://live.yellotalk.co/v1/users/me/follow/following?limit=1&offset=0`, {
+      headers: { 'Authorization': `Bearer ${botConfig.jwt_token}` },
+      httpsAgent,
+      timeout: 10000
+    });
+    // The follow list target_user has gme_user_id - but that's OTHER users
+    // We need the bot's own. Try to follow yourself and read back? That's too complex.
+    // Alternative: parse the speaker_changed data when bot joins a room (it should include gme_user_id)
+    console.log(`⚠️ [${botConfig.name}] Could not find gme_user_id from rooms. Will try to extract from speaker_changed.`);
+    return null;
+  } catch (error) {
+    console.log(`⚠️ [${botConfig.name}] Failed to fetch gme_user_id: ${error.message}`);
+    return null;
+  }
+}
+
+// Fully clean up a bot's socket (remove listeners, disconnect, prevent auto-reconnect)
+function cleanupBotSocket(instance) {
+  if (instance.socket) {
+    instance.socket.removeAllListeners();
+    instance.socket.disconnect();
+    instance.socket = null;
+  }
+}
+
 // Get or create a bot instance
 function getBotInstance(botId) {
   if (!botInstances.has(botId)) {
@@ -168,10 +215,8 @@ function broadcastBotState(botId) {
         instance.previousParticipants = new Map();
         instance.participantJoinTimes = new Map();
 
-        // Disconnect socket if connected
-        if (instance.socket && instance.socket.connected) {
-          instance.socket.disconnect();
-        }
+        // Disconnect socket fully
+        cleanupBotSocket(instance);
 
         // Trigger auto-join if enabled
         if (instance.state.autoJoinRandomRoom) {
@@ -181,7 +226,24 @@ function broadcastBotState(botId) {
       }
     }
 
-    const stateToSend = { ...instance.state, id: botId, name: instance.config.name };
+    // Enrich participants with cached profile data (case-insensitive UUID match)
+    const enrichedParticipants = (instance.state.participants || []).map(p => {
+      const followEntry = getProfileEntry(instance, p.uuid);
+      const profile = followEntry?.target_user || null;
+      if (profile) {
+        return {
+          ...p,
+          profile,
+          followInfo: {
+            is_blocked: followEntry.is_blocked,
+            followed_at: followEntry.created_at
+          }
+        };
+      }
+      return p;
+    });
+
+    const stateToSend = { ...instance.state, id: botId, name: instance.config.name, user_uuid: instance.config.user_uuid, participants: enrichedParticipants };
 
     // DEBUG: Log what we're broadcasting
     console.log(`📡 [broadcastBotState] Bot: ${botId}`);
@@ -325,7 +387,7 @@ function loadGreetings() {
   try {
     const data = fs.readFileSync('./greetings.json', 'utf8');
     greetingsConfig = JSON.parse(data);
-    console.log('✅ Loaded greetings.json:', greetingsConfig);
+    console.log(`✅ Loaded greetings.json (${Object.keys(greetingsConfig.customGreetings || {}).length} greetings)`);
     return { success: true, config: greetingsConfig };
   } catch (err) {
     console.log('⚠️  Could not load greetings.json:', err.message);
@@ -1281,6 +1343,608 @@ app.get('/api/bot/rooms', async (req, res) => {
   }
 });
 
+// Helper: case-insensitive UUID lookup in userProfiles
+function getProfileEntry(instance, uuid) {
+  if (!instance.userProfiles || !uuid) return null;
+  const entry = instance.userProfiles.get(uuid);
+  if (entry) return entry;
+  const uuidLower = uuid.toLowerCase();
+  for (const [key, val] of instance.userProfiles) {
+    if (key.toLowerCase() === uuidLower) return val;
+  }
+  return null;
+}
+
+function hasProfile(instance, uuid) {
+  return getProfileEntry(instance, uuid) !== null;
+}
+
+// Auto-follow a user and fetch their profile into instance.userProfiles
+async function autoFollowAndFetchProfile(botConfig, instance, participantUuid, botId) {
+  const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+  const headers = {
+    'Authorization': `Bearer ${botConfig.jwt_token}`,
+    'User-Agent': 'ios',
+    'Content-Type': 'application/json',
+    'X-App-Version': '4.4.9',
+    'Accept': '*/*'
+  };
+
+  // Decode JWT to get bot's own UUID
+  const jwtPayload = JSON.parse(Buffer.from(botConfig.jwt_token.split('.')[1], 'base64').toString());
+  if (participantUuid === jwtPayload.uuid || participantUuid === botConfig.user_uuid) return;
+
+  // Skip if already have profile (case-insensitive)
+  if (hasProfile(instance, participantUuid)) return;
+
+  try {
+    // Follow the user
+    await axios({
+      method: 'PATCH',
+      url: `https://live.yellotalk.co/v1/users/me/follow/following/${participantUuid}`,
+      headers: { ...headers, 'Content-Length': '0' },
+      httpsAgent, timeout: 5000
+    });
+  } catch (err) {
+    // Already following or other - continue anyway
+  }
+
+  // Fetch following list and find this user
+  try {
+    let offset = 0;
+    const limit = 200;
+    let found = false;
+    while (!found) {
+      const resp = await axios.get(`https://live.yellotalk.co/v1/users/me/follow/following?limit=${limit}&offset=${offset}`, {
+        headers, httpsAgent, timeout: 10000
+      });
+      const list = resp.data.json || [];
+      for (const entry of list) {
+        if (entry.target_user) {
+          if (!instance.userProfiles) instance.userProfiles = new Map();
+          instance.userProfiles.set(entry.target_user.uuid, entry);
+          if (entry.target_user.uuid.toLowerCase() === participantUuid.toLowerCase()) found = true;
+        }
+      }
+      if (list.length < limit) break;
+      offset += limit;
+    }
+  } catch (err) {
+    // silent
+  }
+
+  // Broadcast updated state so portal gets the new profile
+  if (botId) broadcastBotState(botId);
+}
+
+// Auto-follow all participants in batch and broadcast updated state
+async function autoFollowAllParticipants(botConfig, instance, participants, botId) {
+  console.log(`📋 [Auto-follow] Starting for ${participants.length} participants (bot: ${botConfig.name})...`);
+  const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+  const headers = {
+    'Authorization': `Bearer ${botConfig.jwt_token}`,
+    'User-Agent': 'ios',
+    'Content-Type': 'application/json',
+    'X-App-Version': '4.4.9',
+    'Accept': '*/*'
+  };
+  const jwtPayload = JSON.parse(Buffer.from(botConfig.jwt_token.split('.')[1], 'base64').toString());
+
+  // Follow each participant
+  let followCount = 0;
+  for (const p of participants) {
+    if (p.uuid === jwtPayload.uuid || p.uuid === botConfig.user_uuid) continue;
+    if (hasProfile(instance, p.uuid)) continue;
+    try {
+      await axios({
+        method: 'PATCH',
+        url: `https://live.yellotalk.co/v1/users/me/follow/following/${p.uuid}`,
+        headers: { ...headers, 'Content-Length': '0' },
+        httpsAgent, timeout: 5000
+      });
+      followCount++;
+      console.log(`  📋 [Auto-follow] Followed ${p.pin_name}`);
+    } catch (err) {
+      console.log(`  📋 [Auto-follow] ${p.pin_name}: ${err.response?.status || err.message}`);
+    }
+  }
+
+  // Small delay to let follows persist
+  if (followCount > 0) await new Promise(r => setTimeout(r, 1000));
+
+  // Fetch full following list and cache ALL profiles
+  try {
+    if (!instance.userProfiles) instance.userProfiles = new Map();
+    let offset = 0;
+    const limit = 200;
+    let hasMore = true;
+    while (hasMore) {
+      const resp = await axios.get(`https://live.yellotalk.co/v1/users/me/follow/following?limit=${limit}&offset=${offset}`, {
+        headers, httpsAgent, timeout: 10000
+      });
+      const list = resp.data.json || [];
+      console.log(`📋 [Auto-follow] Following list: ${list.length} users (offset=${offset})`);
+      list.forEach(entry => {
+        if (entry.target_user) {
+          instance.userProfiles.set(entry.target_user.uuid, entry);
+        }
+      });
+      hasMore = list.length >= limit;
+      offset += limit;
+    }
+    console.log(`✅ [Auto-follow] Cached ${instance.userProfiles.size} user profiles`);
+
+    // DEBUG: Log all cached UUIDs vs participant UUIDs to find mismatch
+    console.log(`🔍 [DEBUG] Participant UUIDs vs cached keys:`);
+    for (const p of participants) {
+      if (p.uuid === jwtPayload.uuid || p.uuid === botConfig.user_uuid) continue;
+      const found = getProfileEntry(instance, p.uuid);
+      console.log(`  ${found ? '✅' : '❌'} ${p.pin_name}: participant=${p.uuid} cached=${found?.target_user?.uuid || 'NOT FOUND'}`);
+    }
+
+    // Broadcast updated state so portal gets the profiles
+    if (botId) broadcastBotState(botId);
+  } catch (err) {
+    console.log(`⚠️ [Auto-follow] Could not fetch following list: ${err.response?.status || err.message}`);
+  }
+}
+
+// Fetch detailed user profiles for all participants in room
+// Step 1: Follow each user  Step 2: Fetch following list for full details
+app.get('/api/bot/room-users', async (req, res) => {
+  try {
+    const { botId } = req.query;
+    let botConfig;
+
+    if (botId) {
+      const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+      botConfig = config.bots?.find(b => b.id === botId);
+    }
+    if (!botConfig) {
+      botConfig = getSelectedBot();
+    }
+
+    const targetBotId = botId || selectedBotId || botConfig.id;
+    const instance = botInstances.get(targetBotId);
+
+    if (!instance || !instance.state.participants || instance.state.participants.length === 0) {
+      return res.json({ users: [], message: 'No participants in room' });
+    }
+
+    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+    const headers = {
+      'Authorization': `Bearer ${botConfig.jwt_token}`,
+      'User-Agent': 'ios',
+      'Content-Type': 'application/json',
+      'X-App-Version': '4.4.9',
+      'Accept': '*/*'
+    };
+
+    const participants = instance.state.participants;
+    const joinTimes = instance.participantJoinTimes;
+
+    // Decode JWT to see which UUID the token belongs to
+    const jwtPayload = JSON.parse(Buffer.from(botConfig.jwt_token.split('.')[1], 'base64').toString());
+    console.log(`🔑 Using token for UUID: ${jwtPayload.uuid} (bot: ${botConfig.name})`);
+
+    // Follow each participant and fetch following list
+    console.log(`📋 Following ${participants.length} participants to fetch profiles...`);
+    for (const p of participants) {
+      if (p.uuid === jwtPayload.uuid || p.uuid === botConfig.user_uuid) continue;
+      if (hasProfile(instance, p.uuid)) continue;
+      try {
+        await axios({
+          method: 'PATCH',
+          url: `https://live.yellotalk.co/v1/users/me/follow/following/${p.uuid}`,
+          headers: { ...headers, 'Content-Length': '0' },
+          httpsAgent, timeout: 5000
+        });
+      } catch (err) {
+        // Already following or other - continue
+      }
+    }
+
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Fetch full following list
+    if (!instance.userProfiles) instance.userProfiles = new Map();
+    try {
+      let offset = 0;
+      const limit = 200;
+      let hasMore = true;
+      while (hasMore) {
+        const resp = await axios.get(`https://live.yellotalk.co/v1/users/me/follow/following?limit=${limit}&offset=${offset}`, {
+          headers, httpsAgent, timeout: 10000
+        });
+        const list = resp.data.json || [];
+        list.forEach(entry => {
+          if (entry.target_user) {
+            instance.userProfiles.set(entry.target_user.uuid, entry);
+          }
+        });
+        hasMore = list.length >= limit;
+        offset += limit;
+      }
+    } catch (err) {
+      // silent
+    }
+    console.log(`📋 Cached ${instance.userProfiles.size} profiles total`);
+
+    // Match participants with their profiles (case-insensitive)
+    const users = participants.map(p => {
+      const joinInfo = joinTimes?.get(p.uuid);
+      const followEntry = getProfileEntry(instance, p.uuid);
+      const fullProfile = followEntry?.target_user || null;
+
+      return {
+        ...p,
+        joinTime: joinInfo?.joinTime || null,
+        profile: fullProfile,
+        followInfo: followEntry ? {
+          is_blocked: followEntry.is_blocked,
+          followed_at: followEntry.created_at,
+          updated_at: followEntry.updated_at,
+          id: followEntry.id,
+          user_id: followEntry.user_id
+        } : null
+      };
+    });
+
+    res.json({ users });
+  } catch (error) {
+    console.error('Error fetching room users:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get GME room info for the music bot companion
+app.get('/api/bot/gme-info', (req, res) => {
+  const { botId } = req.query;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const instance = botInstances.get(targetBotId);
+
+  if (!instance || !instance.state.currentRoom) {
+    return res.json({ error: 'Bot not in a room', inRoom: false });
+  }
+
+  const room = instance.state.currentRoom;
+  const config = instance.config;
+  const speakers = instance.state.speakers || [];
+  const botSpeakerSlot = speakers.find(s => s.uuid === config.user_uuid);
+  res.json({
+    inRoom: true,
+    gme_room_id: room.gme_id || room.gmeId || null,
+    room_id: room.id,
+    room_topic: room.topic,
+    bot_uuid: config.user_uuid,
+    bot_name: config.name,
+    bot_gme_id: instance.state.botGmeUserId || instance.state.botGmeId || config.user_uuid,
+    bot_gme_user_id: instance.state.botGmeUserId || null,
+    bot_real_uuid: instance.state.botRealUuid || null,
+    bot_in_speaker_slot: botSpeakerSlot ? botSpeakerSlot.position : null,
+    speakers_summary: {
+      total: 10,
+      occupied: speakers.filter(s => !s.locked && s.pin_name !== 'Empty').length,
+      locked: speakers.filter(s => s.locked).length,
+      empty: speakers.filter(s => !s.locked && s.pin_name === 'Empty').length,
+    }
+  });
+});
+
+// ==================== GME MUSIC BOT PROXY ====================
+// Proxy requests to the GME music bot companion (port 9876)
+const GME_MUSIC_BOT_URL = 'http://localhost:9876';
+
+// Get GME music bot status
+app.get('/api/music/status', async (req, res) => {
+  try {
+    const resp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
+    res.json({ online: true, ...resp.data });
+  } catch (error) {
+    res.json({ online: false, error: 'GME Music Bot not running' });
+  }
+});
+
+// Join GME voice room (auto-uses current bot's room info)
+app.post('/api/music/join', async (req, res) => {
+  const { botId } = req.body;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const instance = botInstances.get(targetBotId);
+
+  if (!instance || !instance.state.currentRoom) {
+    return res.status(400).json({ error: 'Bot not in a room' });
+  }
+
+  const room = instance.state.currentRoom;
+  const config = instance.config;
+  const gmeRoomId = String(room.gme_id || room.gmeId || '');
+  const userId = config.user_uuid;
+
+  if (!gmeRoomId) {
+    return res.status(400).json({ error: 'Room has no gme_id' });
+  }
+
+  // APK flow: Init(appId, numericGmeUserId), GenAuthBuffer(key, room, UUID, secret)
+  // user = numeric gme_user_id for Init, uuid = real UUID for GenAuthBuffer
+  const gmeUserId = instance.state.botGmeUserId ? String(instance.state.botGmeUserId) : userId;
+  const botRealUuid = instance.state.botRealUuid || userId; // JWT's actual UUID for auth
+
+  console.log(`🎵 [Music Bot] Joining GME room: ${gmeRoomId}`);
+  console.log(`🎵 [Music Bot]   user (numeric for Init): ${gmeUserId}`);
+  console.log(`🎵 [Music Bot]   uuid (for GenAuthBuffer): ${botRealUuid}`);
+  console.log(`🎵 [Music Bot] Room details: id=${room.id}, topic=${room.topic}, gme_id=${room.gme_id}, gmeId=${room.gmeId}`);
+
+  // Also get current GME bot status before joining
+  let gmeStatusBefore = null;
+  try {
+    const statusResp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
+    gmeStatusBefore = statusResp.data;
+    console.log(`🎵 [Music Bot] Status before join:`, gmeStatusBefore);
+  } catch (e) {
+    console.log(`⚠️ [Music Bot] Could not get status before join`);
+  }
+
+  try {
+    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/join`, {
+      room: gmeRoomId,
+      user: gmeUserId,       // numeric gme_user_id → Init()
+      uuid: botRealUuid      // real UUID → GenAuthBuffer()
+    }, { timeout: 20000 });
+    console.log(`🎵 [Music Bot] Join response:`, resp.data);
+    res.json({
+      success: resp.data.success !== false,
+      ...resp.data,
+      gme_room_id: gmeRoomId,
+      user: gmeUserId,
+      uuid: botRealUuid,
+      bot_gme_user_id: instance.state.botGmeUserId || null,
+      bot_real_uuid: instance.state.botRealUuid || null,
+      room_topic: room.topic,
+      room_id: room.id,
+      debug: { gmeStatusBefore, rawGmeId: room.gme_id, rawGmeId2: room.gmeId, botGmeUserId: instance.state.botGmeUserId, botRealUuid: instance.state.botRealUuid }
+    });
+  } catch (error) {
+    const errData = error.response?.data || {};
+    console.log(`❌ [Music Bot] Join failed:`, error.message, errData);
+    res.status(500).json({
+      error: errData.error || error.message,
+      lastError: errData.lastError || null,
+      gme_room_id: gmeRoomId,
+      user: gmeUserId,
+      uuid: botRealUuid,
+      bot_gme_user_id: instance.state.botGmeUserId || null,
+      bot_real_uuid: instance.state.botRealUuid || null,
+      room_topic: room.topic,
+      debug: { gmeStatusBefore, rawGmeId: room.gme_id, rawGmeId2: room.gmeId, botGmeUserId: instance.state.botGmeUserId, botRealUuid: instance.state.botRealUuid }
+    });
+  }
+});
+
+// Leave GME voice room
+app.post('/api/music/leave', async (req, res) => {
+  try {
+    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/leave`, {}, { timeout: 5000 });
+    res.json({ success: true, ...resp.data });
+  } catch (error) {
+    res.status(500).json({ error: error.response?.data?.error || error.message });
+  }
+});
+
+// Play music file
+app.post('/api/music/play', async (req, res) => {
+  const { file, loop } = req.body;
+
+  if (!file) {
+    return res.status(400).json({ error: 'file path required' });
+  }
+
+  // Resolve to absolute path
+  const path = require('path');
+  const absPath = path.isAbsolute(file) ? file : path.resolve(file);
+
+  console.log(`🎵 [Music Bot] Playing: ${absPath} (loop=${loop !== false})`);
+
+  try {
+    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/play`, {
+      file: absPath,
+      loop: loop !== false
+    }, { timeout: 5000 });
+    console.log(`🎵 [Music Bot] Play response:`, resp.data);
+    res.json({ success: true, ...resp.data });
+  } catch (error) {
+    console.log(`❌ [Music Bot] Play failed:`, error.message);
+    res.status(500).json({ error: error.response?.data?.error || error.message });
+  }
+});
+
+// Stop music
+app.post('/api/music/stop', async (req, res) => {
+  try {
+    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/stop`, {}, { timeout: 5000 });
+    res.json({ success: true, ...resp.data });
+  } catch (error) {
+    res.status(500).json({ error: error.response?.data?.error || error.message });
+  }
+});
+
+// Pause music
+app.post('/api/music/pause', async (req, res) => {
+  try {
+    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/pause`, {}, { timeout: 5000 });
+    res.json({ success: true, ...resp.data });
+  } catch (error) {
+    res.status(500).json({ error: error.response?.data?.error || error.message });
+  }
+});
+
+// Resume music
+app.post('/api/music/resume', async (req, res) => {
+  try {
+    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/resume`, {}, { timeout: 5000 });
+    res.json({ success: true, ...resp.data });
+  } catch (error) {
+    res.status(500).json({ error: error.response?.data?.error || error.message });
+  }
+});
+
+// Set volume
+app.post('/api/music/volume', async (req, res) => {
+  const { vol } = req.body;
+  try {
+    const resp = await axios.post(`${GME_MUSIC_BOT_URL}/volume`, { vol: vol || 100 }, { timeout: 5000 });
+    res.json({ success: true, ...resp.data });
+  } catch (error) {
+    res.status(500).json({ error: error.response?.data?.error || error.message });
+  }
+});
+
+// Full auto flow: join speaker slot + join GME room + play music
+app.post('/api/music/auto-play', async (req, res) => {
+  const { file, loop, botId } = req.body;
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const instance = botInstances.get(targetBotId);
+  const steps = [];
+
+  if (!instance || !instance.state.currentRoom) {
+    return res.status(400).json({ error: 'Bot not in a room', steps });
+  }
+
+  const room = instance.state.currentRoom;
+  const config = instance.config;
+  const gmeRoomId = String(room.gme_id || room.gmeId || '');
+
+  if (!gmeRoomId) {
+    return res.status(400).json({ error: 'Room has no gme_id', steps });
+  }
+
+  // Step 1: Join speaker slot (if not already in one)
+  const speakers = instance.state.speakers || [];
+  const botSlot = speakers.find(s => s.uuid === config.user_uuid);
+  if (!botSlot) {
+    const emptySlot = speakers.find(s => !s.locked && s.pin_name === 'Empty');
+    if (!emptySlot) {
+      steps.push({ step: 'join_speaker', success: false, error: 'No empty slots' });
+      return res.status(400).json({ error: 'No empty speaker slots available', steps });
+    }
+
+    const yellotalkPosition = emptySlot.position + 1;
+    try {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('timeout')), 10000);
+        instance.socket.emit('join_speaker', {
+          room: room.id,
+          uuid: config.user_uuid,
+          position: yellotalkPosition
+        }, (response) => {
+          clearTimeout(timeout);
+          if (response?.result >= 200 && response?.result < 300) resolve(response);
+          else reject(new Error(response?.description || 'join_speaker failed'));
+        });
+      });
+      steps.push({ step: 'join_speaker', success: true, position: emptySlot.position });
+      console.log(`🎵 [Auto-Play] Step 1: Joined speaker slot ${emptySlot.position}`);
+    } catch (err) {
+      steps.push({ step: 'join_speaker', success: false, error: err.message });
+      return res.status(500).json({ error: `Failed to join speaker slot: ${err.message}`, steps });
+    }
+  } else {
+    steps.push({ step: 'join_speaker', success: true, position: botSlot.position, skipped: true });
+    console.log(`🎵 [Auto-Play] Step 1: Already in speaker slot ${botSlot.position}`);
+  }
+
+  // Step 2: Join GME voice room (now waits for room entry internally up to 10s)
+  // APK flow: Init(numericId), GenAuthBuffer(uuid), EnterRoom(roomType=1)
+  const gmeUserId = instance.state.botGmeUserId ? String(instance.state.botGmeUserId) : config.user_uuid;
+  const botRealUuid = instance.state.botRealUuid || config.user_uuid;
+  steps.push({ step: 'resolve_gme_user', success: true, gmeUserId, botRealUuid, hasNumericId: !!instance.state.botGmeUserId });
+  console.log(`🎵 [Auto-Play] GME user (Init): ${gmeUserId}, UUID (Auth): ${botRealUuid}`);
+
+  try {
+    const joinResp = await axios.post(`${GME_MUSIC_BOT_URL}/join`, {
+      room: gmeRoomId,
+      user: gmeUserId,       // numeric gme_user_id → Init()
+      uuid: botRealUuid      // real UUID → GenAuthBuffer()
+    }, { timeout: 20000 }); // 20s timeout since GME /join now waits internally
+    const joinData = joinResp.data;
+    steps.push({ step: 'gme_join', success: joinData.success !== false, data: joinData });
+    console.log(`🎵 [Auto-Play] Step 2: GME join response:`, joinData);
+
+    if (joinData.success === false || joinData.inRoom === false) {
+      return res.status(500).json({
+        error: `GME room entry failed: ${joinData.error || joinData.lastError || 'unknown'}`,
+        steps
+      });
+    }
+  } catch (err) {
+    const errData = err.response?.data || {};
+    steps.push({ step: 'gme_join', success: false, error: errData.error || errData.lastError || err.message });
+    return res.status(500).json({ error: `GME join failed: ${errData.error || err.message}`, steps });
+  }
+
+  // Step 3: Small delay for audio setup
+  await new Promise(r => setTimeout(r, 500));
+  steps.push({ step: 'audio_setup', success: true, waited: '0.5s' });
+
+  // Step 4: Play music
+  if (file) {
+    const path = require('path');
+    const absPath = path.isAbsolute(file) ? file : path.resolve(file);
+    try {
+      const playResp = await axios.post(`${GME_MUSIC_BOT_URL}/play`, {
+        file: absPath,
+        loop: loop !== false
+      }, { timeout: 5000 });
+      const playData = playResp.data;
+      steps.push({ step: 'play', success: playData.success !== false, file: absPath, data: playData });
+      console.log(`🎵 [Auto-Play] Step 3: Playing ${absPath}`);
+
+      if (playData.success === false) {
+        return res.status(500).json({
+          error: `Play failed: ${playData.lastError || 'unknown'}`,
+          steps
+        });
+      }
+    } catch (err) {
+      const errData = err.response?.data || {};
+      steps.push({ step: 'play', success: false, error: errData.error || errData.lastError || err.message });
+      return res.status(500).json({ error: `Play failed: ${errData.error || err.message}`, steps });
+    }
+  } else {
+    steps.push({ step: 'play', success: true, skipped: true, note: 'No file specified, ready to play' });
+  }
+
+  res.json({ success: true, steps });
+});
+
+// Get all cached user profiles across all bots
+app.get('/api/bot/all-profiles', (req, res) => {
+  const allProfiles = [];
+  const seen = new Set();
+
+  for (const [botId, instance] of botInstances) {
+    if (!instance.userProfiles) continue;
+    for (const [uuid, entry] of instance.userProfiles) {
+      const key = uuid.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      allProfiles.push({
+        ...entry,
+        _cachedBy: botId,
+        _botName: instance.config?.name || botId
+      });
+    }
+  }
+
+  // Sort by most recently followed first
+  allProfiles.sort((a, b) => {
+    const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return dateB - dateA;
+  });
+
+  res.json({ profiles: allProfiles, total: allProfiles.length });
+});
+
 // Get status for all bots
 app.get('/api/bot/status', (req, res) => {
   res.json({
@@ -1349,9 +2013,9 @@ app.post('/api/bot/start', async (req, res) => {
     return res.status(404).json({ error: 'Could not create bot instance' });
   }
 
-  // Check if this specific bot is already running
-  if (instance.state.status === 'running') {
-    return res.json({ error: `Bot "${botConfig.name}" is already running` });
+  // Check if this specific bot is already running or starting
+  if (instance.state.status === 'running' || instance.state.status === 'starting') {
+    return res.json({ error: `Bot "${botConfig.name}" is already ${instance.state.status}` });
   }
 
   try {
@@ -1388,6 +2052,12 @@ app.post('/api/bot/start', async (req, res) => {
       instance.originalRoomOwner = room.owner;
       console.log(`📋 Room found: ${room.topic}`);
       console.log(`📋 Original owner: ${instance.originalRoomOwner.pin_name} (${instance.originalRoomOwner.uuid})`);
+
+      // Clean up old socket if exists (prevents duplicate listeners/events)
+      if (instance.socket) {
+        console.log(`🧹 [${botConfig.name}] Cleaning up old socket before reconnecting...`);
+        cleanupBotSocket(instance);
+      }
 
       // Connect to YelloTalk with this bot's token
       instance.socket = socketClient('https://live.yellotalk.co:8443', {
@@ -1465,10 +2135,8 @@ app.post('/api/bot/start', async (req, res) => {
               instance.previousParticipants = new Map();
               instance.participantJoinTimes = new Map();
 
-              // Disconnect socket
-              if (instance.socket && instance.socket.connected) {
-                instance.socket.disconnect();
-              }
+              // Disconnect socket fully
+              cleanupBotSocket(instance);
 
               // Stop room health check interval
               if (instance.roomHealthInterval) {
@@ -1607,6 +2275,7 @@ app.post('/api/bot/start', async (req, res) => {
           const listUsersKeywords = greetingsConfig.keywords?.listUsers || [];
           if (listUsersKeywords.some(keyword => messageLower.includes(keyword.toLowerCase()))) {
             console.log(`[${timestamp}] 🔍 Detected keyword: List users request`);
+            console.log(`[${timestamp}] 📋 userProfiles cached: ${instance.userProfiles?.size || 0}`);
 
             // Filter out bot from list - use instance.state
             const usersWithoutBot = instance.state.participants.filter(p => !p.pin_name?.includes(botConfig.name));
@@ -1616,20 +2285,61 @@ app.post('/api/bot/start', async (req, res) => {
               return;
             }
 
-            // Build numbered user list with time
+            // Helper: format account age
+            const formatAge = (createdAt) => {
+              if (!createdAt) return '';
+              const now = new Date();
+              const created = new Date(createdAt);
+              const diff = now - created;
+              const days = Math.floor(diff / 86400000);
+              if (days >= 365) {
+                const years = Math.floor(days / 365);
+                const months = Math.floor((days % 365) / 30);
+                return months > 0 ? `${years}y${months}m` : `${years}y`;
+              } else if (days >= 30) {
+                const months = Math.floor(days / 30);
+                const d = days % 30;
+                return d > 0 ? `${months}m${d}d` : `${months}m`;
+              } else if (days > 0) {
+                return `${days}d`;
+              } else {
+                const hours = Math.floor(diff / 3600000);
+                return hours > 0 ? `${hours}h` : `${Math.floor(diff / 60000)}min`;
+              }
+            };
+
+            // Build numbered user list with time + account age
             const userList = usersWithoutBot
               .map((p, i) => {
                 const joinInfo = instance.participantJoinTimes.get(p.uuid);
+                const followEntry = getProfileEntry(instance, p.uuid);
+                const profile = followEntry?.target_user;
+
+                let timeStr = '';
                 if (joinInfo) {
                   const now = new Date();
                   const duration = now - joinInfo.joinTime;
                   const minutes = Math.floor(duration / 60000);
                   const seconds = Math.floor((duration % 60000) / 1000);
-                  const timeStr = minutes > 0 ? `${minutes}นาที ${seconds}วินาที` : `${seconds}วินาที`;
-                  return `${i + 1}. ${p.pin_name} (${timeStr})`;
-                } else {
-                  return `${i + 1}. ${p.pin_name}`;
+                  timeStr = minutes > 0 ? `${minutes}m${seconds}s` : `${seconds}s`;
                 }
+
+                let accountAge = '';
+                if (profile?.created_at) {
+                  accountAge = formatAge(profile.created_at);
+                }
+
+                const yelloId = profile?.yello_id ? `@${profile.yello_id}` : '';
+                const campus = profile?.group_shortname && profile.group_shortname !== 'No Group' ? profile.group_shortname : '';
+
+                let info = [];
+                if (yelloId) info.push(yelloId);
+                if (campus) info.push(campus);
+                if (accountAge) info.push(`สมาชิก ${accountAge}`);
+                if (timeStr) info.push(`ในห้อง ${timeStr}`);
+
+                const infoStr = info.length > 0 ? ` (${info.join(' · ')})` : '';
+                return `${i + 1}. ${p.pin_name}${infoStr}`;
               })
               .join('\n');
 
@@ -1688,10 +2398,8 @@ app.post('/api/bot/start', async (req, res) => {
           instance.previousParticipants = new Map();
           instance.participantJoinTimes = new Map();
 
-          // Disconnect socket if still connected
-          if (instance.socket && instance.socket.connected) {
-            instance.socket.disconnect();
-          }
+          // Disconnect socket fully
+          cleanupBotSocket(instance);
 
           // Stop room health check interval
           if (instance.roomHealthInterval) {
@@ -1724,6 +2432,16 @@ app.post('/api/bot/start', async (req, res) => {
 
         // Use instance.state instead of global botState
         instance.state.participants = participants;
+
+        // Extract bot's gme_id from participant data (match by bot name in pin_name)
+        const botParticipant = participants.find(p =>
+          p.pin_name && p.pin_name.includes(botConfig.name) && p.gme_id
+        );
+        if (botParticipant && botParticipant.gme_id && !instance.state.botGmeUserId) {
+          instance.state.botGmeUserId = botParticipant.gme_id;
+          instance.state.botRealUuid = botParticipant.uuid; // The JWT's actual UUID
+          console.log(`🎵 [${botConfig.name}] Found bot's gme_id from participants: ${botParticipant.gme_id} (real uuid: ${botParticipant.uuid})`);
+        }
 
         // DEBUG: Confirm state was set
         console.log(`[${timestamp}] 💾 instance.state.participants set: ${instance.state.participants.length} items`);
@@ -1762,10 +2480,8 @@ app.post('/api/bot/start', async (req, res) => {
             instance.previousParticipants = new Map();
             instance.participantJoinTimes = new Map();
 
-            // Disconnect socket
-            if (instance.socket && instance.socket.connected) {
-              instance.socket.disconnect();
-            }
+            // Disconnect socket fully
+            cleanupBotSocket(instance);
 
             // Stop room health check interval
             if (instance.roomHealthInterval) {
@@ -1815,6 +2531,11 @@ app.post('/api/bot/start', async (req, res) => {
           instance.hasJoinedRoom = true;
           console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
 
+          // Auto-follow all participants to get their profiles
+          autoFollowAllParticipants(botConfig, instance, participants, targetBotId).catch(err =>
+            console.log(`⚠️ Auto-follow batch error: ${err.message}`)
+          );
+
           // Send welcome message explaining bot feature (if enabled)
           console.log(`[${timestamp}] 🔍 Welcome message setting: ${instance.state.enableWelcomeMessage ? 'ENABLED' : 'DISABLED'}`);
 
@@ -1851,6 +2572,12 @@ app.post('/api/bot/start', async (req, res) => {
           // New participant detected!
           if (!instance.previousParticipants.has(uuid)) {
             console.log(`[${timestamp}] ✨ ${userName} is NEW!`);
+
+            // Auto-follow new participant to get their profile
+            autoFollowAndFetchProfile(botConfig, instance, uuid, targetBotId).catch(err =>
+              console.log(`⚠️ Auto-follow ${userName} error: ${err.message}`)
+            );
+
             // Also check if we already have join time (prevent duplicate greets)
             if (!instance.participantJoinTimes.has(uuid)) {
               newCount++;
@@ -1898,6 +2625,14 @@ app.post('/api/bot/start', async (req, res) => {
               if (!matched) {
                 console.log(`[${timestamp}] ⚪ No match found, using default: "${greetingsConfig.defaultGreeting}"`);
                 greeting = `${greetingsConfig.defaultGreeting} ${userName}`;
+              }
+
+              // If user has default name, use their ID from uuid (last 6 chars)
+              if (userName.includes('ตั้งชื่อตัวละครของคุณ')) {
+                const shortId = uuid.slice(-6);
+                const displayName = `ตั้งชื่อ..(@${shortId})`;
+                greeting = greeting.replace(userName, displayName);
+                console.log(`[${timestamp}] 🏷️ Default name detected, using: ${displayName}`);
               }
 
               console.log(`[${timestamp}] 👋 ${userName} joined (new participant #${newCount})`);
@@ -1960,8 +2695,16 @@ app.post('/api/bot/start', async (req, res) => {
         // Update previous participants for next comparison
         instance.previousParticipants = new Map(currentParticipants);
 
+        // Auto-follow any participants we don't have profiles for yet (case-insensitive)
+        const unfollowed = participants.filter(p => !hasProfile(instance, p.uuid));
+        if (unfollowed.length > 0) {
+          autoFollowAllParticipants(botConfig, instance, unfollowed, targetBotId).catch(err =>
+            console.log(`⚠️ Auto-follow on participant_changed error: ${err.message}`)
+          );
+        }
+
         // DEBUG: Final state before broadcast
-        console.log(`[${timestamp}] 📤 Broadcasting state with ${instance.state.participants.length} participants`);
+        console.log(`[${timestamp}] 📤 Broadcasting state with ${instance.state.participants.length} participants (profiles: ${instance.userProfiles?.size || 0})`);
         console.log(`========== END PARTICIPANT DEBUG ==========\n`);
 
         io.emit('participant-update', participants);
@@ -1970,6 +2713,19 @@ app.post('/api/bot/start', async (req, res) => {
 
       instance.socket.on('speaker_changed', (data) => {
         const speakers = Array.isArray(data) ? data : [];
+
+        // DEBUG: Log first speaker's full data to discover fields
+        if (speakers.length > 0 && !instance._loggedSpeakerFields) {
+          console.log(`🎤 [${botConfig.name}] Speaker data fields:`, JSON.stringify(speakers[0]).substring(0, 500));
+          instance._loggedSpeakerFields = true;
+        }
+
+        // Extract bot's gme_user_id from speaker data if available
+        const botSpeaker = speakers.find(s => s && s.uuid === botConfig.user_uuid);
+        if (botSpeaker && botSpeaker.gme_user_id) {
+          instance.state.botGmeUserId = botSpeaker.gme_user_id;
+          console.log(`🎵 [${botConfig.name}] Found bot's gme_user_id from speaker data: ${botSpeaker.gme_user_id}`);
+        }
 
         // Map speakers BY POSITION FIELD (not array index!)
         // Create array of 10 slots (indices 0-9, for YelloTalk positions 1-10)
@@ -2009,6 +2765,48 @@ app.post('/api/bot/start', async (req, res) => {
         });
 
         console.log(`🎤 [${botConfig.name}] Speaker update: ${instance.state.speakers.filter(s => !s.locked && s.pin_name !== 'Empty').length} occupied, ${instance.state.speakers.filter(s => s.locked).length} locked, ${instance.state.speakers.filter(s => !s.locked && s.pin_name === 'Empty').length} empty`);
+
+        // AUTO-CONNECT GME: When bot is in a speaker slot, auto-join GME voice room
+        const botInSlot = instance.state.speakers.find(s => s.uuid === botConfig.user_uuid);
+        if (botInSlot && !instance.state._gmeAutoConnecting) {
+          const gmeRoomId = String(instance.state.currentRoom?.gme_id || instance.state.currentRoom?.gmeId || '');
+          const gmeUserId = instance.state.botGmeUserId ? String(instance.state.botGmeUserId) : null;
+          const botRealUuid = instance.state.botRealUuid || botConfig.user_uuid;
+
+          if (gmeRoomId && gmeUserId) {
+            // Check if GME bot is already in this room
+            (async () => {
+              try {
+                const statusResp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
+                const gmeStatus = statusResp.data;
+
+                // Only auto-connect if not already in a room
+                if (!gmeStatus.inRoom) {
+                  instance.state._gmeAutoConnecting = true;
+                  console.log(`🎵 [${botConfig.name}] Auto-connecting GME: room=${gmeRoomId}, user=${gmeUserId}, uuid=${botRealUuid}`);
+
+                  const joinResp = await axios.post(`${GME_MUSIC_BOT_URL}/join`, {
+                    room: gmeRoomId,
+                    user: gmeUserId,       // numeric gme_user_id → Init()
+                    uuid: botRealUuid      // real UUID → GenAuthBuffer()
+                  }, { timeout: 20000 });
+
+                  console.log(`🎵 [${botConfig.name}] Auto-connect GME result:`, joinResp.data);
+                  io.emit('music-log', { type: 'info', message: `Auto-connected to GME voice room: ${joinResp.data.success ? 'SUCCESS' : 'FAILED'} (${joinResp.data.lastError || ''})` });
+                  instance.state._gmeAutoConnecting = false;
+                } else {
+                  console.log(`🎵 [${botConfig.name}] GME already in room ${gmeStatus.room}, skipping auto-connect`);
+                }
+              } catch (err) {
+                instance.state._gmeAutoConnecting = false;
+                console.log(`⚠️ [${botConfig.name}] Auto-connect GME failed:`, err.message);
+                io.emit('music-log', { type: 'error', message: `Auto-connect GME failed: ${err.message}` });
+              }
+            })();
+          } else {
+            console.log(`⚠️ [${botConfig.name}] Bot in speaker slot but missing GME IDs: gmeRoomId=${gmeRoomId}, gmeUserId=${gmeUserId}`);
+          }
+        }
 
         // Emit speaker update to web portal
         io.emit('speakers-update', instance.state.speakers);
@@ -2051,10 +2849,8 @@ app.post('/api/bot/start', async (req, res) => {
         instance.previousParticipants = new Map();
         instance.participantJoinTimes = new Map();
 
-        // Disconnect socket
-        if (instance.socket && instance.socket.connected) {
-          instance.socket.disconnect();
-        }
+        // Disconnect socket fully
+        cleanupBotSocket(instance);
 
         // Clear this room from unavailable list since it ended
         if (endedRoomId) {
@@ -2204,10 +3000,8 @@ app.post('/api/bot/start', async (req, res) => {
               instance.previousParticipants = new Map();
               instance.participantJoinTimes = new Map();
 
-              // Disconnect socket
-              if (instance.socket && instance.socket.connected) {
-                instance.socket.disconnect();
-              }
+              // Disconnect socket fully (prevent reconnection/orphaned listeners)
+              cleanupBotSocket(instance);
 
               // Clear from unavailable list
               if (endedRoomId) {
@@ -2684,8 +3478,11 @@ function stopBotInstance(botId) {
       // NOT HIJACKED: Can leave normally
       console.log('🚪 NOT HIJACKED: Leaving room normally...');
 
-      if (instance.state.currentRoom) {
-        instance.socket.emit('leave_room', {
+      // Capture socket ref so setTimeout cleans up the RIGHT socket (not a new one)
+      const socketToCleanup = instance.socket;
+
+      if (instance.state.currentRoom && socketToCleanup) {
+        socketToCleanup.emit('leave_room', {
           room: instance.state.currentRoom.id,
           uuid: instance.config.user_uuid
         }, (leaveResp) => {
@@ -2693,11 +3490,14 @@ function stopBotInstance(botId) {
         });
       }
 
+      // Clean up immediately (don't wait) to prevent orphaned sockets
+      instance.socket = null;
       setTimeout(() => {
         console.log('🔌 Disconnecting...');
-        instance.socket.removeAllListeners();
-        instance.socket.disconnect();
-        instance.socket = null;
+        if (socketToCleanup) {
+          socketToCleanup.removeAllListeners();
+          socketToCleanup.disconnect();
+        }
         console.log('✅ Left room cleanly');
       }, 500);
     }
@@ -2997,6 +3797,133 @@ app.post('/api/bot/speaker/kick', async (req, res) => {
     const result = await kickSpeakerForBot(position, speakerUuid, socket, state);
     res.json({ success: true, result });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Join a speaker slot (bot takes a seat so GME can broadcast audio)
+app.post('/api/bot/speaker/join', async (req, res) => {
+  const { position, botId } = req.body;
+
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const instance = botInstances.get(targetBotId);
+
+  if (!instance || !instance.socket || !instance.socket.connected) {
+    return res.status(400).json({ error: 'Bot not connected to room' });
+  }
+
+  const state = instance.state;
+  const config = instance.config;
+
+  if (!state.currentRoom) {
+    return res.status(400).json({ error: 'Bot not in a room' });
+  }
+
+  const roomId = state.currentRoom.id;
+
+  // Auto-find first empty slot if no position specified
+  let targetPosition = position;
+  if (targetPosition === undefined || targetPosition === null) {
+    const emptySlot = state.speakers.find(s => !s.locked && s.pin_name === 'Empty');
+    if (emptySlot) {
+      targetPosition = emptySlot.position;
+    } else {
+      return res.status(400).json({ error: 'No empty speaker slots available' });
+    }
+  }
+
+  if (targetPosition < 0 || targetPosition > 9) {
+    return res.status(400).json({ error: 'Invalid position (must be 0-9)' });
+  }
+
+  // YelloTalk uses 1-indexed positions
+  const yellotalkPosition = targetPosition + 1;
+
+  console.log(`🎤 [${config.name}] Joining speaker slot ${targetPosition} (YelloTalk position ${yellotalkPosition})...`);
+
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('join_speaker timeout')), 10000);
+
+      instance.socket.emit('join_speaker', {
+        room: roomId,
+        uuid: config.user_uuid,
+        position: yellotalkPosition
+      }, (response) => {
+        clearTimeout(timeout);
+        console.log(`📥 [${config.name}] join_speaker ACK:`, response);
+
+        if (response?.result >= 200 && response?.result < 300) {
+          resolve(response);
+        } else {
+          reject(new Error(response?.description || `join_speaker failed (result: ${response?.result})`));
+        }
+      });
+    });
+
+    console.log(`✅ [${config.name}] Joined speaker slot ${targetPosition}!`);
+    res.json({ success: true, position: targetPosition, result });
+  } catch (error) {
+    console.log(`❌ [${config.name}] Failed to join speaker slot: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Leave a speaker slot
+app.post('/api/bot/speaker/leave', async (req, res) => {
+  const { position, botId } = req.body;
+
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const instance = botInstances.get(targetBotId);
+
+  if (!instance || !instance.socket || !instance.socket.connected) {
+    return res.status(400).json({ error: 'Bot not connected to room' });
+  }
+
+  const state = instance.state;
+  const config = instance.config;
+
+  if (!state.currentRoom) {
+    return res.status(400).json({ error: 'Bot not in a room' });
+  }
+
+  const roomId = state.currentRoom.id;
+
+  // Auto-find bot's current slot if no position specified
+  let targetPosition = position;
+  if (targetPosition === undefined || targetPosition === null) {
+    const botSlot = state.speakers.find(s => s.uuid === config.user_uuid);
+    if (botSlot) {
+      targetPosition = botSlot.position;
+    } else {
+      return res.status(400).json({ error: 'Bot is not in any speaker slot' });
+    }
+  }
+
+  // YelloTalk uses 1-indexed positions
+  const yellotalkPosition = targetPosition + 1;
+
+  console.log(`🚪 [${config.name}] Leaving speaker slot ${targetPosition}...`);
+
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('leave_speaker timeout')), 10000);
+
+      instance.socket.emit('leave_speaker', {
+        room: roomId,
+        uuid: config.user_uuid,
+        position: yellotalkPosition
+      }, (response) => {
+        clearTimeout(timeout);
+        console.log(`📥 [${config.name}] leave_speaker ACK:`, response);
+        resolve(response);
+      });
+    });
+
+    console.log(`✅ [${config.name}] Left speaker slot ${targetPosition}`);
+    res.json({ success: true, position: targetPosition, result });
+  } catch (error) {
+    console.log(`❌ [${config.name}] Failed to leave speaker slot: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });

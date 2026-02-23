@@ -37,7 +37,16 @@ import {
   UserX,
   Bot,
   Plus,
-  Trash2
+  Trash2,
+  Eye,
+  X,
+  MapPin,
+  GraduationCap,
+  Database,
+  Music,
+  Pause,
+  SkipForward,
+  Volume1
 } from 'lucide-react'
 import io from 'socket.io-client'
 import { useToast } from '@/hooks/use-toast'
@@ -113,6 +122,24 @@ export default function ControlPage() {
 
   // Auto-join status tracking
   const [autoJoinStatus, setAutoJoinStatus] = useState<Record<string, any>>({})
+
+  // Room users detail
+  const [roomUsers, setRoomUsers] = useState<any[]>([])
+
+  // Music bot state
+  const [musicStatus, setMusicStatus] = useState<any>({ online: false })
+  const [musicFile, setMusicFile] = useState('gme-music-bot/test-audio.mp3')
+  const [musicLoop, setMusicLoop] = useState(true)
+  const [musicVolume, setMusicVolume] = useState(100)
+  const [musicLogs, setMusicLogs] = useState<string[]>([])
+  const [musicLoading, setMusicLoading] = useState(false)
+  const [loadingRoomUsers, setLoadingRoomUsers] = useState(false)
+  const [selectedUserDetail, setSelectedUserDetail] = useState<any>(null)
+
+  // All cached profiles
+  const [allCachedProfiles, setAllCachedProfiles] = useState<any[]>([])
+  const [loadingProfiles, setLoadingProfiles] = useState(false)
+  const [profileSearch, setProfileSearch] = useState('')
 
   useEffect(() => {
     connectToServer()
@@ -288,6 +315,13 @@ export default function ControlPage() {
         setAutoJoinStatus(prev => ({ ...prev, [data.botId]: data }))
       })
 
+      // Listen for music bot log events (e.g., auto-connect GME)
+      newSocket.on('music-log', (data: { type: string; message: string }) => {
+        const ts = new Date().toLocaleTimeString()
+        const prefix = data.type === 'error' ? 'ERROR' : data.type === 'info' ? 'INFO' : 'LOG'
+        setMusicLogs(prev => [...prev.slice(-50), `[${ts}] [${prefix}] ${data.message}`])
+      })
+
       setSocket(newSocket)
     } catch (error) {
       setServerError(true)
@@ -319,6 +353,20 @@ export default function ControlPage() {
     }
   }
 
+  // Fetch detailed user profiles for room participants
+  const fetchRoomUsers = async () => {
+    setLoadingRoomUsers(true)
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/room-users?botId=${selectedBotId}`)
+      const data = await res.json()
+      setRoomUsers(data.users || [])
+    } catch (error) {
+      console.error('Could not fetch room users')
+    } finally {
+      setLoadingRoomUsers(false)
+    }
+  }
+
   // Fetch unavailable rooms
   const fetchUnavailableRooms = async () => {
     try {
@@ -327,6 +375,19 @@ export default function ControlPage() {
       setUnavailableRooms(data.rooms || [])
     } catch (error) {
       console.error('Could not fetch unavailable rooms')
+    }
+  }
+
+  const fetchAllProfiles = async () => {
+    setLoadingProfiles(true)
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/all-profiles`)
+      const data = await res.json()
+      setAllCachedProfiles(data.profiles || [])
+    } catch (error) {
+      console.error('Could not fetch cached profiles')
+    } finally {
+      setLoadingProfiles(false)
     }
   }
 
@@ -666,6 +727,221 @@ export default function ControlPage() {
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to kick speaker', variant: 'destructive' })
     }
+  }
+
+  const joinSpeakerSlot = async (position?: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/speaker/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position, botId: selectedBotId })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({ title: 'Joined Slot', description: `Bot joined speaker slot ${(data.position ?? position ?? 0) + 2}` })
+      } else {
+        toast({ title: 'Join Failed', description: data.error, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to join speaker slot', variant: 'destructive' })
+    }
+  }
+
+  const leaveSpeakerSlot = async (position?: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/bot/speaker/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position, botId: selectedBotId })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({ title: 'Left Slot', description: `Bot left speaker slot` })
+      } else {
+        toast({ title: 'Leave Failed', description: data.error, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to leave speaker slot', variant: 'destructive' })
+    }
+  }
+
+  // ==================== MUSIC BOT CONTROLS ====================
+  const addMusicLog = (msg: string) => {
+    const ts = new Date().toLocaleTimeString()
+    setMusicLogs(prev => [...prev.slice(-50), `[${ts}] ${msg}`])
+  }
+
+  const fetchMusicStatus = async () => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/music/status`)
+      const data = await res.json()
+      setMusicStatus(data)
+      return data
+    } catch {
+      setMusicStatus({ online: false })
+      return { online: false }
+    }
+  }
+
+  const musicJoinRoom = async () => {
+    setMusicLoading(true)
+    addMusicLog('Joining GME voice room...')
+    try {
+      const res = await fetch(`${getApiUrl()}/api/music/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId: selectedBotId })
+      })
+      const data = await res.json()
+      addMusicLog(`  Room ID: ${data.room_id || '?'}`)
+      addMusicLog(`  Room Topic: ${data.room_topic || '?'}`)
+      addMusicLog(`  GME Room ID: ${data.gme_room_id || '?'}`)
+      addMusicLog(`  GME User ID: ${data.user || '?'} ${data.bot_gme_user_id ? '(numeric)' : '(UUID - may fail!)'}`)
+      addMusicLog(`  UUID: ${data.user_uuid || '?'}`)
+      if (data.debug) {
+        addMusicLog(`  Raw gme_id: ${data.debug.rawGmeId} | gmeId: ${data.debug.rawGmeId2}`)
+        if (data.debug.gmeStatusBefore) {
+          const s = data.debug.gmeStatusBefore
+          addMusicLog(`  GME Bot before: init=${s.initialized}, inRoom=${s.inRoom}, lastErr=${s.lastError || 'none'}`)
+        }
+      }
+      if (data.lastError) addMusicLog(`  Last GME Error: ${data.lastError}`)
+      if (data.inRoom !== undefined) addMusicLog(`  In Room: ${data.inRoom}`)
+      if (data.audioEnabled !== undefined) addMusicLog(`  Audio Enabled: ${data.audioEnabled}`)
+
+      if (data.success) {
+        addMusicLog(`Joined GME room!`)
+        toast({ title: 'GME Joined', description: `Joined voice room ${data.gme_room_id}` })
+      } else {
+        addMusicLog(`Join FAILED: ${data.error || data.lastError || 'unknown'}`)
+        toast({ title: 'Join Failed', description: data.error || data.lastError, variant: 'destructive' })
+      }
+      await fetchMusicStatus()
+    } catch (error: any) {
+      addMusicLog(`Join error: ${error.message}`)
+      toast({ title: 'Error', description: 'GME Music Bot not reachable', variant: 'destructive' })
+    }
+    setMusicLoading(false)
+  }
+
+  const musicLeaveRoom = async () => {
+    addMusicLog('Leaving GME voice room...')
+    try {
+      const res = await fetch(`${getApiUrl()}/api/music/leave`, { method: 'POST' })
+      const data = await res.json()
+      addMusicLog(data.success ? 'Left GME room' : `Leave failed: ${data.error}`)
+      await fetchMusicStatus()
+    } catch (error: any) {
+      addMusicLog(`Leave error: ${error.message}`)
+    }
+  }
+
+  const musicPlay = async () => {
+    if (!musicFile) {
+      toast({ title: 'No file', description: 'Enter a music file path', variant: 'destructive' })
+      return
+    }
+    setMusicLoading(true)
+    addMusicLog(`Playing: ${musicFile} (loop=${musicLoop})`)
+    try {
+      const res = await fetch(`${getApiUrl()}/api/music/play`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: musicFile, loop: musicLoop })
+      })
+      const data = await res.json()
+      if (data.success) {
+        addMusicLog(`Playing!`)
+        toast({ title: 'Playing', description: musicFile.split('/').pop() })
+      } else {
+        addMusicLog(`Play failed: ${data.error}`)
+        toast({ title: 'Play Failed', description: data.error, variant: 'destructive' })
+      }
+      await fetchMusicStatus()
+    } catch (error: any) {
+      addMusicLog(`Play error: ${error.message}`)
+      toast({ title: 'Error', description: 'Failed to play', variant: 'destructive' })
+    }
+    setMusicLoading(false)
+  }
+
+  const musicStop = async () => {
+    addMusicLog('Stopping music...')
+    try {
+      await fetch(`${getApiUrl()}/api/music/stop`, { method: 'POST' })
+      addMusicLog('Stopped')
+      await fetchMusicStatus()
+    } catch (error: any) {
+      addMusicLog(`Stop error: ${error.message}`)
+    }
+  }
+
+  const musicPause = async () => {
+    try {
+      await fetch(`${getApiUrl()}/api/music/pause`, { method: 'POST' })
+      addMusicLog('Paused')
+    } catch (error: any) {
+      addMusicLog(`Pause error: ${error.message}`)
+    }
+  }
+
+  const musicResume = async () => {
+    try {
+      await fetch(`${getApiUrl()}/api/music/resume`, { method: 'POST' })
+      addMusicLog('Resumed')
+    } catch (error: any) {
+      addMusicLog(`Resume error: ${error.message}`)
+    }
+  }
+
+  const musicSetVolume = async (vol: number) => {
+    setMusicVolume(vol)
+    try {
+      await fetch(`${getApiUrl()}/api/music/volume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vol })
+      })
+      addMusicLog(`Volume: ${vol}%`)
+    } catch (error: any) {
+      addMusicLog(`Volume error: ${error.message}`)
+    }
+  }
+
+  const musicAutoPlay = async () => {
+    setMusicLoading(true)
+    addMusicLog('Starting auto-play flow...')
+    try {
+      const res = await fetch(`${getApiUrl()}/api/music/auto-play`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: musicFile || undefined, loop: musicLoop, botId: selectedBotId })
+      })
+      const data = await res.json()
+      if (data.steps) {
+        data.steps.forEach((s: any) => {
+          const status = s.success ? (s.skipped ? 'SKIPPED' : 'OK') : 'FAIL'
+          addMusicLog(`  [${status}] ${s.step}${s.error ? ': ' + s.error : ''}${s.note ? ' - ' + s.note : ''}`)
+          if (s.data) {
+            const d = s.data
+            if (d.lastError) addMusicLog(`    lastError: ${d.lastError}`)
+            if (d.inRoom !== undefined) addMusicLog(`    inRoom: ${d.inRoom}, initialized: ${d.initialized}, audioEnabled: ${d.audioEnabled}`)
+          }
+        })
+      }
+      if (data.success) {
+        addMusicLog('Auto-play complete!')
+        toast({ title: 'Auto-Play Started', description: 'Full pipeline executed' })
+      } else {
+        addMusicLog(`Auto-play failed: ${data.error}`)
+        toast({ title: 'Auto-Play Failed', description: data.error, variant: 'destructive' })
+      }
+      await fetchMusicStatus()
+    } catch (error: any) {
+      addMusicLog(`Auto-play error: ${error.message}`)
+      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+    }
+    setMusicLoading(false)
   }
 
   const kickFromRoom = async (uuid: string, name: string) => {
@@ -1213,6 +1489,10 @@ export default function ControlPage() {
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ enabled: checked, botId: selectedBotId })
                             })
+                            setBotStates((prev: any) => ({
+                              ...prev,
+                              [selectedBotId]: { ...(prev[selectedBotId] || {}), autoHijackRooms: checked }
+                            }))
                             toast({
                               title: checked ? 'Auto-Hijack Enabled' : 'Auto-Hijack Disabled',
                               description: checked ? 'Bot will join as room owner' : 'Bot joins normally'
@@ -1335,20 +1615,20 @@ export default function ControlPage() {
                     className="space-y-4"
                   >
                     <Alert className={
-                      botState.status === 'waiting'
+                      currentBotState?.status === 'waiting'
                         ? "border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/30"
                         : "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30"
                     }>
-                      {botState.status === 'waiting' ? (
+                      {currentBotState?.status === 'waiting' ? (
                         <Clock className="h-4 w-4 text-yellow-500 animate-pulse" />
                       ) : (
                         <Zap className="h-4 w-4 text-emerald-500" />
                       )}
                       <AlertDescription className="ml-2">
-                        {botState.status === 'waiting' ? (
+                        {currentBotState?.status === 'waiting' ? (
                           <>
                             <p className="font-semibold text-yellow-700 dark:text-yellow-300">
-                              Waiting for {botState.followUser?.name || 'user'} to create a room...
+                              Waiting for {currentBotState?.followUser?.name || 'user'} to create a room...
                             </p>
                             <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-1">
                               {pollCheck ? (
@@ -1361,13 +1641,13 @@ export default function ControlPage() {
                         ) : (
                           <>
                             <p className="font-semibold text-emerald-700 dark:text-emerald-300">
-                              {botState.mode === 'follow'
-                                ? `Following: ${botState.followUser?.name || 'User'}`
+                              {currentBotState?.mode === 'follow'
+                                ? `Following: ${currentBotState?.followUser?.name || 'User'}`
                                 : 'Bot is Running'
                               }
                             </p>
                             <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1 truncate">
-                              {botState.currentRoom?.topic || 'Monitoring room'}
+                              {currentBotState?.currentRoom?.topic || 'Monitoring room'}
                             </p>
                           </>
                         )}
@@ -1420,30 +1700,50 @@ export default function ControlPage() {
                   <Users className="h-5 w-5 text-rose-500" />
                   Participants
                 </CardTitle>
-                <Badge className="bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400">
-                  {botState?.participants?.length || 0} online
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400">
+                    {botState?.participants?.length || 0} online
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[250px] pr-4">
+              <ScrollArea className="h-[350px] pr-4">
                 {botState?.participants && botState.participants.length > 0 ? (
                   <div className="space-y-2">
-                    {botState.participants.map((p: any, i: number) => (
-                      <div
-                        key={i}
-                        className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors duration-200"
-                      >
-                        <div className="relative flex-shrink-0">
-                          <UserAvatar user={p} size="md" />
-                          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white dark:border-gray-900" />
+                    {botState.participants.map((p: any, i: number) => {
+                      const profile = p.profile
+                      return (
+                        <div
+                          key={p.uuid || i}
+                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors duration-200 cursor-pointer"
+                          onClick={() => setSelectedUserDetail(p)}
+                        >
+                          <div className="relative flex-shrink-0">
+                            {profile?.avatar_suit?.image_url ? (
+                              <img src={profile.avatar_suit.image_url} alt="" className="w-10 h-10 rounded-xl object-cover shadow-lg shadow-rose-500/20" />
+                            ) : (
+                              <UserAvatar user={p} size="md" />
+                            )}
+                            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white dark:border-gray-900" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-medium truncate">{p.pin_name}</p>
+                              {profile?.yello_id && (
+                                <span className="text-[10px] text-rose-500 font-medium">@{profile.yello_id}</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {profile?.created_at
+                                ? `${profile.group_shortname || ''} · Since ${new Date(profile.created_at).toLocaleDateString()}`
+                                : p.campus || 'Active now'}
+                            </p>
+                          </div>
+                          {profile && <Eye className="h-3.5 w-3.5 text-muted-foreground" />}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{p.pin_name}</p>
-                          <p className="text-xs text-muted-foreground">Active now</p>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground">
@@ -1636,125 +1936,232 @@ export default function ControlPage() {
                     })()}
                   </div>
 
-                  {/* Row 1: Slots 2-6 (indices 0-4) */}
-                  <div className="grid grid-cols-5 gap-2">
-                    {[0, 1, 2, 3, 4].map((position) => {
-                      const speaker = speakers[position] || botState?.speakers?.[position];
-                      const isLocked = speaker?.locked || speaker?.role === 'locked';
+                  {/* Speaker Slots (2 rows of 5) */}
+                  {[[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]].map((row, rowIdx) => (
+                    <div key={rowIdx} className="grid grid-cols-5 gap-2">
+                      {row.map((position) => {
+                        const speaker = speakers[position] || botState?.speakers?.[position];
+                        const isLocked = speaker?.locked || speaker?.role === 'locked';
+                        const isBotHere = speaker?.uuid && speaker.uuid === botState?.user_uuid;
 
-                      return (
-                        <div key={position} className={`border rounded-lg p-2 shadow-sm ${
-                          isLocked
-                            ? 'border-red-500 bg-red-50 dark:bg-red-950/30'
-                            : 'border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700'
-                        }`}>
-                          <div className="text-center mb-2">
-                            <div className="font-semibold text-sm">Slot {position + 2}</div>
-                            <div className="text-xs mt-1 h-10">
-                              {isLocked ? (
-                                <div className="text-red-600 font-semibold">🔒 Locked</div>
-                              ) : speaker?.uuid ? (
-                                <>
-                                  <div className="font-medium truncate">{speaker.pin_name}</div>
-                                  <div className="flex items-center justify-center gap-1 mt-0.5">
-                                    {speaker.mic_muted ? (
-                                      <><VolumeX className="h-3 w-3 text-red-500" /><span className="text-red-500 text-xs">Muted</span></>
-                                    ) : (
-                                      <><Volume2 className="h-3 w-3 text-green-500" /><span className="text-green-500 text-xs">Live</span></>
-                                    )}
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="text-gray-400 text-xs">Empty</div>
+                        return (
+                          <div key={position} className={`border rounded-lg p-2 shadow-sm ${
+                            isBotHere
+                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30'
+                              : isLocked
+                                ? 'border-red-500 bg-red-50 dark:bg-red-950/30'
+                                : 'border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700'
+                          }`}>
+                            <div className="text-center mb-2">
+                              <div className="font-semibold text-sm">Slot {position + 2}</div>
+                              <div className="text-xs mt-1 h-10">
+                                {isLocked ? (
+                                  <div className="text-red-600 font-semibold">🔒 Locked</div>
+                                ) : speaker?.uuid ? (
+                                  <>
+                                    <div className={`font-medium truncate ${isBotHere ? 'text-blue-600' : ''}`}>{speaker.pin_name}{isBotHere ? ' (Bot)' : ''}</div>
+                                    <div className="flex items-center justify-center gap-1 mt-0.5">
+                                      {speaker.mic_muted ? (
+                                        <><VolumeX className="h-3 w-3 text-red-500" /><span className="text-red-500 text-xs">Muted</span></>
+                                      ) : (
+                                        <><Volume2 className="h-3 w-3 text-green-500" /><span className="text-green-500 text-xs">Live</span></>
+                                      )}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="text-gray-400 text-xs">Empty</div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="grid grid-cols-2 gap-1">
+                                <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => lockSlot(position)} title="Lock">
+                                  <Lock className="h-3 w-3" />
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => unlockSlot(position)} title="Unlock">
+                                  <Unlock className="h-3 w-3" />
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => muteSlot(position)} title="Mute">
+                                  <VolumeX className="h-3 w-3" />
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => unmuteSlot(position)} title="Unmute">
+                                  <Volume2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                              {/* Bot join/leave slot */}
+                              {!isLocked && !speaker?.uuid && (
+                                <Button size="sm" className="h-6 text-xs w-full bg-blue-500 hover:bg-blue-600 text-white" onClick={() => joinSpeakerSlot(position)}>
+                                  <Mic className="h-3 w-3 mr-1" />
+                                  Join
+                                </Button>
+                              )}
+                              {isBotHere && (
+                                <Button size="sm" variant="outline" className="h-6 text-xs w-full border-blue-400 text-blue-600 hover:bg-blue-50" onClick={() => leaveSpeakerSlot(position)}>
+                                  Leave
+                                </Button>
+                              )}
+                              {speaker && !isLocked && speaker.uuid && !isBotHere && (
+                                <Button size="sm" variant="destructive" className="h-6 text-xs w-full" onClick={() => kickSlot(position)}>
+                                  <UserX className="h-3 w-3 mr-1" />
+                                  Kick
+                                </Button>
                               )}
                             </div>
                           </div>
-                          <div className="space-y-1">
-                            <div className="grid grid-cols-2 gap-1">
-                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => lockSlot(position)} title="Lock">
-                                <Lock className="h-3 w-3" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => unlockSlot(position)} title="Unlock">
-                                <Unlock className="h-3 w-3" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => muteSlot(position)} title="Mute">
-                                <VolumeX className="h-3 w-3" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => unmuteSlot(position)} title="Unmute">
-                                <Volume2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-                            {speaker && !isLocked && speaker.uuid && (
-                              <Button size="sm" variant="destructive" className="h-6 text-xs w-full" onClick={() => kickSlot(position)}>
-                                <UserX className="h-3 w-3 mr-1" />
-                                Kick
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ===== MUSIC BOT CONTROL ===== */}
+          {isRunning && (
+            <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Music className="h-5 w-5 text-purple-500" />
+                  Music Bot
+                  {musicStatus.online ? (
+                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300 ml-2">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1 animate-pulse" />
+                      Online
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" className="ml-2">Offline</Badge>
+                  )}
+                  {musicStatus.inRoom && (
+                    <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
+                      In Room
+                    </Badge>
+                  )}
+                  {musicStatus.playing && (
+                    <Badge className="bg-pink-100 text-pink-700 dark:bg-pink-900/50 dark:text-pink-300">
+                      Playing
+                    </Badge>
+                  )}
+                </CardTitle>
+                <CardDescription>Play music in the voice room via GME</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {/* Quick Actions Row */}
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={fetchMusicStatus}>
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Refresh
+                    </Button>
+
+                    {!musicStatus.inRoom ? (
+                      <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white" onClick={musicJoinRoom} disabled={musicLoading}>
+                        {musicLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Radio className="h-3 w-3 mr-1" />}
+                        Join Voice Room
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" className="border-purple-300 text-purple-600" onClick={musicLeaveRoom}>
+                        Leave Voice Room
+                      </Button>
+                    )}
+
+                    <Button
+                      size="sm"
+                      className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
+                      onClick={musicAutoPlay}
+                      disabled={musicLoading}
+                    >
+                      {musicLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Zap className="h-3 w-3 mr-1" />}
+                      Auto-Play (Full Pipeline)
+                    </Button>
                   </div>
 
-                  {/* Row 2: Slots 7-11 (indices 5-9) */}
-                  <div className="grid grid-cols-5 gap-2">
-                    {[5, 6, 7, 8, 9].map((position) => {
-                      const speaker = speakers[position] || botState?.speakers?.[position];
-                      const isLocked = speaker?.locked || speaker?.role === 'locked';
-
-                      return (
-                        <div key={position} className={`border rounded-lg p-2 shadow-sm ${
-                          isLocked
-                            ? 'border-red-500 bg-red-50 dark:bg-red-950/30'
-                            : 'border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700'
-                        }`}>
-                          <div className="text-center mb-2">
-                            <div className="font-semibold text-sm">Slot {position + 2}</div>
-                            <div className="text-xs mt-1 h-10">
-                              {isLocked ? (
-                                <div className="text-red-600 font-semibold">🔒 Locked</div>
-                              ) : speaker?.uuid ? (
-                                <>
-                                  <div className="font-medium truncate">{speaker.pin_name}</div>
-                                  <div className="flex items-center justify-center gap-1 mt-0.5">
-                                    {speaker.mic_muted ? (
-                                      <><VolumeX className="h-3 w-3 text-red-500" /><span className="text-red-500 text-xs">Muted</span></>
-                                    ) : (
-                                      <><Volume2 className="h-3 w-3 text-green-500" /><span className="text-green-500 text-xs">Live</span></>
-                                    )}
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="text-gray-400 text-xs">Empty</div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <div className="grid grid-cols-2 gap-1">
-                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => lockSlot(position)} title="Lock">
-                                <Lock className="h-3 w-3" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => unlockSlot(position)} title="Unlock">
-                                <Unlock className="h-3 w-3" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => muteSlot(position)} title="Mute">
-                                <VolumeX className="h-3 w-3" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-6 text-xs p-0" onClick={() => unmuteSlot(position)} title="Unmute">
-                                <Volume2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-                            {speaker && !isLocked && speaker.uuid && (
-                              <Button size="sm" variant="destructive" className="h-6 text-xs w-full" onClick={() => kickSlot(position)}>
-                                <UserX className="h-3 w-3 mr-1" />
-                                Kick
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                  {/* File Input */}
+                  <div className="flex gap-2">
+                    <Input
+                      value={musicFile}
+                      onChange={(e) => setMusicFile(e.target.value)}
+                      placeholder="Path to music file (mp3/wav/m4a)"
+                      className="flex-1 text-sm"
+                    />
+                    <div className="flex items-center gap-2">
+                      <Switch checked={musicLoop} onCheckedChange={setMusicLoop} />
+                      <Label className="text-xs whitespace-nowrap">Loop</Label>
+                    </div>
                   </div>
+
+                  {/* Player Controls */}
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" className="bg-green-500 hover:bg-green-600 text-white" onClick={musicPlay} disabled={musicLoading || !musicStatus.inRoom}>
+                      <Play className="h-3 w-3 mr-1" />
+                      Play
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={musicPause}>
+                      <Pause className="h-3 w-3 mr-1" />
+                      Pause
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={musicResume}>
+                      <SkipForward className="h-3 w-3 mr-1" />
+                      Resume
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={musicStop}>
+                      <Square className="h-3 w-3 mr-1" />
+                      Stop
+                    </Button>
+                  </div>
+
+                  {/* Volume */}
+                  <div className="flex items-center gap-3">
+                    <Volume1 className="h-4 w-4 text-gray-500" />
+                    <input
+                      type="range"
+                      min={0}
+                      max={200}
+                      value={musicVolume}
+                      onChange={(e) => musicSetVolume(Number(e.target.value))}
+                      className="flex-1 accent-purple-500"
+                    />
+                    <span className="text-xs font-mono w-10 text-right">{musicVolume}%</span>
+                  </div>
+
+                  {/* Debug Logs */}
+                  <div className="border rounded-lg bg-gray-950 text-green-400 p-3 font-mono text-xs max-h-48 overflow-y-auto">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-500">Debug Log</span>
+                      <button className="text-gray-600 hover:text-gray-400 text-xs" onClick={() => setMusicLogs([])}>Clear</button>
+                    </div>
+                    {musicLogs.length === 0 ? (
+                      <div className="text-gray-600">No logs yet. Click Refresh to check Music Bot status.</div>
+                    ) : (
+                      musicLogs.map((log, i) => (
+                        <div key={i} className={log.includes('FAIL') || log.includes('error') || log.includes('failed') ? 'text-red-400' : log.includes('OK') || log.includes('success') || log.includes('Playing') || log.includes('Joined') ? 'text-green-400' : 'text-gray-400'}>
+                          {log}
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Status Detail */}
+                  {musicStatus.online && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded p-2">
+                        <div className="text-gray-500">In Room</div>
+                        <div className="font-semibold">{musicStatus.inRoom ? 'Yes' : 'No'}</div>
+                      </div>
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded p-2">
+                        <div className="text-gray-500">Playing</div>
+                        <div className="font-semibold">{musicStatus.playing ? 'Yes' : 'No'}</div>
+                      </div>
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded p-2">
+                        <div className="text-gray-500">Room</div>
+                        <div className="font-semibold truncate">{musicStatus.room || '-'}</div>
+                      </div>
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded p-2">
+                        <div className="text-gray-500">File</div>
+                        <div className="font-semibold truncate">{musicStatus.file?.split('/').pop() || '-'}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1891,6 +2298,291 @@ export default function ControlPage() {
           </Card>
         </motion.div>
       </div>
+
+      {/* All Cached Users */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="mt-6"
+      >
+        <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Database className="h-5 w-5 text-rose-500" />
+                All Cached Users
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Badge className="bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400">
+                  {allCachedProfiles.length} profiles
+                </Badge>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={fetchAllProfiles}
+                  disabled={loadingProfiles}
+                  className="h-8"
+                >
+                  {loadingProfiles ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+            </div>
+            <div className="mt-2">
+              <Input
+                placeholder="Search by name, yello_id, campus..."
+                value={profileSearch}
+                onChange={(e) => setProfileSearch(e.target.value)}
+                className="h-9 text-sm border-rose-200 focus:border-rose-400 focus:ring-rose-400/30"
+              />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {allCachedProfiles.length > 0 ? (() => {
+              const searchLower = profileSearch.toLowerCase()
+              const filtered = profileSearch
+                ? allCachedProfiles.filter(entry => {
+                    const u = entry.target_user
+                    if (!u) return false
+                    return (
+                      (u.pin_name || '').toLowerCase().includes(searchLower) ||
+                      (u.yello_id || '').toLowerCase().includes(searchLower) ||
+                      (u.group_shortname || '').toLowerCase().includes(searchLower) ||
+                      (u.uuid || '').toLowerCase().includes(searchLower)
+                    )
+                  })
+                : allCachedProfiles
+
+              return (
+                <ScrollArea className="h-[400px] pr-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {filtered.map((entry: any, i: number) => {
+                      const u = entry.target_user
+                      if (!u) return null
+
+                      const createdAt = u.created_at ? new Date(u.created_at) : null
+                      const now = new Date()
+                      let accountAge = ''
+                      if (createdAt) {
+                        const diff = now.getTime() - createdAt.getTime()
+                        const days = Math.floor(diff / 86400000)
+                        if (days >= 365) {
+                          const years = Math.floor(days / 365)
+                          const months = Math.floor((days % 365) / 30)
+                          accountAge = months > 0 ? `${years}y${months}m` : `${years}y`
+                        } else if (days >= 30) {
+                          const months = Math.floor(days / 30)
+                          accountAge = `${months}m`
+                        } else {
+                          accountAge = `${days}d`
+                        }
+                      }
+
+                      return (
+                        <div
+                          key={u.uuid || i}
+                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer border border-gray-100 dark:border-gray-800"
+                          onClick={() => setSelectedUserDetail({ pin_name: u.pin_name, uuid: u.uuid, profile: u, followInfo: { is_blocked: entry.is_blocked, followed_at: entry.created_at } })}
+                        >
+                          <div className="flex-shrink-0">
+                            {u.avatar_suit?.image_url ? (
+                              <img src={u.avatar_suit.image_url} alt="" className="w-10 h-10 rounded-xl object-cover shadow-lg shadow-rose-500/20" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 flex items-center justify-center text-white font-bold shadow-lg shadow-rose-500/25">
+                                {(u.pin_name || '?').charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-medium truncate">{u.pin_name}</p>
+                              {entry.is_blocked && <span className="text-[9px] bg-red-100 text-red-600 px-1 rounded">blocked</span>}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              {u.yello_id && <span className="text-rose-500 font-medium">@{u.yello_id}</span>}
+                              {u.group_shortname && u.group_shortname !== 'No Group' && (
+                                <><span>·</span><span>{u.group_shortname}</span></>
+                              )}
+                              {accountAge && (
+                                <><span>·</span><span>{accountAge}</span></>
+                              )}
+                            </div>
+                          </div>
+                          <Eye className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {filtered.length === 0 && (
+                    <div className="text-center text-muted-foreground py-8 text-sm">
+                      No profiles match "{profileSearch}"
+                    </div>
+                  )}
+                </ScrollArea>
+              )
+            })() : (
+              <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground">
+                <div className="w-16 h-16 mb-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 flex items-center justify-center">
+                  <Database className="h-8 w-8 text-rose-300" />
+                </div>
+                <p className="text-sm font-medium">No cached profiles</p>
+                <p className="text-xs mb-3">Click refresh to load cached user profiles</p>
+                <Button size="sm" variant="outline" onClick={fetchAllProfiles} disabled={loadingProfiles}>
+                  {loadingProfiles ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+                  Load Profiles
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* User Detail Modal */}
+      <AnimatePresence>
+        {selectedUserDetail && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setSelectedUserDetail(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-lg w-full max-h-[80vh] overflow-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold">User Profile</h3>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedUserDetail(null)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {(() => {
+                  const data = selectedUserDetail
+                  // Fallback: look up profile from cached profiles if not inline
+                  let profile = data.profile
+                  let followInfo = data.followInfo
+                  if (!profile && data.uuid && allCachedProfiles.length > 0) {
+                    const match = allCachedProfiles.find((e: any) => e.target_user?.uuid?.toLowerCase() === data.uuid?.toLowerCase())
+                    if (match) {
+                      profile = match.target_user
+                      followInfo = followInfo || { is_blocked: match.is_blocked, followed_at: match.created_at }
+                    }
+                  }
+                  return (
+                    <div className="space-y-4">
+                      {/* Avatar & Name */}
+                      <div className="flex items-center gap-4">
+                        {profile?.avatar_suit?.image_url ? (
+                          <img src={profile.avatar_suit.image_url} alt="" className="w-14 h-14 rounded-xl object-cover shadow-lg" />
+                        ) : (
+                          <UserAvatar user={profile || data} size="lg" />
+                        )}
+                        <div>
+                          <p className="text-xl font-bold">{profile?.pin_name || data.pin_name}</p>
+                          {profile?.yello_id && (
+                            <p className="text-sm text-rose-500 font-semibold">@{profile.yello_id}</p>
+                          )}
+                          {profile?.group_shortname && (
+                            <p className="text-xs text-muted-foreground">{profile.group_shortname}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Profile info grid */}
+                      {profile && (
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          {profile.created_at && (
+                            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800">
+                              <Clock className="h-4 w-4 text-rose-400 flex-shrink-0" />
+                              <div>
+                                <p className="text-xs text-muted-foreground">Account Created</p>
+                                <p className="font-medium text-xs">{new Date(profile.created_at).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                              </div>
+                            </div>
+                          )}
+                          {profile.updated_at && (
+                            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800">
+                              <RefreshCw className="h-4 w-4 text-rose-400 flex-shrink-0" />
+                              <div>
+                                <p className="text-xs text-muted-foreground">Last Active</p>
+                                <p className="font-medium text-xs">{new Date(profile.updated_at).toLocaleString('th-TH')}</p>
+                              </div>
+                            </div>
+                          )}
+                          {profile.group_shortname && (
+                            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800">
+                              <GraduationCap className="h-4 w-4 text-rose-400 flex-shrink-0" />
+                              <div>
+                                <p className="text-xs text-muted-foreground">Campus</p>
+                                <p className="font-medium text-xs">{profile.group_shortname}</p>
+                              </div>
+                            </div>
+                          )}
+                          {profile.gme_user_id && (
+                            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800">
+                              <Zap className="h-4 w-4 text-rose-400 flex-shrink-0" />
+                              <div>
+                                <p className="text-xs text-muted-foreground">GME User ID</p>
+                                <p className="font-medium text-xs">{profile.gme_user_id}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Quick info badges */}
+                      <div className="flex flex-wrap gap-2">
+                        {profile?.yello_id && <Badge className="text-xs bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">@{profile.yello_id}</Badge>}
+                        {data.role && <Badge variant="outline" className="text-xs">Role: {data.role}</Badge>}
+                        {data.position !== undefined && <Badge variant="outline" className="text-xs">Slot: {data.position}</Badge>}
+                        {profile?.avatar_suit_id !== undefined && <Badge variant="outline" className="text-xs">Avatar: {profile.avatar_suit_id}</Badge>}
+                        {followInfo?.is_blocked && <Badge className="text-xs bg-red-100 text-red-700">Blocked</Badge>}
+                        {followInfo?.is_blocked === false && <Badge className="text-xs bg-emerald-100 text-emerald-700">Not Blocked</Badge>}
+                      </div>
+
+                      {data.joinTime && (
+                        <p className="text-xs text-muted-foreground">
+                          Joined room: {new Date(data.joinTime).toLocaleString()}
+                        </p>
+                      )}
+                      {followInfo?.followed_at && (
+                        <p className="text-xs text-muted-foreground">
+                          Followed at: {followInfo.followed_at}
+                        </p>
+                      )}
+
+                      <Separator />
+
+                      {/* Full following entry JSON */}
+                      {profile && (
+                        <div>
+                          <p className="text-sm font-semibold mb-2">Full Profile Data</p>
+                          <pre className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4 text-xs overflow-auto max-h-[400px] whitespace-pre-wrap break-all">
+                            {JSON.stringify({
+                              is_blocked: followInfo?.is_blocked,
+                              target_user: profile,
+                              followed_at: followInfo?.followed_at,
+                              updated_at: followInfo?.updated_at,
+                              id: followInfo?.id,
+                              user_id: followInfo?.user_id
+                            }, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
