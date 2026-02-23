@@ -213,6 +213,7 @@ function broadcastBotState(botId) {
         instance.state.connected = false;
         instance.hasJoinedRoom = false;
         instance.previousParticipants = new Map();
+        instance.departedParticipants = new Map();
         instance.participantJoinTimes = new Map();
 
         // Disconnect socket fully
@@ -1097,6 +1098,58 @@ OTHER INSTRUCTIONS:
       💰 การเงิน: ระวังรายจ่ายสักหน่อยค่ะ
       🍀 เลขนำโชค: 7, 19 | สีมงคล: ชมพู"
 
+4. BOT COMMANDS - You can control the bot's actions in the voice room!
+   When the user wants an action, include a COMMAND TAG at the VERY START of your response.
+   Format: [CMD:ACTION:PARAM]
+
+   Available commands:
+   === VOICE ROOM ===
+   - [CMD:JOIN_SLOT] - Join a speaker slot (ขึ้นหลุม/ขึ้นslot/มาคุย/ขึ้นมา/ขึ้นมาหน่อย/come up/get up/join slot)
+   - [CMD:LEAVE_SLOT] - Leave speaker slot (ลงหลุม/ลงไป/ลงมา/ออกจากslot/ลงได้แล้ว/get down/leave slot/step down)
+
+   === MUSIC ===
+   - [CMD:PLAY:youtube search query] - Search YouTube and play. YOU must craft a GOOD search query.
+   - [CMD:STOP] - PERMANENTLY stop music (cannot resume). Only use when user wants to COMPLETELY stop.
+   - [CMD:PAUSE] - Pause music (can resume later). DEFAULT for "หยุด"/"stop" requests.
+   - [CMD:RESUME] - Resume paused music
+   - [CMD:VOLUME_UP] - Increase volume
+   - [CMD:VOLUME_DOWN] - Decrease volume
+   - [CMD:NOW_PLAYING] - Check what's playing
+
+   CRITICAL: "หยุดเพลง" = PAUSE (not STOP). Users usually want to pause and resume later.
+   Only use STOP for: "เลิกเล่นเลย" / "ปิดเพลงถาวร" / "ไม่ฟังแล้ว" (clearly wants to end permanently).
+
+   EXAMPLES - understand user INTENT like Siri:
+   Voice room:
+   - "ขึ้นหลุมมาหน่อย" / "ขึ้นมาสิ" / "มาคุยกัน" / "ขึ้นมาเลย" / "join" / "come up" / "get up" / "join slot" → [CMD:JOIN_SLOT] ขึ้นมาแล้วค่ะ 🎤
+   - "ลงหลุมได้แล้ว" / "ลงไปเลย" / "ออกจากหลุม" / "ลงมา" / "ลงมาเลย" / "ลงได้แล้ว" / "get down" / "leave slot" / "step down" → [CMD:LEAVE_SLOT] ลงแล้วค่ะ 👋
+
+   Music:
+   - "เปิดเพลงเศร้าให้หน่อย" → [CMD:PLAY:เพลงเศร้า ไทย เพราะๆ 2024] เปิดเพลงเศร้าให้นะคะ 🎵
+   - "เปิดเพลง บังเอิญพบทานตะวัน" → [CMD:PLAY:บังเอิญพบทานตะวัน PURPEECH official] กำลังเปิดให้นะคะ 🎵
+   - "เปิดเพลงสนุกๆ" → [CMD:PLAY:เพลงสนุก ไทย ฮิต party mix] เปิดเพลงสนุกๆ ให้นะคะ 🎵
+   - "อยากฟังเพลงญี่ปุ่น" → [CMD:PLAY:japanese pop hit song 2024] เปิดเพลงญี่ปุ่นให้นะคะ 🎵
+   - "เปิดเพลง blackpink" → [CMD:PLAY:BLACKPINK official MV] เปิดให้เลยค่ะ 🎵
+   - "เปลี่ยนเพลงที" → [CMD:PLAY:เพลงไทย ฮิต 2024] เปลี่ยนให้แล้วค่ะ 🎵
+   - "เปิดเพลง lofi" → [CMD:PLAY:lofi hip hop chill beats] เปิดให้นะคะ 🎵
+   - "เพลงดังไป" → [CMD:VOLUME_DOWN] ลดเสียงให้แล้วค่ะ 🔉
+   - "เสียงเบาจัง" → [CMD:VOLUME_UP] เพิ่มเสียงให้แล้วค่ะ 🔊
+   - "หยุดเพลง" / "ปิดเพลง" / "เงียบ" / "หยุด" → [CMD:PAUSE] หยุดไว้ก่อนนะคะ ⏸
+   - "พักเพลงก่อน" → [CMD:PAUSE] พักไว้ก่อนนะคะ ⏸
+   - "เล่นต่อ" / "เปิดต่อ" / "เล่นเพลงต่อ" → [CMD:RESUME] เปิดต่อแล้วค่ะ ▶️
+   - "เลิกเล่นเลย" / "ไม่ฟังแล้ว" → [CMD:STOP] ปิดเพลงแล้วค่ะ ⏹
+   - "เพลงอะไรเนี่ย" → [CMD:NOW_PLAYING] เดี๋ยวเช็คให้นะคะ
+
+   Combined (user wants multiple actions):
+   - "ขึ้นหลุมมาเปิดเพลงให้หน่อย" → [CMD:JOIN_SLOT] [CMD:PLAY:เพลงไทย ฮิต เพราะๆ 2024] ขึ้นมาเปิดเพลงให้เลยค่ะ 🎤🎵
+
+   IMPORTANT RULES:
+   - Only use [CMD:...] when user CLEARLY wants an action
+   - Regular chat (like "ชอบเพลงอะไร?" or "สวัสดี") should NOT have command tags
+   - For PLAY, always craft a YouTube-optimized search query (add artist name, "official", year, genre hints)
+   - Put [CMD:...] at the VERY START, then your chat reply after it
+   - You can include MULTIPLE [CMD:...] tags if user wants multiple actions
+
 `;
 
     // Build messages array for Groq (convert Gemini history format to Groq format)
@@ -1635,6 +1688,24 @@ app.get('/api/bot/gme-info', (req, res) => {
 // Proxy requests to the GME music bot companion (port 9876)
 const GME_MUSIC_BOT_URL = 'http://localhost:9876';
 
+// Leave GME voice room (call when bot's room ends/closes)
+async function leaveGMEVoiceRoom(reason) {
+  const timestamp = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+  try {
+    const statusResp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 2000 });
+    if (statusResp.data.inRoom) {
+      console.log(`[${timestamp}] 🔇 Leaving GME voice room (reason: ${reason})`);
+      await axios.post(`${GME_MUSIC_BOT_URL}/stop`, {}, { timeout: 3000 }).catch(() => {});
+      await axios.post(`${GME_MUSIC_BOT_URL}/leave`, {}, { timeout: 5000 });
+      console.log(`[${timestamp}] ✅ GME voice room left`);
+      io.emit('music-log', { type: 'info', message: `Left voice room: ${reason}` });
+    }
+  } catch (err) {
+    // GME bot might not be running - that's fine
+    console.log(`[${timestamp}] ℹ️ GME leave skipped: ${err.message}`);
+  }
+}
+
 // Get GME music bot status
 app.get('/api/music/status', async (req, res) => {
   try {
@@ -1642,6 +1713,154 @@ app.get('/api/music/status', async (req, res) => {
     res.json({ online: true, ...resp.data });
   } catch (error) {
     res.json({ online: false, error: 'GME Music Bot not running' });
+  }
+});
+
+// Get voice room participants from GME (with name resolution)
+app.get('/api/music/voice-users', async (req, res) => {
+  try {
+    // GOAL: Detect "hidden listeners" — users who left the participant list
+    // but are still connected to GME voice channel (can still hear everything)
+    const { botId } = req.query;
+    const targetBotId = botId || selectedBotId || 'bot-1';
+    const instance = botInstances.get(targetBotId);
+
+    if (!instance || !instance.state.currentRoom) {
+      return res.json({ count: 0, users: [], hiddenListeners: [], error: 'Bot not in a room' });
+    }
+
+    const config = instance.config;
+
+    // 1. Get GME voice channel users (who's ACTUALLY connected to voice)
+    let gmeVoiceUsers = []; // { openid, hasAudio }
+    try {
+      const resp = await axios.get(`${GME_MUSIC_BOT_URL}/voice-users`, { timeout: 3000 });
+      gmeVoiceUsers = resp.data.users || [];
+    } catch (e) {
+      // GME bot not running
+    }
+    const gmeVoiceMap = new Map(); // openid → { hasAudio }
+    for (const u of gmeVoiceUsers) {
+      gmeVoiceMap.set(String(u.openid), { hasAudio: u.hasAudio || false });
+    }
+
+    // 2. Build participant gme_id set (who the app thinks is in the room)
+    const participants = instance.state.participants || [];
+    const speakers = instance.state.speakers || [];
+    const participantGmeIds = new Set();
+
+    for (const p of participants) {
+      const gmeId = String(p.gme_id || p.gme_user_id || '');
+      if (gmeId) participantGmeIds.add(gmeId);
+    }
+    // Bot itself
+    const botGmeId = String(instance.state.botGmeUserId || '');
+    if (botGmeId) participantGmeIds.add(botGmeId);
+
+    // 3. Build name resolver from all sources (participants, speakers, profiles, departed)
+    const gmeIdToInfo = new Map();
+
+    // Bot
+    if (botGmeId) {
+      gmeIdToInfo.set(botGmeId, {
+        name: config.name, uuid: instance.state.botRealUuid || config.user_uuid, isBot: true
+      });
+    }
+    // Participants
+    for (const p of participants) {
+      const gmeId = String(p.gme_id || p.gme_user_id || '');
+      if (gmeId) {
+        gmeIdToInfo.set(gmeId, {
+          name: p.pin_name || 'Unknown', uuid: p.uuid || '', isBot: !!(p.pin_name && p.pin_name.includes(config.name))
+        });
+      }
+    }
+    // Speakers
+    for (const s of speakers) {
+      const gmeId = String(s.gme_id || s.gme_user_id || '');
+      if (gmeId && !gmeIdToInfo.has(gmeId)) {
+        gmeIdToInfo.set(gmeId, { name: s.pin_name || 'Unknown', uuid: s.uuid || '', isBot: false });
+      }
+    }
+    // Departed participants (people who LEFT the room — best source for hidden listener names)
+    if (instance.departedParticipants) {
+      for (const [gmeId, info] of instance.departedParticipants) {
+        if (!gmeIdToInfo.has(gmeId)) {
+          gmeIdToInfo.set(gmeId, { name: info.name, uuid: info.uuid, isBot: false });
+        }
+      }
+    }
+    // User profiles (follow API cache)
+    if (instance.userProfiles) {
+      for (const [uuid, entry] of instance.userProfiles) {
+        const user = entry.target_user || entry;
+        const gmeId = String(user.gme_id || user.gme_user_id || '');
+        if (gmeId && !gmeIdToInfo.has(gmeId)) {
+          gmeIdToInfo.set(gmeId, { name: user.pin_name || user.name || 'Unknown', uuid: uuid, isBot: false });
+        }
+      }
+    }
+
+    // 4. Build the full voice user list with hidden listener detection
+    const voiceUsers = [];
+    const hiddenListeners = [];
+
+    // All participants are voice users
+    for (const p of participants) {
+      const pGmeId = String(p.gme_id || p.gme_user_id || '');
+      const gmeStatus = pGmeId ? gmeVoiceMap.get(pGmeId) : null;
+      const isBot = !!(p.pin_name && p.pin_name.includes(config.name));
+      voiceUsers.push({
+        openid: pGmeId || null,
+        name: p.pin_name || 'Unknown',
+        uuid: p.uuid || '',
+        isBot,
+        hasAudio: gmeStatus?.hasAudio || false,
+        hidden: false
+      });
+    }
+
+    // Add bot if not in participants
+    if (botGmeId && !participants.some(p => String(p.gme_id || p.gme_user_id || '') === botGmeId)) {
+      const gmeStatus = gmeVoiceMap.get(botGmeId);
+      voiceUsers.push({
+        openid: botGmeId, name: config.name,
+        uuid: instance.state.botRealUuid || config.user_uuid,
+        isBot: true, hasAudio: gmeStatus?.hasAudio || false, hidden: false
+      });
+    }
+
+    // KEY: Anyone in GME voice but NOT in participants = HIDDEN LISTENER
+    for (const [openid, status] of gmeVoiceMap) {
+      if (!participantGmeIds.has(openid)) {
+        const info = gmeIdToInfo.get(openid);
+        const hiddenUser = {
+          openid,
+          name: info?.name || null,
+          uuid: info?.uuid || null,
+          isBot: info?.isBot || false,
+          hasAudio: status.hasAudio || false,
+          hidden: true
+        };
+        voiceUsers.push(hiddenUser);
+        hiddenListeners.push(hiddenUser);
+      }
+    }
+
+    if (hiddenListeners.length > 0) {
+      console.log(`🕵️ [Voice] HIDDEN LISTENERS DETECTED: ${hiddenListeners.length} user(s) in voice but NOT in participants!`);
+      hiddenListeners.forEach(u => console.log(`   🕵️ ${u.name || u.openid} (GME: ${u.openid})`));
+    }
+
+    res.json({
+      count: voiceUsers.length,
+      users: voiceUsers,
+      hiddenListeners: hiddenListeners.length,
+      participantCount: participants.length,
+      gmeVoiceCount: gmeVoiceUsers.length
+    });
+  } catch (error) {
+    res.json({ count: 0, users: [], hiddenListeners: 0, error: 'Failed to get voice users' });
   }
 });
 
@@ -1798,6 +2017,316 @@ app.post('/api/music/volume', async (req, res) => {
   }
 });
 
+// ==================== YOUTUBE AUDIO ====================
+const { execFile, spawn } = require('child_process');
+const path = require('path');
+const MUSIC_CACHE_DIR = path.join(__dirname, 'music-cache');
+
+// Ensure cache dir exists
+if (!fs.existsSync(MUSIC_CACHE_DIR)) {
+  fs.mkdirSync(MUSIC_CACHE_DIR, { recursive: true });
+}
+
+// Download YouTube audio and return file path
+async function downloadYouTubeAudio(url, botId) {
+  return new Promise((resolve, reject) => {
+    // Use yt-dlp to extract audio as mp3
+    const args = [
+      '-x',                          // Extract audio
+      '--audio-format', 'mp3',       // Convert to mp3
+      '--audio-quality', '0',        // Best quality (VBR ~245kbps)
+      '--postprocessor-args', 'ffmpeg:-b:a 320k',  // Force 320kbps CBR
+      '-o', path.join(MUSIC_CACHE_DIR, '%(id)s.%(ext)s'),  // Output template
+      '--no-playlist',               // Single video only
+      '--newline',                   // Force progress on new lines
+      '--print', 'after_move:filepath', // Print final file path
+      url
+    ];
+
+    console.log(`🎵 [YouTube] Downloading: ${url}`);
+    io.emit('music-log', { type: 'info', message: `Downloading YouTube audio: ${url}` });
+
+    // Send initial chat message if botId provided
+    if (botId) {
+      sendMessageForBot(botId, '⏳ กำลังดาวน์โหลดเพลง...');
+    }
+
+    const proc = spawn('yt-dlp', args);
+    let stdout = '';
+    let stderr = '';
+    let lastProgressMsg = 0; // Throttle chat messages
+
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
+      const line = data.toString().trim();
+      if (line) {
+        console.log(`🎵 [yt-dlp] ${line}`);
+        io.emit('music-log', { type: 'info', message: `yt-dlp: ${line}` });
+      }
+    });
+
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+      const lines = data.toString().split('\n');
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) continue;
+        console.log(`⚠️ [yt-dlp] ${line}`);
+
+        // Parse download progress: "[download]  45.2% of  10.50MiB at  2.31MiB/s ETA 00:03"
+        const progressMatch = line.match(/\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+\w+)/);
+        if (progressMatch && botId) {
+          const pct = parseFloat(progressMatch[1]);
+          const size = progressMatch[2];
+          const now = Date.now();
+          // Send chat update at 25%, 50%, 75% (throttled, max every 5s)
+          if ((pct >= 25 && lastProgressMsg < 25) ||
+              (pct >= 50 && lastProgressMsg < 50) ||
+              (pct >= 75 && lastProgressMsg < 75)) {
+            if (now - lastProgressMsg > 3000 || lastProgressMsg < 100) {
+              sendMessageForBot(botId, `⏳ ดาวน์โหลด ${Math.round(pct)}% (${size})`);
+              lastProgressMsg = pct;
+            }
+          }
+        }
+
+        // Detect conversion phase
+        if (line.includes('[ExtractAudio]') || line.includes('[ffmpeg]')) {
+          io.emit('music-log', { type: 'info', message: `Converting audio...` });
+        }
+      }
+    });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        console.log(`❌ [yt-dlp] Exit code ${code}: ${stderr}`);
+        io.emit('music-log', { type: 'error', message: `yt-dlp failed (code ${code})` });
+        return reject(new Error(`yt-dlp failed (code ${code}): ${stderr.slice(0, 200)}`));
+      }
+
+      // The last line of stdout is the file path
+      const filePath = stdout.trim().split('\n').pop().trim();
+      if (!filePath || !fs.existsSync(filePath)) {
+        return reject(new Error(`Downloaded file not found: ${filePath}`));
+      }
+
+      console.log(`✅ [YouTube] Downloaded: ${filePath}`);
+      io.emit('music-log', { type: 'info', message: `Downloaded: ${path.basename(filePath)}` });
+      resolve(filePath);
+    });
+  });
+}
+
+// Get YouTube video info (title, duration)
+async function getYouTubeInfo(url) {
+  return new Promise((resolve, reject) => {
+    execFile('yt-dlp', ['--print', '%(title)s\n%(duration)s\n%(id)s', '--no-playlist', url], { timeout: 15000 }, (err, stdout) => {
+      if (err) return reject(err);
+      const lines = stdout.trim().split('\n');
+      resolve({ title: lines[0] || 'Unknown', duration: parseInt(lines[1]) || 0, id: lines[2] || '' });
+    });
+  });
+}
+
+// Play YouTube audio - download + play through GME
+app.post('/api/music/youtube', async (req, res) => {
+  const { url, loop, botId } = req.body;
+
+  if (!url) {
+    return res.status(400).json({ error: 'URL required' });
+  }
+
+  const targetBotId = botId || selectedBotId || 'bot-1';
+  const instance = botInstances.get(targetBotId);
+
+  if (!instance || !instance.state.currentRoom) {
+    return res.status(400).json({ error: 'Bot not in a room' });
+  }
+
+  try {
+    // Step 1: Get video info
+    io.emit('music-log', { type: 'info', message: `Fetching info for: ${url}` });
+    let info;
+    try {
+      info = await getYouTubeInfo(url);
+      io.emit('music-log', { type: 'info', message: `Title: ${info.title} (${Math.floor(info.duration / 60)}:${String(info.duration % 60).padStart(2, '0')})` });
+    } catch (e) {
+      info = { title: 'Unknown', duration: 0, id: '' };
+    }
+
+    // Step 2: Check cache
+    const cachedFile = info.id ? path.join(MUSIC_CACHE_DIR, `${info.id}.mp3`) : null;
+    let filePath;
+
+    if (cachedFile && fs.existsSync(cachedFile)) {
+      filePath = cachedFile;
+      console.log(`🎵 [YouTube] Cache hit: ${filePath}`);
+      io.emit('music-log', { type: 'info', message: `Cache hit! Skipping download.` });
+    } else {
+      // Step 3: Download audio
+      filePath = await downloadYouTubeAudio(url, targetBotId);
+    }
+
+    // Step 4: Ensure GME bot is in voice room (auto-join if needed)
+    let gmeStatus = null;
+    try {
+      const statusResp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
+      gmeStatus = statusResp.data;
+    } catch (e) {
+      return res.status(500).json({ error: 'GME Music Bot not running' });
+    }
+
+    if (!gmeStatus.inRoom) {
+      io.emit('music-log', { type: 'info', message: 'GME not in room, auto-joining...' });
+
+      const room = instance.state.currentRoom;
+      const config = instance.config;
+      const gmeRoomId = String(room.gme_id || room.gmeId || '');
+      const gmeUserId = instance.state.botGmeUserId ? String(instance.state.botGmeUserId) : config.user_uuid;
+      const botRealUuid = instance.state.botRealUuid || config.user_uuid;
+
+      // Auto-join speaker slot if not in one
+      const speakers = instance.state.speakers || [];
+      const botInSlot = speakers.find(s => s.uuid === config.user_uuid);
+      if (!botInSlot) {
+        const emptySlot = speakers.find(s => !s.locked && s.pin_name === 'Empty');
+        if (emptySlot) {
+          const yellotalkPos = emptySlot.position + 1;
+          try {
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => reject(new Error('timeout')), 10000);
+              instance.socket.emit('join_speaker', {
+                room: room.id, uuid: config.user_uuid, position: yellotalkPos
+              }, (response) => {
+                clearTimeout(timeout);
+                if (response?.result >= 200 && response?.result < 300) resolve(response);
+                else reject(new Error(response?.description || 'join_speaker failed'));
+              });
+            });
+            io.emit('music-log', { type: 'info', message: `Joined speaker slot ${emptySlot.position}` });
+          } catch (e) {
+            io.emit('music-log', { type: 'error', message: `Failed to join speaker: ${e.message}` });
+          }
+          await new Promise(r => setTimeout(r, 1000)); // Wait for speaker_changed to trigger auto-GME
+        }
+      }
+
+      // Join GME room
+      if (gmeRoomId && gmeUserId) {
+        try {
+          io.emit('music-log', { type: 'info', message: `Joining GME room ${gmeRoomId}...` });
+          const joinResp = await axios.post(`${GME_MUSIC_BOT_URL}/join`, {
+            room: gmeRoomId, user: gmeUserId, uuid: botRealUuid
+          }, { timeout: 20000 });
+          io.emit('music-log', { type: 'info', message: `GME join: ${joinResp.data.success ? 'OK' : joinResp.data.lastError || 'failed'}` });
+
+          if (!joinResp.data.inRoom) {
+            return res.status(500).json({ error: `GME room join failed: ${joinResp.data.lastError || 'unknown'}`, title: info.title });
+          }
+        } catch (e) {
+          return res.status(500).json({ error: `GME join error: ${e.message}`, title: info.title });
+        }
+        await new Promise(r => setTimeout(r, 500)); // Let audio initialize
+      }
+    }
+
+    // Step 5: Play through GME bot
+    io.emit('music-log', { type: 'info', message: `Playing: ${info.title}` });
+    const playResp = await axios.post(`${GME_MUSIC_BOT_URL}/play`, {
+      file: filePath,
+      loop: loop === true
+    }, { timeout: 5000 });
+
+    const playSuccess = playResp.data.success !== false;
+    if (!playSuccess) {
+      io.emit('music-log', { type: 'error', message: `Play failed: ${playResp.data.lastError || 'unknown'}` });
+    }
+
+    // Track in auto-play history for song-ended auto-queue
+    if (playSuccess) {
+      autoPlayState.currentBotId = targetBotId;
+      autoPlayState.history.push({
+        title: info.title || 'Unknown',
+        query: url,
+        videoId: info.id || '',
+        file: filePath
+      });
+      if (autoPlayState.history.length > autoPlayState.maxHistory) {
+        autoPlayState.history.shift();
+      }
+    }
+
+    res.json({
+      success: playSuccess,
+      error: playSuccess ? undefined : (playResp.data.lastError || 'Play failed'),
+      title: info.title,
+      duration: info.duration,
+      file: filePath,
+      cached: cachedFile && fs.existsSync(cachedFile),
+      ...playResp.data
+    });
+  } catch (error) {
+    const msg = error.response?.data?.error || error.message;
+    console.log(`❌ [YouTube] Error: ${msg}`);
+    io.emit('music-log', { type: 'error', message: `YouTube play failed: ${msg}` });
+    res.status(500).json({ error: msg });
+  }
+});
+
+// Search YouTube and return results
+app.get('/api/music/youtube/search', async (req, res) => {
+  const { q, limit } = req.query;
+  if (!q) return res.status(400).json({ error: 'Query required' });
+
+  try {
+    const maxResults = Math.min(parseInt(limit) || 5, 10);
+    const args = [
+      `ytsearch${maxResults}:${q}`,
+      '--print', '%(id)s\t%(title)s\t%(duration)s\t%(channel)s',
+      '--no-download',
+      '--flat-playlist'
+    ];
+
+    const results = await new Promise((resolve, reject) => {
+      execFile('yt-dlp', args, { timeout: 15000 }, (err, stdout) => {
+        if (err) return reject(err);
+        const items = stdout.trim().split('\n').filter(Boolean).map(line => {
+          const [id, title, duration, channel] = line.split('\t');
+          return {
+            id,
+            title: title || 'Unknown',
+            duration: parseInt(duration) || 0,
+            channel: channel || '',
+            url: `https://www.youtube.com/watch?v=${id}`,
+            thumbnail: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`
+          };
+        });
+        resolve(items);
+      });
+    });
+
+    res.json({ results });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List cached music files
+app.get('/api/music/cache', (req, res) => {
+  try {
+    const files = fs.readdirSync(MUSIC_CACHE_DIR)
+      .filter(f => f.endsWith('.mp3'))
+      .map(f => {
+        const stat = fs.statSync(path.join(MUSIC_CACHE_DIR, f));
+        return { name: f, size: stat.size, modified: stat.mtime };
+      })
+      .sort((a, b) => b.modified - a.modified);
+    res.json({ files, cacheDir: MUSIC_CACHE_DIR });
+  } catch (error) {
+    res.json({ files: [], error: error.message });
+  }
+});
+
 // Full auto flow: join speaker slot + join GME room + play music
 app.post('/api/music/auto-play', async (req, res) => {
   const { file, loop, botId } = req.body;
@@ -1916,6 +2445,391 @@ app.post('/api/music/auto-play', async (req, res) => {
   res.json({ success: true, steps });
 });
 
+// ==================== AUTO-PLAY (play next song when current ends) ====================
+const autoPlayState = {
+  enabled: true,                // Auto-play enabled by default
+  history: [],                  // Recently played: [{ title, query, videoId, file }]
+  maxHistory: 20,               // Keep last 20 songs
+  currentBotId: null,           // Which bot is playing music
+  isSearching: false,           // Prevent concurrent auto-play triggers
+};
+
+// Song-ended callback from GME bot
+app.post('/api/music/song-ended', async (req, res) => {
+  const { file } = req.body;
+  const timestamp = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+  console.log(`[${timestamp}] 🎵 Song ended: ${file || 'unknown'}`);
+  io.emit('music-log', { type: 'info', message: `Song ended: ${path.basename(file || 'unknown')}` });
+
+  res.json({ ok: true }); // Respond immediately
+
+  if (!autoPlayState.enabled) {
+    console.log(`[${timestamp}] ⏭ Auto-play disabled, skipping`);
+    return;
+  }
+
+  if (autoPlayState.isSearching) {
+    console.log(`[${timestamp}] ⏭ Already searching for next song, skipping`);
+    return;
+  }
+
+  // Find the bot that's playing
+  const botId = autoPlayState.currentBotId || selectedBotId || 'bot-1';
+  const instance = botInstances.get(botId);
+  if (!instance || !instance.state.currentRoom) {
+    console.log(`[${timestamp}] ⏭ No active bot in room, skipping auto-play`);
+    return;
+  }
+
+  autoPlayState.isSearching = true;
+
+  try {
+    // Build search query based on history
+    const lastSong = autoPlayState.history[autoPlayState.history.length - 1];
+    let searchQuery;
+
+    if (lastSong && lastSong.title && lastSong.title !== 'Unknown') {
+      // Search for related songs based on last played title
+      searchQuery = `${lastSong.title} เพลงคล้ายๆ`;
+    } else if (lastSong && lastSong.query) {
+      // Fall back to last search query
+      searchQuery = lastSong.query;
+    } else {
+      searchQuery = 'เพลงไทย ฮิต 2024 เพราะๆ';
+    }
+
+    console.log(`[${timestamp}] ⏭ Auto-play searching: "${searchQuery}"`);
+    io.emit('music-log', { type: 'info', message: `Auto-play searching: ${searchQuery}` });
+
+    // Search for 5 results and pick one we haven't played recently
+    const playedIds = new Set(autoPlayState.history.map(h => h.videoId).filter(Boolean));
+
+    const searchResults = await new Promise((resolve, reject) => {
+      execFile('yt-dlp', [
+        `ytsearch5:${searchQuery}`,
+        '--print', '%(id)s\t%(title)s\t%(duration)s',
+        '--no-download', '--flat-playlist'
+      ], { timeout: 15000 }, (err, stdout) => {
+        if (err) return reject(err);
+        const items = stdout.trim().split('\n').filter(Boolean).map(line => {
+          const [id, title, duration] = line.split('\t');
+          return { id, title: title || 'Unknown', duration: parseInt(duration) || 0 };
+        });
+        resolve(items);
+      });
+    });
+
+    // Pick the first result that hasn't been played recently
+    let nextSong = searchResults.find(s => !playedIds.has(s.id));
+    if (!nextSong && searchResults.length > 0) {
+      // All were played recently, just pick a random one
+      nextSong = searchResults[Math.floor(Math.random() * searchResults.length)];
+    }
+
+    if (!nextSong) {
+      console.log(`[${timestamp}] ⏭ No next song found`);
+      io.emit('music-log', { type: 'info', message: 'Auto-play: no results found' });
+      autoPlayState.isSearching = false;
+      return;
+    }
+
+    const nextUrl = `https://www.youtube.com/watch?v=${nextSong.id}`;
+    console.log(`[${timestamp}] ⏭ Auto-playing next: ${nextSong.title}`);
+    io.emit('music-log', { type: 'info', message: `Auto-play next: ${nextSong.title}` });
+
+    // Play through our YouTube endpoint
+    const resp = await axios.post('http://localhost:5353/api/music/youtube', {
+      url: nextUrl,
+      loop: false,
+      botId: botId
+    }, { timeout: 120000 });
+
+    if (resp.data.success) {
+      // Track in history
+      autoPlayState.history.push({
+        title: resp.data.title || nextSong.title,
+        query: searchQuery,
+        videoId: nextSong.id,
+        file: resp.data.file
+      });
+      if (autoPlayState.history.length > autoPlayState.maxHistory) {
+        autoPlayState.history.shift();
+      }
+      console.log(`[${timestamp}] ✅ Auto-play started: ${nextSong.title}`);
+      io.emit('music-log', { type: 'info', message: `Now playing: ${nextSong.title}` });
+
+      // Notify in chat
+      const chatBotId = autoPlayState.currentBotId || selectedBotId;
+      if (chatBotId) {
+        sendMessageForBot(chatBotId, `⏭ เพลงต่อไป: ${resp.data.title || nextSong.title} 🎵`);
+      }
+    } else {
+      console.log(`[${timestamp}] ❌ Auto-play failed: ${resp.data.error}`);
+      io.emit('music-log', { type: 'error', message: `Auto-play failed: ${resp.data.error}` });
+    }
+  } catch (err) {
+    console.error(`[${timestamp}] ❌ Auto-play error:`, err.message);
+    io.emit('music-log', { type: 'error', message: `Auto-play error: ${err.message}` });
+  } finally {
+    autoPlayState.isSearching = false;
+  }
+});
+
+// Toggle auto-play
+app.post('/api/music/auto-play-toggle', (req, res) => {
+  const { enabled } = req.body;
+  autoPlayState.enabled = enabled !== undefined ? enabled : !autoPlayState.enabled;
+  console.log(`⏭ Auto-play ${autoPlayState.enabled ? 'enabled' : 'disabled'}`);
+  io.emit('music-log', { type: 'info', message: `Auto-play ${autoPlayState.enabled ? 'enabled' : 'disabled'}` });
+  res.json({ enabled: autoPlayState.enabled });
+});
+
+// Get auto-play state
+app.get('/api/music/auto-play-state', (req, res) => {
+  res.json({
+    enabled: autoPlayState.enabled,
+    history: autoPlayState.history.slice(-5), // last 5
+    historyCount: autoPlayState.history.length
+  });
+});
+
+// ==================== AI MUSIC COMMAND EXECUTOR ====================
+// Track volume per bot for AI volume up/down commands
+const botMusicVolume = new Map(); // botId -> current volume (0-50 GME scale)
+
+async function executeBotCommand(action, param, botId) {
+  const timestamp = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+  const instance = botInstances.get(botId);
+
+  switch (action) {
+    case 'JOIN_SLOT': {
+      if (!instance || !instance.state.currentRoom) {
+        console.log(`[${timestamp}] ⚠️ JOIN_SLOT but bot not in room`);
+        return;
+      }
+      const speakers = instance.state.speakers || [];
+      const config = instance.config;
+      const botRealUuid = instance.state.botRealUuid;
+      const botInSlot = speakers.find(s =>
+        s.uuid === config.user_uuid ||
+        (botRealUuid && s.uuid === botRealUuid) ||
+        (s.pin_name && s.pin_name.toLowerCase() === config.name.toLowerCase()) ||
+        (s.pin_name && s.pin_name.includes(config.name))
+      );
+      if (botInSlot && botInSlot.pin_name !== 'Empty') {
+        console.log(`[${timestamp}] ℹ️ Bot already in slot ${botInSlot.position} (uuid: ${botInSlot.uuid})`);
+        return;
+      }
+      const emptySlot = speakers.find(s => !s.locked && s.pin_name === 'Empty');
+      if (!emptySlot) {
+        console.log(`[${timestamp}] ⚠️ No empty speaker slots`);
+        setTimeout(() => sendMessageForBot(botId, 'ไม่มีหลุมว่างค่ะ 😅'), 1500);
+        return;
+      }
+      const yellotalkPos = emptySlot.position + 1;
+      try {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('timeout')), 10000);
+          instance.socket.emit('join_speaker', {
+            room: instance.state.currentRoom.id,
+            uuid: config.user_uuid,
+            position: yellotalkPos
+          }, (response) => {
+            clearTimeout(timeout);
+            if (response?.result >= 200 && response?.result < 300) resolve(response);
+            else reject(new Error(response?.description || 'join_speaker failed'));
+          });
+        });
+        console.log(`[${timestamp}] 🎤 AI JOIN_SLOT: joined slot ${emptySlot.position}`);
+        // Clear manual leave flag so auto-join works again
+        instance.state._manuallyLeftSlot = false;
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ AI JOIN_SLOT failed:`, err.message);
+        setTimeout(() => sendMessageForBot(botId, 'ขึ้นหลุมไม่ได้ค่ะ 😢'), 1500);
+      }
+      break;
+    }
+
+    case 'LEAVE_SLOT': {
+      if (!instance || !instance.state.currentRoom) {
+        console.log(`[${timestamp}] ⚠️ LEAVE_SLOT but bot not in room`);
+        return;
+      }
+      const speakers = instance.state.speakers || [];
+      const config = instance.config;
+      const botRealUuid = instance.state.botRealUuid || config.user_uuid;
+      const botName = config.name;
+      // Try matching by uuid (config or real) or by pin_name
+      const botSlot = speakers.find(s =>
+        s.uuid === config.user_uuid ||
+        s.uuid === botRealUuid ||
+        (s.pin_name && s.pin_name.toLowerCase() === botName.toLowerCase())
+      );
+      if (!botSlot) {
+        console.log(`[${timestamp}] ℹ️ Bot not in any slot (config_uuid=${config.user_uuid}, real_uuid=${botRealUuid}, name=${botName})`);
+        console.log(`[${timestamp}]    Speakers:`, speakers.map(s => `${s.position}:${s.pin_name}:${s.uuid}`).join(', '));
+        return;
+      }
+      const leaveUuid = botSlot.uuid || config.user_uuid;
+      try {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('timeout')), 10000);
+          instance.socket.emit('leave_speaker', {
+            room: instance.state.currentRoom.id,
+            uuid: leaveUuid,
+            position: botSlot.position + 1
+          }, (response) => {
+            clearTimeout(timeout);
+            if (response?.result >= 200 && response?.result < 300) resolve(response);
+            else reject(new Error(response?.description || 'leave_speaker failed'));
+          });
+        });
+        console.log(`[${timestamp}] 👋 AI LEAVE_SLOT: left slot ${botSlot.position}`);
+        // Prevent auto-rejoin after intentional leave
+        instance.state._manuallyLeftSlot = true;
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ AI LEAVE_SLOT failed:`, err.message);
+      }
+      break;
+    }
+
+    case 'PLAY': {
+      if (!param) {
+        console.log(`[${timestamp}] ⚠️ PLAY command but no search query`);
+        return;
+      }
+      if (!instance || !instance.state.currentRoom) {
+        console.log(`[${timestamp}] ⚠️ PLAY command but bot not in room`);
+        return;
+      }
+
+      // Use yt-dlp search format: ytsearch1:query
+      const searchUrl = `ytsearch1:${param}`;
+      console.log(`[${timestamp}] 🎵 AI PLAY: searching "${param}"`);
+      io.emit('music-log', { type: 'info', message: `AI searching: ${param}` });
+
+      // Call our own YouTube endpoint internally
+      try {
+        const resp = await axios.post(`http://localhost:5353/api/music/youtube`, {
+          url: searchUrl,
+          loop: false,
+          botId: botId
+        }, { timeout: 120000 }); // 2 min timeout for download
+
+        if (resp.data.success) {
+          console.log(`[${timestamp}] ✅ AI PLAY success: ${resp.data.title}`);
+          // Track in auto-play history
+          autoPlayState.currentBotId = botId;
+          autoPlayState.history.push({
+            title: resp.data.title || 'Unknown',
+            query: param,
+            videoId: resp.data.file ? path.basename(resp.data.file, '.mp3') : '',
+            file: resp.data.file
+          });
+          if (autoPlayState.history.length > autoPlayState.maxHistory) {
+            autoPlayState.history.shift();
+          }
+          // Send now-playing info to chat
+          setTimeout(() => {
+            sendMessageForBot(botId, `🎵 กำลังเล่น: ${resp.data.title}`);
+          }, 2000);
+        } else {
+          console.log(`[${timestamp}] ❌ AI PLAY failed: ${resp.data.error}`);
+          setTimeout(() => {
+            sendMessageForBot(botId, `ขอโทษค่ะ เปิดเพลงไม่ได้ 😢 ${resp.data.error || ''}`);
+          }, 2000);
+        }
+      } catch (err) {
+        const errMsg = err.response?.data?.error || err.message;
+        console.error(`[${timestamp}] ❌ AI PLAY error: ${errMsg}`);
+        setTimeout(() => {
+          sendMessageForBot(botId, `ขอโทษค่ะ เปิดเพลงไม่ได้ 😢`);
+        }, 2000);
+      }
+      break;
+    }
+
+    case 'STOP': {
+      try {
+        await axios.post(`${GME_MUSIC_BOT_URL}/stop`, {}, { timeout: 5000 });
+        console.log(`[${timestamp}] ⏹ AI STOP`);
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ AI STOP failed:`, err.message);
+      }
+      break;
+    }
+
+    case 'PAUSE': {
+      try {
+        await axios.post(`${GME_MUSIC_BOT_URL}/pause`, {}, { timeout: 5000 });
+        console.log(`[${timestamp}] ⏸ AI PAUSE`);
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ AI PAUSE failed:`, err.message);
+      }
+      break;
+    }
+
+    case 'RESUME': {
+      try {
+        await axios.post(`${GME_MUSIC_BOT_URL}/resume`, {}, { timeout: 5000 });
+        console.log(`[${timestamp}] ▶️ AI RESUME`);
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ AI RESUME failed:`, err.message);
+      }
+      break;
+    }
+
+    case 'VOLUME_UP': {
+      let currentVol = botMusicVolume.get(botId) || 5;
+      currentVol = Math.min(currentVol + 5, 50); // +5 on GME scale (0-50)
+      botMusicVolume.set(botId, currentVol);
+      try {
+        await axios.post(`${GME_MUSIC_BOT_URL}/volume`, { vol: currentVol }, { timeout: 5000 });
+        console.log(`[${timestamp}] 🔊 AI VOLUME_UP → ${currentVol}`);
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ AI VOLUME_UP failed:`, err.message);
+      }
+      break;
+    }
+
+    case 'VOLUME_DOWN': {
+      let currentVol = botMusicVolume.get(botId) || 5;
+      currentVol = Math.max(currentVol - 5, 0); // -5 on GME scale (0-50)
+      botMusicVolume.set(botId, currentVol);
+      try {
+        await axios.post(`${GME_MUSIC_BOT_URL}/volume`, { vol: currentVol }, { timeout: 5000 });
+        console.log(`[${timestamp}] 🔉 AI VOLUME_DOWN → ${currentVol}`);
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ AI VOLUME_DOWN failed:`, err.message);
+      }
+      break;
+    }
+
+    case 'NOW_PLAYING': {
+      try {
+        const resp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
+        const status = resp.data;
+        if (status.playing) {
+          setTimeout(() => {
+            sendMessageForBot(botId, `🎵 กำลังเล่น: ${status.currentFile || 'ไม่ทราบชื่อเพลง'}`);
+          }, 1500);
+        } else {
+          setTimeout(() => {
+            sendMessageForBot(botId, `ไม่ได้เปิดเพลงอยู่ค่ะ 🔇`);
+          }, 1500);
+        }
+        console.log(`[${timestamp}] ℹ️ AI NOW_PLAYING: playing=${status.playing}`);
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ AI NOW_PLAYING failed:`, err.message);
+      }
+      break;
+    }
+
+    default:
+      console.log(`[${timestamp}] ⚠️ Unknown AI command: ${action}`);
+  }
+}
+
 // Get all cached user profiles across all bots
 app.get('/api/bot/all-profiles', (req, res) => {
   const allProfiles = [];
@@ -2031,6 +2945,7 @@ app.post('/api/bot/start', async (req, res) => {
     // Reset greeting tracking for this bot instance
     instance.previousParticipants = new Map();
     instance.participantJoinTimes = new Map();
+    instance.departedParticipants = new Map();
     instance.hasJoinedRoom = false;
 
     broadcastBotState(targetBotId);
@@ -2134,6 +3049,7 @@ app.post('/api/bot/start', async (req, res) => {
               instance.hasJoinedRoom = false;
               instance.previousParticipants = new Map();
               instance.participantJoinTimes = new Map();
+              instance.departedParticipants = new Map();
 
               // Disconnect socket fully
               cleanupBotSocket(instance);
@@ -2144,7 +3060,8 @@ app.post('/api/bot/start', async (req, res) => {
                 instance.roomHealthInterval = null;
               }
 
-              // Notify portal
+              // Leave GME voice room + notify portal
+              leaveGMEVoiceRoom('User kicked bot out');
               io.emit('room-ended', {
                 botId: targetBotId,
                 reason: 'User kicked bot out'
@@ -2259,10 +3176,40 @@ app.post('/api/bot/start', async (req, res) => {
 
             // Get AI response and send it - pass botId for correct participant context
             getAIResponse(question, senderUuid, sender, botConfig.name, targetBotId)
-              .then(aiReply => {
-                setTimeout(() => {
-                  sendMessageForBot(targetBotId, aiReply);
-                }, 1000); // Small delay to seem more natural
+              .then(async (aiReply) => {
+                // Parse all [CMD:ACTION:PARAM] tags from AI response
+                const cmdRegex = /\[CMD:([A-Z_]+)(?::([^\]]*))?\]/g;
+                const commands = [];
+                let match;
+                while ((match = cmdRegex.exec(aiReply)) !== null) {
+                  commands.push({ action: match[1], param: match[2] || '' });
+                }
+
+                if (commands.length > 0) {
+                  // Strip all [CMD:...] tags from reply
+                  const cleanReply = aiReply.replace(/\[CMD:[^\]]*\]\s*/g, '').trim();
+
+                  for (const cmd of commands) {
+                    console.log(`[${timestamp}] 🤖 AI Command: ${cmd.action} | Param: "${cmd.param}"`);
+                  }
+
+                  // Send chat reply first
+                  sendMessageForBot(targetBotId, cleanReply);
+
+                  // Execute commands sequentially
+                  for (const cmd of commands) {
+                    try {
+                      await executeBotCommand(cmd.action, cmd.param, targetBotId);
+                    } catch (cmdErr) {
+                      console.error(`[${timestamp}] ❌ Command ${cmd.action} failed:`, cmdErr.message);
+                    }
+                  }
+                } else {
+                  // Regular reply, no command
+                  setTimeout(() => {
+                    sendMessageForBot(targetBotId, aiReply);
+                  }, 1000);
+                }
               })
               .catch(err => {
                 console.error(`[${timestamp}] ❌ Failed to get AI response:`, err);
@@ -2397,6 +3344,7 @@ app.post('/api/bot/start', async (req, res) => {
           instance.hasJoinedRoom = false;
           instance.previousParticipants = new Map();
           instance.participantJoinTimes = new Map();
+          instance.departedParticipants = new Map();
 
           // Disconnect socket fully
           cleanupBotSocket(instance);
@@ -2412,7 +3360,8 @@ app.post('/api/bot/start', async (req, res) => {
             clearRoomUnavailable(endedRoomId);
           }
 
-          // Notify portal
+          // Leave GME voice room + notify portal
+          leaveGMEVoiceRoom('Room ended - no participants');
           io.emit('room-ended', {
             botId: targetBotId,
             reason: 'No participants - room assumed ended'
@@ -2479,6 +3428,7 @@ app.post('/api/bot/start', async (req, res) => {
             instance.hasJoinedRoom = false;
             instance.previousParticipants = new Map();
             instance.participantJoinTimes = new Map();
+            instance.departedParticipants = new Map();
 
             // Disconnect socket fully
             cleanupBotSocket(instance);
@@ -2489,7 +3439,8 @@ app.post('/api/bot/start', async (req, res) => {
               instance.roomHealthInterval = null;
             }
 
-            // Notify portal
+            // Leave GME voice room + notify portal
+            leaveGMEVoiceRoom('Blocked user detected');
             io.emit('room-ended', {
               botId: targetBotId,
               reason: `Blocked user "${blockedName}" detected - bot left`
@@ -2519,11 +3470,13 @@ app.post('/api/bot/start', async (req, res) => {
           instance.previousParticipants = new Map(currentParticipants);
 
           // Record join times for everyone currently in room (for future bye messages)
+          if (!instance.departedParticipants) instance.departedParticipants = new Map();
           participants.forEach(p => {
             if (!p.pin_name?.includes(botConfig.name)) {
               instance.participantJoinTimes.set(p.uuid, {
                 name: p.pin_name || 'User',
-                joinTime: new Date()
+                joinTime: new Date(),
+                gme_id: String(p.gme_id || p.gme_user_id || '')
               });
             }
           });
@@ -2573,6 +3526,13 @@ app.post('/api/bot/start', async (req, res) => {
           if (!instance.previousParticipants.has(uuid)) {
             console.log(`[${timestamp}] ✨ ${userName} is NEW!`);
 
+            // Remove from departed list if they re-joined (no longer a hidden listener)
+            const pGmeId = String(p.gme_id || p.gme_user_id || '');
+            if (pGmeId && instance.departedParticipants?.has(pGmeId)) {
+              console.log(`[${timestamp}] 🕵️ ${userName} re-joined — removing from departed tracking`);
+              instance.departedParticipants.delete(pGmeId);
+            }
+
             // Auto-follow new participant to get their profile
             autoFollowAndFetchProfile(botConfig, instance, uuid, targetBotId).catch(err =>
               console.log(`⚠️ Auto-follow ${userName} error: ${err.message}`)
@@ -2582,7 +3542,8 @@ app.post('/api/bot/start', async (req, res) => {
             if (!instance.participantJoinTimes.has(uuid)) {
               newCount++;
               const joinTime = new Date();
-              instance.participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime });
+              const pGmeId = String(p.gme_id || p.gme_user_id || '');
+              instance.participantJoinTimes.set(uuid, { name: userName, joinTime: joinTime, gme_id: pGmeId });
 
               // Generate greeting using greetings.json
               let greeting;
@@ -2656,6 +3617,7 @@ app.post('/api/bot/start', async (req, res) => {
 
         // Find participants who LEFT
         let leftCount = 0;
+        if (!instance.departedParticipants) instance.departedParticipants = new Map();
         instance.previousParticipants.forEach((prevName, prevUuid) => {
           if (!prevName?.includes(botConfig.name) && !currentParticipants.has(prevUuid)) {
             leftCount++;
@@ -2674,11 +3636,20 @@ app.post('/api/bot/start', async (req, res) => {
               console.log(`[${timestamp}] 👋 ${userName} left after ${timeStr}`);
               console.log(`[${timestamp}] 🤖 Sending: "${goodbye}"`);
 
+              // Save departed participant for hidden listener detection
+              // If they left the room but stay in GME voice → hidden listener!
+              if (joinInfo.gme_id) {
+                instance.departedParticipants.set(joinInfo.gme_id, {
+                  name: userName, uuid: prevUuid, leftAt: leaveTime
+                });
+                console.log(`[${timestamp}] 🕵️ Tracking departed: ${userName} (GME: ${joinInfo.gme_id}) — watching for hidden listening`);
+              }
+
               setTimeout(() => {
                 sendMessageForBot(targetBotId, goodbye);
               }, 800);
 
-              // Clean up
+              // Clean up join times (but keep departed tracking)
               instance.participantJoinTimes.delete(prevUuid);
             } else {
               console.log(`[${timestamp}] 🐛 ${prevName} left but no join time found (UUID: ${prevUuid.substring(0, 20)}...)`);
@@ -2758,6 +3729,7 @@ app.post('/api/bot/start', async (req, res) => {
             locked: false,
             pin_name: speaker.pin_name || 'Unknown',
             uuid: speaker.uuid,
+            gme_id: speaker.gme_id || speaker.gme_user_id || null,
             mic_muted: speaker.mic_muted !== false,
             avatar_suit: speaker.avatar_suit,
             gift_amount: speaker.gift_amount || 0
@@ -2766,36 +3738,71 @@ app.post('/api/bot/start', async (req, res) => {
 
         console.log(`🎤 [${botConfig.name}] Speaker update: ${instance.state.speakers.filter(s => !s.locked && s.pin_name !== 'Empty').length} occupied, ${instance.state.speakers.filter(s => s.locked).length} locked, ${instance.state.speakers.filter(s => !s.locked && s.pin_name === 'Empty').length} empty`);
 
-        // AUTO-CONNECT GME: When bot is in a speaker slot, auto-join GME voice room
-        const botInSlot = instance.state.speakers.find(s => s.uuid === botConfig.user_uuid);
+        // AUTO JOIN SPEAKER SLOT + AUTO CONNECT GME
+        const botRealUuid = instance.state.botRealUuid || botConfig.user_uuid;
+        const botInSlot = instance.state.speakers.find(s =>
+          s.uuid === botConfig.user_uuid ||
+          s.uuid === botRealUuid ||
+          (s.pin_name && s.pin_name.toLowerCase() === botConfig.name.toLowerCase()) ||
+          (s.pin_name && s.pin_name.includes(botConfig.name))
+        );
+
+        // Step 1: Auto-join speaker slot if bot is not in one yet
+        // Skip if bot intentionally left (via LEAVE_SLOT command)
+        if (!botInSlot && !instance.state._autoJoiningSpeaker && !instance.state._manuallyLeftSlot && instance.state.botGmeUserId) {
+          const emptySlot = instance.state.speakers.find(s => !s.locked && s.pin_name === 'Empty');
+          if (emptySlot) {
+            instance.state._autoJoiningSpeaker = true;
+            const yellotalkPos = emptySlot.position + 1;
+            console.log(`🎤 [${botConfig.name}] Auto-joining speaker slot ${emptySlot.position} (YT pos ${yellotalkPos})...`);
+            io.emit('music-log', { type: 'info', message: `Auto-joining speaker slot ${emptySlot.position}...` });
+
+            instance.socket.emit('join_speaker', {
+              room: instance.state.currentRoom.id,
+              uuid: botConfig.user_uuid,
+              position: yellotalkPos
+            }, (response) => {
+              if (response?.result >= 200 && response?.result < 300) {
+                console.log(`✅ [${botConfig.name}] Auto-joined speaker slot ${emptySlot.position}`);
+                io.emit('music-log', { type: 'info', message: `Auto-joined speaker slot ${emptySlot.position}` });
+              } else {
+                console.log(`❌ [${botConfig.name}] Auto-join speaker failed:`, response);
+                io.emit('music-log', { type: 'error', message: `Auto-join speaker failed: ${response?.description || 'unknown'}` });
+              }
+              // Reset flag after a delay so it can retry on next speaker_changed if needed
+              setTimeout(() => { instance.state._autoJoiningSpeaker = false; }, 5000);
+            });
+          }
+        }
+
+        // Step 2: Auto-connect GME when bot IS in a speaker slot
         if (botInSlot && !instance.state._gmeAutoConnecting) {
           const gmeRoomId = String(instance.state.currentRoom?.gme_id || instance.state.currentRoom?.gmeId || '');
           const gmeUserId = instance.state.botGmeUserId ? String(instance.state.botGmeUserId) : null;
           const botRealUuid = instance.state.botRealUuid || botConfig.user_uuid;
 
           if (gmeRoomId && gmeUserId) {
-            // Check if GME bot is already in this room
             (async () => {
               try {
                 const statusResp = await axios.get(`${GME_MUSIC_BOT_URL}/status`, { timeout: 3000 });
                 const gmeStatus = statusResp.data;
 
-                // Only auto-connect if not already in a room
                 if (!gmeStatus.inRoom) {
                   instance.state._gmeAutoConnecting = true;
                   console.log(`🎵 [${botConfig.name}] Auto-connecting GME: room=${gmeRoomId}, user=${gmeUserId}, uuid=${botRealUuid}`);
+                  io.emit('music-log', { type: 'info', message: `Auto-connecting to GME voice room...` });
 
                   const joinResp = await axios.post(`${GME_MUSIC_BOT_URL}/join`, {
                     room: gmeRoomId,
-                    user: gmeUserId,       // numeric gme_user_id → Init()
-                    uuid: botRealUuid      // real UUID → GenAuthBuffer()
+                    user: gmeUserId,
+                    uuid: botRealUuid
                   }, { timeout: 20000 });
 
                   console.log(`🎵 [${botConfig.name}] Auto-connect GME result:`, joinResp.data);
-                  io.emit('music-log', { type: 'info', message: `Auto-connected to GME voice room: ${joinResp.data.success ? 'SUCCESS' : 'FAILED'} (${joinResp.data.lastError || ''})` });
+                  io.emit('music-log', { type: 'info', message: `GME voice room: ${joinResp.data.success ? 'CONNECTED' : 'FAILED'} ${joinResp.data.lastError || ''}` });
                   instance.state._gmeAutoConnecting = false;
                 } else {
-                  console.log(`🎵 [${botConfig.name}] GME already in room ${gmeStatus.room}, skipping auto-connect`);
+                  console.log(`🎵 [${botConfig.name}] GME already in room ${gmeStatus.room}, skipping`);
                 }
               } catch (err) {
                 instance.state._gmeAutoConnecting = false;
@@ -2803,8 +3810,6 @@ app.post('/api/bot/start', async (req, res) => {
                 io.emit('music-log', { type: 'error', message: `Auto-connect GME failed: ${err.message}` });
               }
             })();
-          } else {
-            console.log(`⚠️ [${botConfig.name}] Bot in speaker slot but missing GME IDs: gmeRoomId=${gmeRoomId}, gmeUserId=${gmeUserId}`);
           }
         }
 
@@ -2830,7 +3835,8 @@ app.post('/api/bot/start', async (req, res) => {
         // Save room ID before clearing (needed for clearing unavailable list)
         const endedRoomId = instance.state.currentRoom?.id;
 
-        // Emit to web portal
+        // Leave GME voice room + emit to web portal
+        leaveGMEVoiceRoom('Room ended (live_end)');
         io.emit('room-ended', {
           botId: targetBotId,
           code: data?.code,
@@ -2847,6 +3853,7 @@ app.post('/api/bot/start', async (req, res) => {
         instance.state.connected = false;
         instance.hasJoinedRoom = false;
         instance.previousParticipants = new Map();
+        instance.departedParticipants = new Map();
         instance.participantJoinTimes = new Map();
 
         // Disconnect socket fully
@@ -2999,6 +4006,7 @@ app.post('/api/bot/start', async (req, res) => {
               instance.hasJoinedRoom = false;
               instance.previousParticipants = new Map();
               instance.participantJoinTimes = new Map();
+              instance.departedParticipants = new Map();
 
               // Disconnect socket fully (prevent reconnection/orphaned listeners)
               cleanupBotSocket(instance);
@@ -3012,7 +4020,8 @@ app.post('/api/bot/start', async (req, res) => {
               clearInterval(instance.roomHealthInterval);
               instance.roomHealthInterval = null;
 
-              // Notify portal
+              // Leave GME voice room + notify portal
+              leaveGMEVoiceRoom('Room no longer exists (health check)');
               io.emit('room-ended', {
                 botId: targetBotId,
                 reason: 'Room no longer exists (health check)'
@@ -3313,7 +4322,8 @@ function setupSocketListeners(socket, roomId, bot) {
   socket.on('live_end', (data) => {
     console.log('🔚 Room ended!', data);
 
-    // Emit to web portal
+    // Leave GME voice room + emit to web portal
+    leaveGMEVoiceRoom('Room ended (legacy live_end)');
     io.emit('room-ended', {
       code: data?.code,
       description: data?.description || 'Room ended',

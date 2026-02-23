@@ -46,7 +46,8 @@ import {
   Music,
   Pause,
   SkipForward,
-  Volume1
+  Volume1,
+  Search
 } from 'lucide-react'
 import io from 'socket.io-client'
 import { useToast } from '@/hooks/use-toast'
@@ -130,9 +131,16 @@ export default function ControlPage() {
   const [musicStatus, setMusicStatus] = useState<any>({ online: false })
   const [musicFile, setMusicFile] = useState('gme-music-bot/test-audio.mp3')
   const [musicLoop, setMusicLoop] = useState(true)
-  const [musicVolume, setMusicVolume] = useState(100)
+  const [musicVolume, setMusicVolume] = useState(50)
   const [musicLogs, setMusicLogs] = useState<string[]>([])
   const [musicLoading, setMusicLoading] = useState(false)
+  const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [youtubeSearch, setYoutubeSearch] = useState('')
+  const [youtubeResults, setYoutubeResults] = useState<any[]>([])
+  const [youtubeSearching, setYoutubeSearching] = useState(false)
+  const [youtubeNowPlaying, setYoutubeNowPlaying] = useState<string | null>(null)
+  const [autoPlayEnabled, setAutoPlayEnabled] = useState(true)
+  const [voiceUsers, setVoiceUsers] = useState<any[]>([])
   const [loadingRoomUsers, setLoadingRoomUsers] = useState(false)
   const [selectedUserDetail, setSelectedUserDetail] = useState<any>(null)
 
@@ -204,6 +212,10 @@ export default function ControlPage() {
           if (state.speakers?.length > 0) {
             setSpeakers(state.speakers)
           }
+          // Fetch voice users whenever bot has participants (all participants = voice users)
+          if (state.participants?.length > 0 || state.speakers?.length > 0) {
+            fetch(`${getApiUrl()}/api/music/voice-users?botId=${botId || selectedBot}`).then(r => r.json()).then(d => setVoiceUsers(d.users || [])).catch(() => {})
+          }
         }
 
         // Reset loading state if this is the bot we're starting
@@ -232,6 +244,9 @@ export default function ControlPage() {
         setBotState(state)
         if (state.speakers?.length > 0) {
           setSpeakers(state.speakers)
+        }
+        if (state.participants?.length > 0 || state.speakers?.length > 0) {
+          fetch(`${getApiUrl()}/api/music/voice-users?botId=${selectedBot}`).then(r => r.json()).then(d => setVoiceUsers(d.users || [])).catch(() => {})
         }
       })
 
@@ -896,13 +911,15 @@ export default function ControlPage() {
 
   const musicSetVolume = async (vol: number) => {
     setMusicVolume(vol)
+    // Slider 0-100% maps to GME 0-50
+    const gmeVol = Math.round(vol * 0.5)
     try {
       await fetch(`${getApiUrl()}/api/music/volume`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vol })
+        body: JSON.stringify({ vol: gmeVol })
       })
-      addMusicLog(`Volume: ${vol}%`)
+      addMusicLog(`Volume: ${vol}% (GME: ${gmeVol})`)
     } catch (error: any) {
       addMusicLog(`Volume error: ${error.message}`)
     }
@@ -943,6 +960,75 @@ export default function ControlPage() {
     }
     setMusicLoading(false)
   }
+
+  // YouTube: Play from URL
+  const youtubePlay = async (url: string) => {
+    if (!url) return
+    setMusicLoading(true)
+    addMusicLog(`YouTube: ${url}`)
+    try {
+      const res = await fetch(`${getApiUrl()}/api/music/youtube`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, loop: false })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setYoutubeNowPlaying(data.title || url)
+        addMusicLog(`Now playing: ${data.title} (${Math.floor((data.duration || 0) / 60)}:${String((data.duration || 0) % 60).padStart(2, '0')})`)
+        toast({ title: 'Playing', description: data.title })
+      } else {
+        const errMsg = data.error || data.lastError || 'Unknown error'
+        addMusicLog(`YouTube failed: ${errMsg}`)
+        toast({ title: 'Failed', description: errMsg, variant: 'destructive' })
+      }
+      await fetchMusicStatus()
+    } catch (error: any) {
+      addMusicLog(`YouTube error: ${error.message}`)
+      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+    }
+    setMusicLoading(false)
+  }
+
+  // YouTube: Search
+  const youtubeSearchFn = async () => {
+    if (!youtubeSearch.trim()) return
+    setYoutubeSearching(true)
+    try {
+      const res = await fetch(`${getApiUrl()}/api/music/youtube/search?q=${encodeURIComponent(youtubeSearch)}&limit=5`)
+      const data = await res.json()
+      setYoutubeResults(data.results || [])
+    } catch (error: any) {
+      toast({ title: 'Search Error', description: error.message, variant: 'destructive' })
+    }
+    setYoutubeSearching(false)
+  }
+
+  const toggleAutoPlay = async () => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/music/auto-play-toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !autoPlayEnabled })
+      })
+      const data = await res.json()
+      setAutoPlayEnabled(data.enabled)
+      addMusicLog(`Auto-play ${data.enabled ? 'enabled' : 'disabled'}`)
+    } catch (error: any) {
+      addMusicLog(`Auto-play toggle failed: ${error.message}`)
+    }
+  }
+
+  const fetchVoiceUsers = async () => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/music/voice-users?botId=${selectedBot}`)
+      const data = await res.json()
+      setVoiceUsers(data.users || [])
+    } catch {
+      // silent
+    }
+  }
+
 
   const kickFromRoom = async (uuid: string, name: string) => {
     try {
@@ -2017,6 +2103,79 @@ export default function ControlPage() {
             </Card>
           )}
 
+          {/* ===== VOICE CHANNEL PARTICIPANTS ===== */}
+          {isRunning && (
+            <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <svg className="h-5 w-5 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                  Voice Channel
+                  <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                    {voiceUsers.length} in voice
+                  </Badge>
+                  {voiceUsers.filter((u: any) => u.hidden).length > 0 && (
+                    <Badge className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 animate-pulse">
+                      {voiceUsers.filter((u: any) => u.hidden).length} hidden!
+                    </Badge>
+                  )}
+                  <button onClick={fetchVoiceUsers} className="ml-auto text-xs text-blue-500 hover:text-blue-700 hover:underline">Refresh</button>
+                </CardTitle>
+                <CardDescription>Detects hidden listeners still in voice after leaving room</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* Hidden Listeners Alert */}
+                {voiceUsers.filter((u: any) => u.hidden).length > 0 && (
+                  <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                    <div className="flex items-center gap-2 text-red-700 dark:text-red-400 font-semibold text-sm mb-2">
+                      <Eye className="h-4 w-4" />
+                      Hidden Listeners Detected!
+                    </div>
+                    <div className="space-y-2">
+                      {voiceUsers.filter((u: any) => u.hidden).map((user: any, i: number) => (
+                        <div key={`hidden-${i}`} className="flex items-center gap-3 p-2.5 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700">
+                          <span className={`w-3 h-3 rounded-full flex-shrink-0 ${user.hasAudio ? 'bg-green-500 animate-pulse shadow-lg shadow-green-500/50' : 'bg-red-400 animate-pulse'}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-semibold truncate text-red-800 dark:text-red-300">
+                              {user.name || `Unknown (${user.openid})`}
+                            </div>
+                            <div className="text-[10px] text-red-500 dark:text-red-400 font-mono">
+                              GME ID: {user.openid} &middot; Left room but still in voice
+                            </div>
+                          </div>
+                          <Badge className="bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200 text-xs animate-pulse">
+                            Hidden
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Regular Voice Users */}
+                {voiceUsers.filter((u: any) => !u.hidden).length === 0 ? (
+                  <div className="text-sm text-gray-500 text-center py-4">No one connected to voice channel</div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {voiceUsers.filter((u: any) => !u.hidden).map((user: any, i: number) => (
+                      <div key={i} className={`flex items-center gap-3 p-2.5 rounded-lg border ${user.isBot ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800' : 'bg-gray-50 dark:bg-gray-800 dark:border-gray-700'}`}>
+                        <span className={`w-3 h-3 rounded-full flex-shrink-0 ${user.hasAudio ? 'bg-green-500 animate-pulse shadow-lg shadow-green-500/50' : 'bg-blue-400 dark:bg-blue-600'}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{user.name || user.openid}{user.isBot ? ' (Bot)' : ''}</div>
+                          {user.openid && <div className="text-[10px] text-gray-400 font-mono">GME ID: {user.openid}</div>}
+                        </div>
+                        {user.hasAudio ? (
+                          <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300 text-xs">Speaking</Badge>
+                        ) : (
+                          <Badge className="bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs">Listening</Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* ===== MUSIC BOT CONTROL ===== */}
           {isRunning && (
             <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
@@ -2076,26 +2235,82 @@ export default function ControlPage() {
                     </Button>
                   </div>
 
-                  {/* File Input */}
-                  <div className="flex gap-2">
-                    <Input
-                      value={musicFile}
-                      onChange={(e) => setMusicFile(e.target.value)}
-                      placeholder="Path to music file (mp3/wav/m4a)"
-                      className="flex-1 text-sm"
-                    />
-                    <div className="flex items-center gap-2">
-                      <Switch checked={musicLoop} onCheckedChange={setMusicLoop} />
-                      <Label className="text-xs whitespace-nowrap">Loop</Label>
+                  {/* YouTube - Paste URL to Play */}
+                  <div className="border rounded-lg p-3 bg-red-50 dark:bg-red-950/30 space-y-3">
+                    <div className="text-sm font-medium flex items-center gap-2">
+                      <svg className="h-4 w-4 text-red-500" viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.2a3 3 0 00-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 00.5 6.2 31.4 31.4 0 000 12a31.4 31.4 0 00.5 5.8 3 3 0 002.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 002.1-2.1c.4-1.9.5-3.8.5-5.8s-.1-3.9-.5-5.8zM9.8 15.5V8.5l6.2 3.5-6.2 3.5z"/></svg>
+                      YouTube
+                      {youtubeNowPlaying && (
+                        <span className="text-xs font-normal text-gray-500 truncate max-w-[200px]">Now: {youtubeNowPlaying}</span>
+                      )}
+                      <button
+                        onClick={toggleAutoPlay}
+                        className={`ml-auto text-xs px-2 py-0.5 rounded-full border transition-colors ${autoPlayEnabled ? 'bg-green-100 border-green-300 text-green-700 dark:bg-green-900/40 dark:border-green-700 dark:text-green-400' : 'bg-gray-100 border-gray-300 text-gray-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-400'}`}
+                      >
+                        {autoPlayEnabled ? '⏭ Auto-Play ON' : '⏭ Auto-Play OFF'}
+                      </button>
                     </div>
+
+                    {/* Paste URL */}
+                    <div className="flex gap-2">
+                      <Input
+                        value={youtubeUrl}
+                        onChange={(e) => setYoutubeUrl(e.target.value)}
+                        placeholder="Paste YouTube URL..."
+                        className="flex-1 text-sm"
+                        onKeyDown={(e) => e.key === 'Enter' && youtubePlay(youtubeUrl)}
+                      />
+                      <Button
+                        size="sm"
+                        className="bg-red-500 hover:bg-red-600 text-white"
+                        onClick={() => youtubePlay(youtubeUrl)}
+                        disabled={musicLoading || !youtubeUrl}
+                      >
+                        {musicLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Play className="h-3 w-3 mr-1" />}
+                        Play
+                      </Button>
+                    </div>
+
+                    {/* Search */}
+                    <div className="flex gap-2">
+                      <Input
+                        value={youtubeSearch}
+                        onChange={(e) => setYoutubeSearch(e.target.value)}
+                        placeholder="Search YouTube..."
+                        className="flex-1 text-sm"
+                        onKeyDown={(e) => e.key === 'Enter' && youtubeSearchFn()}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={youtubeSearchFn}
+                        disabled={youtubeSearching || !youtubeSearch.trim()}
+                      >
+                        {youtubeSearching ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+                      </Button>
+                    </div>
+
+                    {/* Search Results */}
+                    {youtubeResults.length > 0 && (
+                      <div className="space-y-1 max-h-48 overflow-y-auto">
+                        {youtubeResults.map((item: any) => (
+                          <div key={item.id} className="flex items-center gap-2 p-2 rounded hover:bg-red-100 dark:hover:bg-red-900/30 cursor-pointer group" onClick={() => { setYoutubeUrl(item.url); youtubePlay(item.url); }}>
+                            <img src={item.thumbnail} alt="" className="w-16 h-9 object-cover rounded flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-medium truncate">{item.title}</div>
+                              <div className="text-[10px] text-gray-500">{item.channel} · {Math.floor(item.duration / 60)}:{String(item.duration % 60).padStart(2, '0')}</div>
+                            </div>
+                            <Button size="sm" variant="ghost" className="opacity-0 group-hover:opacity-100 h-7 w-7 p-0">
+                              <Play className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Player Controls */}
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" className="bg-green-500 hover:bg-green-600 text-white" onClick={musicPlay} disabled={musicLoading || !musicStatus.inRoom}>
-                      <Play className="h-3 w-3 mr-1" />
-                      Play
-                    </Button>
                     <Button size="sm" variant="outline" onClick={musicPause}>
                       <Pause className="h-3 w-3 mr-1" />
                       Pause
@@ -2110,13 +2325,34 @@ export default function ControlPage() {
                     </Button>
                   </div>
 
+                  {/* Local File (collapsed) */}
+                  <details className="text-xs">
+                    <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Local file playback</summary>
+                    <div className="flex gap-2 mt-2">
+                      <Input
+                        value={musicFile}
+                        onChange={(e) => setMusicFile(e.target.value)}
+                        placeholder="Path to music file"
+                        className="flex-1 text-sm"
+                      />
+                      <div className="flex items-center gap-2">
+                        <Switch checked={musicLoop} onCheckedChange={setMusicLoop} />
+                        <Label className="text-xs whitespace-nowrap">Loop</Label>
+                      </div>
+                      <Button size="sm" className="bg-green-500 hover:bg-green-600 text-white" onClick={musicPlay} disabled={musicLoading || !musicStatus.inRoom}>
+                        <Play className="h-3 w-3 mr-1" />
+                        Play
+                      </Button>
+                    </div>
+                  </details>
+
                   {/* Volume */}
                   <div className="flex items-center gap-3">
                     <Volume1 className="h-4 w-4 text-gray-500" />
                     <input
                       type="range"
                       min={0}
-                      max={200}
+                      max={100}
                       value={musicVolume}
                       onChange={(e) => musicSetVolume(Number(e.target.value))}
                       className="flex-1 accent-purple-500"

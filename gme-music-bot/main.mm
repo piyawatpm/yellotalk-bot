@@ -37,6 +37,8 @@ static volatile bool g_running = true;
 static volatile bool g_initialized = false;
 static volatile bool g_inRoom = false;
 static volatile bool g_playing = false;
+static volatile bool g_songFinished = false;
+static volatile bool g_userStopped = false;  // true when user explicitly stops (don't trigger auto-play)
 static volatile bool g_audioEnabled = false;
 static char g_currentFile[512] = {0};
 static char g_roomId[256] = {0};
@@ -44,6 +46,19 @@ static char g_userId[256] = {0};   // Numeric gme_user_id (used for Init)
 static char g_authId[256] = {0};   // UUID string (used for GenAuthBuffer)
 static char g_lastError[512] = {0};
 static volatile int g_lastEventType = -1;
+
+// ==================== VOICE ROOM USER TRACKING ====================
+#include <vector>
+#include <string>
+#include <algorithm>
+
+struct VoiceUser {
+    std::string openid;
+    bool hasAudio;   // currently sending audio (speaking)
+};
+
+static std::vector<VoiceUser> g_voiceUsers;
+static pthread_mutex_t g_voiceUsersMutex = PTHREAD_MUTEX_INITIALIZER;
 
 // ==================== COMMAND QUEUE ====================
 // HTTP thread writes commands here, main thread executes them
@@ -67,6 +82,81 @@ struct Command {
 static Command g_cmd = {};
 static pthread_mutex_t g_cmdMutex = PTHREAD_MUTEX_INITIALIZER;
 
+// ==================== PARSE USER UPDATE ====================
+// GME USER_UPDATE data format: {"event_id":N,"user_list":["openid1","openid2"]}
+// event_id: 0=enter, 1=exit, 2=has_audio, 3=no_audio, 4=substream(video), 5=has_accompany_audio
+// Any unknown event_id with a user → treat as "user is present"
+static void parseUserUpdate(const char* data) {
+    // Parse event_id
+    const char* eidPtr = strstr(data, "\"event_id\"");
+    if (!eidPtr) return;
+    eidPtr = strchr(eidPtr, ':');
+    if (!eidPtr) return;
+    int eventId = atoi(eidPtr + 1);
+
+    // Parse user_list - find the array
+    const char* listPtr = strstr(data, "\"user_list\"");
+    if (!listPtr) listPtr = strstr(data, "\"openid_list\""); // alternate key
+    if (!listPtr) return;
+    const char* arrStart = strchr(listPtr, '[');
+    const char* arrEnd = arrStart ? strchr(arrStart, ']') : nullptr;
+    if (!arrStart || !arrEnd) return;
+
+    // Extract openids from array
+    std::vector<std::string> users;
+    const char* p = arrStart + 1;
+    while (p < arrEnd) {
+        const char* qStart = strchr(p, '"');
+        if (!qStart || qStart >= arrEnd) break;
+        const char* qEnd = strchr(qStart + 1, '"');
+        if (!qEnd || qEnd >= arrEnd) break;
+        users.push_back(std::string(qStart + 1, qEnd - qStart - 1));
+        p = qEnd + 1;
+    }
+
+    pthread_mutex_lock(&g_voiceUsersMutex);
+    for (const auto& openid : users) {
+        // Helper: ensure user exists in list
+        auto ensureUser = [&](bool audio) {
+            auto it = std::find_if(g_voiceUsers.begin(), g_voiceUsers.end(),
+                [&](const VoiceUser& u) { return u.openid == openid; });
+            if (it != g_voiceUsers.end()) {
+                it->hasAudio = audio;
+            } else {
+                g_voiceUsers.push_back({openid, audio});
+            }
+        };
+
+        switch (eventId) {
+            case 1: { // EXIT
+                g_voiceUsers.erase(
+                    std::remove_if(g_voiceUsers.begin(), g_voiceUsers.end(),
+                        [&](const VoiceUser& u) { return u.openid == openid; }),
+                    g_voiceUsers.end());
+                printf("👥 [GME] User EXITED voice: %s (total: %zu)\n", openid.c_str(), g_voiceUsers.size());
+                break;
+            }
+            case 3: { // NO_AUDIO (stopped speaking)
+                ensureUser(false);
+                printf("🔇 [GME] User SILENT: %s\n", openid.c_str());
+                break;
+            }
+            case 2: { // HAS_AUDIO (speaking)
+                ensureUser(true);
+                printf("🎙 [GME] User SPEAKING: %s\n", openid.c_str());
+                break;
+            }
+            default: { // 0=enter, 4=substream, 5=accompany, any other = user is present
+                ensureUser(eventId == 2 || eventId == 5);
+                printf("👥 [GME] User event %d: %s (total: %zu)\n", eventId, openid.c_str(), g_voiceUsers.size());
+                break;
+            }
+        }
+    }
+    pthread_mutex_unlock(&g_voiceUsersMutex);
+    fflush(stdout);
+}
+
 // ==================== GME DELEGATE ====================
 class GMEDelegate : public ITMGDelegate {
 public:
@@ -78,6 +168,18 @@ public:
                 fflush(stdout);
                 g_inRoom = true;
                 g_lastError[0] = 0;
+                // Add self to voice users list
+                {
+                    pthread_mutex_lock(&g_voiceUsersMutex);
+                    std::string selfId(g_userId);
+                    auto it = std::find_if(g_voiceUsers.begin(), g_voiceUsers.end(),
+                        [&](const VoiceUser& u) { return u.openid == selfId; });
+                    if (it == g_voiceUsers.end() && selfId.length() > 0) {
+                        g_voiceUsers.push_back({selfId, false});
+                        printf("👥 [GME] Self added to voice users: %s\n", selfId.c_str());
+                    }
+                    pthread_mutex_unlock(&g_voiceUsersMutex);
+                }
                 enableAudioInternal();
                 break;
             case ITMG_MAIN_EVENT_TYPE_EXIT_ROOM:
@@ -85,22 +187,36 @@ public:
                 fflush(stdout);
                 g_inRoom = false;
                 g_audioEnabled = false;
+                pthread_mutex_lock(&g_voiceUsersMutex);
+                g_voiceUsers.clear();
+                pthread_mutex_unlock(&g_voiceUsersMutex);
                 break;
             case ITMG_MAIN_EVENT_TYPE_ROOM_DISCONNECT:
                 printf("⚠️  [GME] Room disconnected: %s\n", data ? data : "null");
                 fflush(stdout);
                 g_inRoom = false;
                 g_audioEnabled = false;
+                pthread_mutex_lock(&g_voiceUsersMutex);
+                g_voiceUsers.clear();
+                pthread_mutex_unlock(&g_voiceUsersMutex);
                 snprintf(g_lastError, sizeof(g_lastError), "Room disconnected: %s", data ? data : "unknown");
                 break;
-            case ITMG_MAIN_EVNET_TYPE_USER_UPDATE:
+            case ITMG_MAIN_EVNET_TYPE_USER_UPDATE: {
                 printf("👥 [GME] User update: %s\n", data ? data : "null");
                 fflush(stdout);
+                if (data) {
+                    parseUserUpdate(data);
+                }
                 break;
+            }
             case ITMG_MAIN_EVENT_TYPE_ACCOMPANY_FINISH:
-                printf("🎵 [GME] Accompaniment finished\n");
+                printf("🎵 [GME] Accompaniment finished (userStopped=%d)\n", (int)g_userStopped);
                 fflush(stdout);
                 g_playing = false;
+                if (!g_userStopped) {
+                    g_songFinished = true; // Only trigger auto-play for natural endings
+                }
+                g_userStopped = false;
                 break;
             default:
                 printf("📡 [GME] Event %d: %s\n", eventType, data ? data : "null");
@@ -120,8 +236,15 @@ public:
             audioCtrl->EnableAudioSend(true);            // Enable sending to room
             audioCtrl->SetMicVolume(0);                  // Mute actual mic so Mac ambient sound doesn't leak
             audioCtrl->EnableSpeaker(true);              // Enable receiving + playback
+
+            // Set default accompaniment volume (5 = 50% on portal slider)
+            ITMGAudioEffectCtrl* effectCtrl = context->GetAudioEffectCtrl();
+            if (effectCtrl) {
+                effectCtrl->SetAccompanyVolume(5);
+            }
+
             g_audioEnabled = true;
-            printf("🎤 [GME] Audio enabled (mic muted, accompaniment only)\n");
+            printf("🎤 [GME] Audio enabled (mic muted, accompany vol=5)\n");
             fflush(stdout);
         }
     }
@@ -205,10 +328,11 @@ bool enterRoom(const char* roomId, const char* authUserId) {
     }
 
     printf("🔑 [GME] AuthBuffer: %d bytes, authId=%s\n", authLen, authId);
-    printf("🚪 [GME] EnterRoom: room=%s, initUser=%s, authUser=%s, type=FLUENCY\n", roomId, g_userId, authId);
+    printf("🚪 [GME] EnterRoom: room=%s, initUser=%s, authUser=%s, type=HIGHQUALITY\n", roomId, g_userId, authId);
     fflush(stdout);
 
-    int ret = context->EnterRoom(roomId, ITMG_ROOM_TYPE_FLUENCY, (const char*)authBuffer, authLen);
+    // FLUENCY(1)=voice, STANDARD(2)=balanced, HIGHQUALITY(3)=best for music
+    int ret = context->EnterRoom(roomId, ITMG_ROOM_TYPE_HIGHQUALITY, (const char*)authBuffer, authLen);
     if (ret != 0) {
         snprintf(g_lastError, sizeof(g_lastError), "EnterRoom returned: %d", ret);
         printf("❌ %s\n", g_lastError); fflush(stdout);
@@ -245,6 +369,7 @@ bool playMusic(const char* filePath, bool loop) {
     }
     strncpy(g_currentFile, filePath, sizeof(g_currentFile) - 1);
     g_playing = true;
+    g_userStopped = false;
     g_lastError[0] = 0;
     printf("🎵 [GME] Playing: %s (loop=%s)\n", filePath, loop ? "yes" : "no");
     fflush(stdout);
@@ -256,6 +381,7 @@ void stopMusic() {
     if (!context) return;
     ITMGAudioEffectCtrl* effectCtrl = context->GetAudioEffectCtrl();
     if (effectCtrl) {
+        g_userStopped = true; // Don't trigger auto-play on explicit stop
         effectCtrl->StopAccompany(0);
         g_playing = false;
         printf("⏹  [GME] Stopped\n"); fflush(stdout);
@@ -408,7 +534,7 @@ void handleHTTPRequest(int clientFd) {
     char* body = strstr(buffer, "\r\n\r\n");
     if (body) body += 4;
 
-    char response[2048] = {0};
+    char response[8192] = {0};
 
     // Helper to extract JSON string value
     auto extractStr = [](const char* body, const char* key, char* out, size_t outLen) {
@@ -428,15 +554,18 @@ void handleHTTPRequest(int clientFd) {
     };
 
     if (strcmp(path, "/status") == 0) {
+        pthread_mutex_lock(&g_voiceUsersMutex);
+        size_t voiceUserCount = g_voiceUsers.size();
+        pthread_mutex_unlock(&g_voiceUsersMutex);
         snprintf(response, sizeof(response),
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n"
             "{\"initialized\":%s,\"inRoom\":%s,\"playing\":%s,\"audioEnabled\":%s,"
-            "\"room\":\"%s\",\"user\":\"%s\",\"authId\":\"%s\",\"file\":\"%s\",\"lastError\":\"%s\",\"lastEvent\":%d}",
+            "\"room\":\"%s\",\"user\":\"%s\",\"authId\":\"%s\",\"file\":\"%s\",\"lastError\":\"%s\",\"lastEvent\":%d,\"voiceUsers\":%zu}",
             g_initialized ? "true" : "false",
             g_inRoom ? "true" : "false",
             g_playing ? "true" : "false",
             g_audioEnabled ? "true" : "false",
-            g_roomId, g_userId, g_authId, g_currentFile, g_lastError, g_lastEventType);
+            g_roomId, g_userId, g_authId, g_currentFile, g_lastError, g_lastEventType, voiceUserCount);
     }
     else if (strcmp(path, "/join") == 0 && body) {
         // Parse: {"room":"xxx","user":"numeric","uuid":"real-uuid"}
@@ -530,10 +659,28 @@ void handleHTTPRequest(int clientFd) {
             g_cmd.resultMsg);
         pthread_mutex_unlock(&g_cmdMutex);
     }
+    else if (strcmp(path, "/voice-users") == 0) {
+        // Build JSON array of voice room users
+        pthread_mutex_lock(&g_voiceUsersMutex);
+        std::string json = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n"
+                           "{\"count\":";
+        json += std::to_string(g_voiceUsers.size());
+        json += ",\"users\":[";
+        for (size_t i = 0; i < g_voiceUsers.size(); i++) {
+            if (i > 0) json += ",";
+            json += "{\"openid\":\"" + g_voiceUsers[i].openid + "\",\"speaking\":" + (g_voiceUsers[i].hasAudio ? "true" : "false") + "}";
+        }
+        json += "]}";
+        pthread_mutex_unlock(&g_voiceUsersMutex);
+        // Use json string directly since it may exceed fixed buffer
+        write(clientFd, json.c_str(), json.size());
+        close(clientFd);
+        return;
+    }
     else {
         snprintf(response, sizeof(response),
             "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n"
-            "{\"endpoints\":[\"/status\",\"/join\",\"/play\",\"/stop\",\"/pause\",\"/resume\",\"/volume\",\"/leave\"]}");
+            "{\"endpoints\":[\"/status\",\"/join\",\"/play\",\"/stop\",\"/pause\",\"/resume\",\"/volume\",\"/leave\",\"/voice-users\"]}");
     }
 
     write(clientFd, response, strlen(response));
@@ -642,6 +789,32 @@ int main(int argc, char* argv[]) {
                 printf("🔄 [Main] Processing command type=%d\n", g_cmd.type); fflush(stdout);
                 processCommand(&g_cmd);
                 g_cmd.done = true; // Signal HTTP thread that we're done
+            }
+
+            // Notify Node.js when a song finishes (async HTTP callback)
+            if (g_songFinished) {
+                g_songFinished = false;
+                NSString *fileStr = [NSString stringWithUTF8String:g_currentFile];
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    @autoreleasepool {
+                        NSURL *url = [NSURL URLWithString:@"http://localhost:5353/api/music/song-ended"];
+                        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+                        request.HTTPMethod = @"POST";
+                        [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+                        NSString *body = [NSString stringWithFormat:@"{\"file\":\"%@\"}", fileStr];
+                        request.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
+                        NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request
+                            completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                                if (error) {
+                                    printf("⚠️ [GME] Song-ended callback failed: %s\n", error.localizedDescription.UTF8String);
+                                } else {
+                                    printf("✅ [GME] Song-ended callback sent\n");
+                                }
+                                fflush(stdout);
+                            }];
+                        [task resume];
+                    }
+                });
             }
 
             usleep(33000); // ~30fps poll rate

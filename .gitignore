@@ -47,3 +47,23 @@ dist/
 # Temporary files
 *.tmp
 *.temp
+
+# APK / SDK files
+*.apk
+*.zip
+apk-decompiled/
+gme-sdk/
+gme-mac-sdk/
+
+# Music cache
+music-cache/
+
+# GME compiled binary
+gme-music-bot/gme-music-bot
+
+# Start scripts (local only)
+start.sh
+start-services.sh
+
+# Yarn
+yarn.lock
