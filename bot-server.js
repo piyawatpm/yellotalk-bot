@@ -2226,6 +2226,12 @@ async function downloadYouTubeAudio(url, botId) {
     let stderr = '';
     let lastProgressMsg = 0; // Throttle chat messages
 
+    proc.on('error', (err) => {
+      console.log(`❌ [yt-dlp] Spawn error: ${err.message}`);
+      io.emit('music-log', { type: 'error', message: `yt-dlp not found. Install: sudo apt install yt-dlp ffmpeg` });
+      return reject(new Error(`yt-dlp not found. Install with: sudo apt install yt-dlp ffmpeg`));
+    });
+
     proc.stdout.on('data', (data) => {
       stdout += data.toString();
       const line = data.toString().trim();

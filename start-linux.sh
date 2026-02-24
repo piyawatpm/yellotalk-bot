@@ -65,6 +65,19 @@ if [ "$SKIP_DEPS" = false ]; then
     check_pkg "libcurl4-openssl-dev"
     check_pkg "zlib1g-dev"
     check_pkg "python3"
+    check_pkg "ffmpeg"
+
+    # Check for yt-dlp (needed for YouTube music playback)
+    if ! command -v yt-dlp &>/dev/null; then
+        echo -e "${YELLOW}  yt-dlp not found, installing...${NC}"
+        sudo apt update -qq
+        sudo apt install -y yt-dlp 2>/dev/null || {
+            # Fallback: install via pip if apt version is too old
+            echo -e "  apt version unavailable, installing via pip..."
+            pip3 install --break-system-packages yt-dlp 2>/dev/null || pip3 install yt-dlp
+        }
+    fi
+    echo -e "  yt-dlp: $(yt-dlp --version 2>/dev/null || echo 'not found')"
 
     # Check for node
     if ! command -v node &>/dev/null; then

@@ -199,6 +199,39 @@ void* __memset_chk(void* dst, int c, size_t n, size_t dst_len) {
     return memset(dst, c, n);
 }
 
+/* ===== Android system property stubs ===== */
+/* Android SDK may call __system_property_get to read device info.
+ * We return empty strings so the SDK doesn't crash. */
+struct prop_info;
+
+__attribute__((visibility("default")))
+int __system_property_get(const char* name, char* value) {
+    if (value) value[0] = '\0';
+    return 0;
+}
+
+__attribute__((visibility("default")))
+const struct prop_info* __system_property_find(const char* name) {
+    (void)name;
+    return NULL;
+}
+
+__attribute__((visibility("default")))
+int __system_property_set(const char* key, const char* value) {
+    (void)key; (void)value;
+    return 0;
+}
+
+__attribute__((visibility("default")))
+void __system_property_read_callback(
+    const struct prop_info* pi,
+    void (*callback)(void* cookie, const char* name, const char* value, unsigned serial),
+    void* cookie)
+{
+    (void)pi;
+    if (callback) callback(cookie, "", "", 0);
+}
+
 /* ===== __vsnprintf_chk / __vsprintf_chk (bionic fortify) ===== */
 __attribute__((visibility("default")))
 int __vsnprintf_chk(char* dst, size_t size, int flags, size_t dst_len, const char* fmt, va_list ap) {
