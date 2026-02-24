@@ -1752,23 +1752,35 @@ function killGmeProcess(botId) {
   console.log(`🎵 [GME:${botId}] Killing GME process (port ${entry.port})`);
   try {
     entry.process.kill('SIGTERM');
+    // Force kill after 3s if still alive
+    setTimeout(() => {
+      try { entry.process.kill('SIGKILL'); } catch (e) {}
+    }, 3000);
   } catch (e) {
     console.log(`⚠️ [GME:${botId}] Kill error: ${e.message}`);
   }
   gmeProcessMap.delete(botId);
+  // Free the port for reuse
+  gmePortMap.delete(botId);
 }
 
-async function waitForGmeReady(botId, timeout = 10000) {
+async function waitForGmeReady(botId, timeout = 20000) {
   const url = getGmeUrl(botId);
   if (!url) return false;
 
   const start = Date.now();
   while (Date.now() - start < timeout) {
+    // Check if process is still alive
+    const entry = gmeProcessMap.get(botId);
+    if (!entry || entry.process.killed || entry.process.exitCode !== null) {
+      console.log(`⚠️ [GME:${botId}] Process died while waiting for ready`);
+      return false;
+    }
     try {
       await axios.get(`${url}/status`, { timeout: 1000 });
       return true;
     } catch (e) {
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 500));
     }
   }
   return false;
@@ -1784,7 +1796,9 @@ async function ensureGmeProcess(botId) {
     } catch (e) {
       // Process dead, clean up and respawn
       console.log(`⚠️ [GME:${botId}] Process seems dead, respawning...`);
-      gmeProcessMap.delete(botId);
+      killGmeProcess(botId);
+      // Wait for port to be freed
+      await new Promise(r => setTimeout(r, 1000));
     }
   }
 
