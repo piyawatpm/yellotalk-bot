@@ -24,17 +24,17 @@ ABS_SDK_LIB="$(cd "$SDK_PATH/lib" && pwd)"
 # Compile: link against the patched GME .so files + bionic compat
 # --disable-new-dtags: use DT_RPATH (inherited by deps) instead of DT_RUNPATH
 # -rpath-link: help linker find deps of shared libs at link time
+# SDK is loaded at runtime via dlopen() — NOT linked at compile time.
+# This prevents crashes from Android .so constructors during binary loading.
+# Only link system libs + set rpath so dlopen() can find the .so files.
 g++ -std=c++17 \
     main_linux.cpp \
     -o gme-music-bot-linux \
     -I "$SDK_PATH/include" \
-    -L "$SDK_PATH/lib" \
-    -lgmesdk -lgmefdkaac -lgmelamemp3 -lgmeogg -lgmefaad2 -lgmesoundtouch \
-    -lbionic_compat -llog \
     -lcurl -lpthread -ldl -lz -lm \
     -Wl,-rpath,'$ORIGIN/../gme-linux-sdk/lib' \
     -Wl,--disable-new-dtags \
-    -Wl,-rpath-link,"$ABS_SDK_LIB" \
+    -rdynamic \
     2>&1
 
 if [ $? -eq 0 ]; then

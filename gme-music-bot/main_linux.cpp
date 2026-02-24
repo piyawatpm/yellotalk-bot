@@ -6,6 +6,10 @@
  * HTTP thread only parses requests and queues commands.
  * Main thread loop processes commands + calls Poll().
  *
+ * SDK LOADING: On Linux, the GME SDK (.so files from Android) are loaded
+ * at runtime via dlopen(), NOT linked at compile time. This ensures main()
+ * starts safely and we get proper error messages if loading fails.
+ *
  * Controlled via HTTP (default port 9876, override with --port):
  *   POST /join    {"room": "gme_room_id", "user": "numeric_gme_id", "uuid": "real_uuid"}
  *   POST /play    {"file": "path/to/song.mp3", "loop": true}
@@ -40,18 +44,119 @@ static int g_httpPort = 9876;
 static char g_botId[128] = {0};
 static char g_callbackUrl[512] = "http://localhost:5353/api/music/song-ended";
 
+// ==================== RUNTIME SDK LOADING ====================
+// Load GME SDK via dlopen to avoid crashes during static library loading.
+// The Android .so files may have constructors that crash before main().
+
+typedef ITMGContext* (*FnGetInstance)();
+typedef int (*FnGenAuthBuffer)(int, const char*, const char*, const char*, unsigned char*, int);
+
+static FnGetInstance pfnGetInstance = nullptr;
+static FnGenAuthBuffer pfnGenAuthBuffer = nullptr;
+static void* g_sdkHandle = nullptr;
+
+// Wrapper that uses dlopen'd function pointer
+static ITMGContext* GetGMEContext() {
+    if (pfnGetInstance) return pfnGetInstance();
+    return nullptr;
+}
+
+bool loadGMESDK() {
+    printf("[SDK] Loading GME SDK via dlopen...\n"); fflush(stdout);
+
+    // First load our stubs so they're available when libgmesdk.so resolves deps
+    void* logHandle = dlopen("liblog.so", RTLD_NOW | RTLD_GLOBAL);
+    if (!logHandle) printf("[SDK] Note: liblog.so: %s\n", dlerror());
+    else printf("[SDK] liblog.so loaded\n");
+
+    void* bionicHandle = dlopen("libbionic_compat.so", RTLD_NOW | RTLD_GLOBAL);
+    if (!bionicHandle) printf("[SDK] Note: libbionic_compat.so: %s\n", dlerror());
+    else printf("[SDK] libbionic_compat.so loaded\n");
+
+    void* openslHandle = dlopen("libOpenSLES.so", RTLD_NOW | RTLD_GLOBAL);
+    if (!openslHandle) printf("[SDK] Note: libOpenSLES.so: %s\n", dlerror());
+    else printf("[SDK] libOpenSLES.so loaded\n");
+
+    fflush(stdout);
+
+    // Load codec libraries first (dependencies of libgmesdk.so)
+    const char* codecLibs[] = {
+        "libgmeogg.so", "libgmefdkaac.so", "libgmelamemp3.so",
+        "libgmefaad2.so", "libgmesoundtouch.so", NULL
+    };
+    for (int i = 0; codecLibs[i]; i++) {
+        void* h = dlopen(codecLibs[i], RTLD_NOW | RTLD_GLOBAL);
+        if (!h) {
+            printf("[SDK] WARNING: %s: %s\n", codecLibs[i], dlerror());
+        } else {
+            printf("[SDK] %s loaded\n", codecLibs[i]);
+        }
+    }
+    fflush(stdout);
+
+    // Now load the main SDK
+    printf("[SDK] Loading libgmesdk.so...\n"); fflush(stdout);
+    g_sdkHandle = dlopen("libgmesdk.so", RTLD_NOW | RTLD_GLOBAL);
+    if (!g_sdkHandle) {
+        printf("[SDK] FATAL: Cannot load libgmesdk.so: %s\n", dlerror());
+        fflush(stdout);
+        return false;
+    }
+    printf("[SDK] libgmesdk.so loaded OK!\n"); fflush(stdout);
+
+    // Resolve ITMGContextGetInstance
+    pfnGetInstance = (FnGetInstance)dlsym(g_sdkHandle, "ITMGContextGetInstance");
+    if (!pfnGetInstance) {
+        // Try C++ mangled name
+        pfnGetInstance = (FnGetInstance)dlsym(g_sdkHandle, "_Z21ITMGContextGetInstancev");
+    }
+    if (!pfnGetInstance) {
+        printf("[SDK] FATAL: Cannot find ITMGContextGetInstance symbol\n");
+        fflush(stdout);
+        return false;
+    }
+    printf("[SDK] ITMGContextGetInstance: resolved\n"); fflush(stdout);
+
+    // Resolve GenAuthBuffer
+    pfnGenAuthBuffer = (FnGenAuthBuffer)dlsym(g_sdkHandle, "QAVSDK_AuthBuffer_GenAuthBuffer");
+    if (!pfnGenAuthBuffer) {
+        pfnGenAuthBuffer = (FnGenAuthBuffer)dlsym(g_sdkHandle, "_Z32QAVSDK_AuthBuffer_GenAuthBufferiPKcS0_S0_Phi");
+    }
+    if (!pfnGenAuthBuffer) {
+        printf("[SDK] WARNING: Cannot find QAVSDK_AuthBuffer_GenAuthBuffer (will fail on EnterRoom)\n");
+    } else {
+        printf("[SDK] QAVSDK_AuthBuffer_GenAuthBuffer: resolved\n");
+    }
+    fflush(stdout);
+
+    // Test: call ITMGContextGetInstance
+    printf("[SDK] Calling ITMGContextGetInstance()...\n"); fflush(stdout);
+    ITMGContext* ctx = pfnGetInstance();
+    printf("[SDK] ITMGContextGetInstance() returned: %p\n", (void*)ctx); fflush(stdout);
+
+    if (!ctx) {
+        printf("[SDK] FATAL: ITMGContextGetInstance returned NULL\n");
+        fflush(stdout);
+        return false;
+    }
+
+    printf("[SDK] GME SDK loaded and initialized successfully!\n"); fflush(stdout);
+    return true;
+}
+
 // ==================== GLOBAL STATE ====================
 static volatile bool g_running = true;
+static volatile bool g_sdkLoaded = false;
 static volatile bool g_initialized = false;
 static volatile bool g_inRoom = false;
 static volatile bool g_playing = false;
 static volatile bool g_songFinished = false;
-static volatile bool g_userStopped = false;  // true when user explicitly stops (don't trigger auto-play)
+static volatile bool g_userStopped = false;
 static volatile bool g_audioEnabled = false;
 static char g_currentFile[512] = {0};
 static char g_roomId[256] = {0};
-static char g_userId[256] = {0};   // Numeric gme_user_id (used for Init)
-static char g_authId[256] = {0};   // UUID string (used for GenAuthBuffer)
+static char g_userId[256] = {0};
+static char g_authId[256] = {0};
 static char g_lastError[512] = {0};
 static volatile int g_lastEventType = -1;
 
@@ -62,27 +167,25 @@ static volatile int g_lastEventType = -1;
 
 struct VoiceUser {
     std::string openid;
-    bool hasAudio;   // currently sending audio (speaking)
+    bool hasAudio;
 };
 
 static std::vector<VoiceUser> g_voiceUsers;
 static pthread_mutex_t g_voiceUsersMutex = PTHREAD_MUTEX_INITIALIZER;
 
 // ==================== COMMAND QUEUE ====================
-// HTTP thread writes commands here, main thread executes them
 enum CmdType { CMD_NONE = 0, CMD_JOIN, CMD_LEAVE, CMD_PLAY, CMD_STOP, CMD_PAUSE, CMD_RESUME, CMD_VOLUME };
 
 struct Command {
     volatile CmdType type;
     char room[256];
-    char user[256];    // numeric gme_user_id for Init
-    char uuid[256];    // real UUID for GenAuthBuffer
+    char user[256];
+    char uuid[256];
     char file[512];
     bool loop;
     int volume;
-    // Result
-    volatile bool pending;   // HTTP thread sets true, main thread sets false
-    volatile bool done;      // main thread sets true when finished
+    volatile bool pending;
+    volatile bool done;
     volatile bool success;
     char resultMsg[1024];
 };
@@ -91,26 +194,20 @@ static Command g_cmd = {};
 static pthread_mutex_t g_cmdMutex = PTHREAD_MUTEX_INITIALIZER;
 
 // ==================== PARSE USER UPDATE ====================
-// GME USER_UPDATE data format: {"event_id":N,"user_list":["openid1","openid2"]}
-// event_id: 0=enter, 1=exit, 2=has_audio, 3=no_audio, 4=substream(video), 5=has_accompany_audio
-// Any unknown event_id with a user -> treat as "user is present"
 static void parseUserUpdate(const char* data) {
-    // Parse event_id
     const char* eidPtr = strstr(data, "\"event_id\"");
     if (!eidPtr) return;
     eidPtr = strchr(eidPtr, ':');
     if (!eidPtr) return;
     int eventId = atoi(eidPtr + 1);
 
-    // Parse user_list - find the array
     const char* listPtr = strstr(data, "\"user_list\"");
-    if (!listPtr) listPtr = strstr(data, "\"openid_list\""); // alternate key
+    if (!listPtr) listPtr = strstr(data, "\"openid_list\"");
     if (!listPtr) return;
     const char* arrStart = strchr(listPtr, '[');
     const char* arrEnd = arrStart ? strchr(arrStart, ']') : nullptr;
     if (!arrStart || !arrEnd) return;
 
-    // Extract openids from array
     std::vector<std::string> users;
     const char* p = arrStart + 1;
     while (p < arrEnd) {
@@ -124,7 +221,6 @@ static void parseUserUpdate(const char* data) {
 
     pthread_mutex_lock(&g_voiceUsersMutex);
     for (const auto& openid : users) {
-        // Helper: ensure user exists in list
         auto ensureUser = [&](bool audio) {
             auto it = std::find_if(g_voiceUsers.begin(), g_voiceUsers.end(),
                 [&](const VoiceUser& u) { return u.openid == openid; });
@@ -136,7 +232,7 @@ static void parseUserUpdate(const char* data) {
         };
 
         switch (eventId) {
-            case 1: { // EXIT
+            case 1: {
                 g_voiceUsers.erase(
                     std::remove_if(g_voiceUsers.begin(), g_voiceUsers.end(),
                         [&](const VoiceUser& u) { return u.openid == openid; }),
@@ -144,17 +240,17 @@ static void parseUserUpdate(const char* data) {
                 printf("[GME] User EXITED voice: %s (total: %zu)\n", openid.c_str(), g_voiceUsers.size());
                 break;
             }
-            case 3: { // NO_AUDIO (stopped speaking)
+            case 3: {
                 ensureUser(false);
                 printf("[GME] User SILENT: %s\n", openid.c_str());
                 break;
             }
-            case 2: { // HAS_AUDIO (speaking)
+            case 2: {
                 ensureUser(true);
                 printf("[GME] User SPEAKING: %s\n", openid.c_str());
                 break;
             }
-            default: { // 0=enter, 4=substream, 5=accompany, any other = user is present
+            default: {
                 ensureUser(eventId == 2 || eventId == 5);
                 printf("[GME] User event %d: %s (total: %zu)\n", eventId, openid.c_str(), g_voiceUsers.size());
                 break;
@@ -176,7 +272,6 @@ public:
                 fflush(stdout);
                 g_inRoom = true;
                 g_lastError[0] = 0;
-                // Add self to voice users list
                 {
                     pthread_mutex_lock(&g_voiceUsersMutex);
                     std::string selfId(g_userId);
@@ -222,7 +317,7 @@ public:
                 fflush(stdout);
                 g_playing = false;
                 if (!g_userStopped) {
-                    g_songFinished = true; // Only trigger auto-play for natural endings
+                    g_songFinished = true;
                 }
                 g_userStopped = false;
                 break;
@@ -234,18 +329,15 @@ public:
     }
 
     static void enableAudioInternal() {
-        ITMGContext* context = ITMGContextGetInstance();
+        ITMGContext* context = GetGMEContext();
         if (!context) return;
         ITMGAudioCtrl* audioCtrl = context->GetAudioCtrl();
         if (audioCtrl) {
-            // Enable audio pipeline for accompaniment to transmit
-            // EnableMic = EnableAudioCaptureDevice + EnableAudioSend
-            audioCtrl->EnableAudioCaptureDevice(true);  // Open audio engine (needed for accompaniment uplink)
-            audioCtrl->EnableAudioSend(true);            // Enable sending to room
-            audioCtrl->SetMicVolume(0);                  // Mute actual mic so ambient sound doesn't leak
-            audioCtrl->EnableSpeaker(true);              // Enable receiving + playback
+            audioCtrl->EnableAudioCaptureDevice(true);
+            audioCtrl->EnableAudioSend(true);
+            audioCtrl->SetMicVolume(0);
+            audioCtrl->EnableSpeaker(true);
 
-            // Set default accompaniment volume (5 = 50% on portal slider)
             ITMGAudioEffectCtrl* effectCtrl = context->GetAudioEffectCtrl();
             if (effectCtrl) {
                 effectCtrl->SetAccompanyVolume(5);
@@ -263,20 +355,18 @@ static GMEDelegate g_delegate;
 // ==================== GME OPERATIONS (MAIN THREAD ONLY) ====================
 
 bool initGME(const char* userId) {
-    ITMGContext* context = ITMGContextGetInstance();
+    ITMGContext* context = GetGMEContext();
     if (!context) {
         snprintf(g_lastError, sizeof(g_lastError), "Failed to get GME context");
         return false;
     }
 
-    // If already initialized with same user, skip
     if (g_initialized && strcmp(g_userId, userId) == 0) {
         printf("[GME] Already initialized with user %s, skipping\n", userId);
         fflush(stdout);
         return true;
     }
 
-    // Uninit first if dirty state
     if (g_initialized || g_lastEventType >= 0) {
         printf("[GME] Uninitializing before re-init...\n");
         fflush(stdout);
@@ -315,19 +405,22 @@ bool initGME(const char* userId) {
 }
 
 bool enterRoom(const char* roomId, const char* authUserId) {
-    ITMGContext* context = ITMGContextGetInstance();
+    ITMGContext* context = GetGMEContext();
     if (!context) return false;
 
-    // APK JOINER flow:
-    //   Init(appId, numericGmeUserId)
-    //   GenAuthBuffer(GME_KEY, gmeRoomId, uuid, GME_SECRET)  <- UUID for auth
-    //   EnterRoom(gmeRoomId, FLUENCY, authBuffer)
     const char* authId = (authUserId && strlen(authUserId) > 0) ? authUserId : g_userId;
 
     unsigned char authBuffer[512] = {0};
-    int authLen = QAVSDK_AuthBuffer_GenAuthBuffer(
-        1400113874, roomId, authId, GME_APP_KEY, authBuffer, sizeof(authBuffer)
-    );
+    int authLen = 0;
+    if (pfnGenAuthBuffer) {
+        authLen = pfnGenAuthBuffer(
+            1400113874, roomId, authId, GME_APP_KEY, authBuffer, sizeof(authBuffer)
+        );
+    } else {
+        snprintf(g_lastError, sizeof(g_lastError), "GenAuthBuffer not available (symbol not found)");
+        printf("[GME] %s\n", g_lastError); fflush(stdout);
+        return false;
+    }
 
     if (authLen <= 0) {
         snprintf(g_lastError, sizeof(g_lastError), "GenAuthBuffer failed (authLen=%d, authId=%s)", authLen, authId);
@@ -339,7 +432,6 @@ bool enterRoom(const char* roomId, const char* authUserId) {
     printf("[GME] EnterRoom: room=%s, initUser=%s, authUser=%s, type=HIGHQUALITY\n", roomId, g_userId, authId);
     fflush(stdout);
 
-    // FLUENCY(1)=voice, STANDARD(2)=balanced, HIGHQUALITY(3)=best for music
     int ret = context->EnterRoom(roomId, ITMG_ROOM_TYPE_HIGHQUALITY, (const char*)authBuffer, authLen);
     if (ret != 0) {
         snprintf(g_lastError, sizeof(g_lastError), "EnterRoom returned: %d", ret);
@@ -355,7 +447,7 @@ bool enterRoom(const char* roomId, const char* authUserId) {
 }
 
 bool playMusic(const char* filePath, bool loop) {
-    ITMGContext* context = ITMGContextGetInstance();
+    ITMGContext* context = GetGMEContext();
     if (!context || !g_inRoom) {
         snprintf(g_lastError, sizeof(g_lastError), "Not in room (inRoom=%d, init=%d)", (int)g_inRoom, (int)g_initialized);
         return false;
@@ -385,11 +477,11 @@ bool playMusic(const char* filePath, bool loop) {
 }
 
 void stopMusic() {
-    ITMGContext* context = ITMGContextGetInstance();
+    ITMGContext* context = GetGMEContext();
     if (!context) return;
     ITMGAudioEffectCtrl* effectCtrl = context->GetAudioEffectCtrl();
     if (effectCtrl) {
-        g_userStopped = true; // Don't trigger auto-play on explicit stop
+        g_userStopped = true;
         effectCtrl->StopAccompany(0);
         g_playing = false;
         printf("[GME] Stopped\n"); fflush(stdout);
@@ -399,18 +491,16 @@ void stopMusic() {
 // ==================== MAIN THREAD: PROCESS COMMANDS ====================
 
 void processCommand(Command* cmd) {
-    ITMGContext* ctx = ITMGContextGetInstance();
+    ITMGContext* ctx = GetGMEContext();
 
     switch (cmd->type) {
         case CMD_JOIN: {
-            // Step 1: Leave current room if needed
             if (g_inRoom) {
                 printf("[GME] Leaving current room first...\n"); fflush(stdout);
                 ctx->ExitRoom();
                 for (int i = 0; i < 20 && g_inRoom; i++) { ctx->Poll(); usleep(100000); }
             }
 
-            // Step 2: Init with numeric gme_user_id
             if (!initGME(cmd->user)) {
                 cmd->success = false;
                 snprintf(cmd->resultMsg, sizeof(cmd->resultMsg),
@@ -418,7 +508,6 @@ void processCommand(Command* cmd) {
                 break;
             }
 
-            // Step 3: Enter room (GenAuthBuffer uses UUID)
             const char* authId = strlen(cmd->uuid) > 0 ? cmd->uuid : cmd->user;
             if (!enterRoom(cmd->room, authId)) {
                 cmd->success = false;
@@ -427,7 +516,6 @@ void processCommand(Command* cmd) {
                 break;
             }
 
-            // Step 4: Wait for room entry callback (up to 10s, polling on main thread)
             for (int i = 0; i < 100 && !g_inRoom; i++) {
                 ctx->Poll();
                 usleep(100000);
@@ -504,20 +592,22 @@ void processCommand(Command* cmd) {
 }
 
 // ==================== HTTP SERVER (BACKGROUND THREAD) ====================
-// Only parses requests and queues commands. Never calls GME SDK directly.
 
-// Helper: submit command and wait for main thread to process it
 bool submitCommandAndWait(CmdType type, int timeoutMs = 20000) {
+    if (!g_sdkLoaded) {
+        snprintf(g_cmd.resultMsg, sizeof(g_cmd.resultMsg),
+            "{\"success\":false,\"error\":\"GME SDK not loaded\"}");
+        return false;
+    }
     g_cmd.type = type;
     g_cmd.done = false;
     g_cmd.success = false;
     g_cmd.resultMsg[0] = 0;
-    g_cmd.pending = true;  // Signal main thread
+    g_cmd.pending = true;
 
-    // Wait for main thread to finish processing
     int waited = 0;
     while (!g_cmd.done && waited < timeoutMs) {
-        usleep(50000); // 50ms
+        usleep(50000);
         waited += 50;
     }
 
@@ -544,7 +634,6 @@ void handleHTTPRequest(int clientFd) {
 
     char response[8192] = {0};
 
-    // Helper to extract JSON string value
     auto extractStr = [](const char* body, const char* key, char* out, size_t outLen) {
         char searchKey[64];
         snprintf(searchKey, sizeof(searchKey), "\"%s\"", key);
@@ -567,8 +656,9 @@ void handleHTTPRequest(int clientFd) {
         pthread_mutex_unlock(&g_voiceUsersMutex);
         snprintf(response, sizeof(response),
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n"
-            "{\"initialized\":%s,\"inRoom\":%s,\"playing\":%s,\"audioEnabled\":%s,"
+            "{\"sdkLoaded\":%s,\"initialized\":%s,\"inRoom\":%s,\"playing\":%s,\"audioEnabled\":%s,"
             "\"room\":\"%s\",\"user\":\"%s\",\"authId\":\"%s\",\"file\":\"%s\",\"lastError\":\"%s\",\"lastEvent\":%d,\"voiceUsers\":%zu}",
+            g_sdkLoaded ? "true" : "false",
             g_initialized ? "true" : "false",
             g_inRoom ? "true" : "false",
             g_playing ? "true" : "false",
@@ -576,7 +666,6 @@ void handleHTTPRequest(int clientFd) {
             g_roomId, g_userId, g_authId, g_currentFile, g_lastError, g_lastEventType, voiceUserCount);
     }
     else if (strcmp(path, "/join") == 0 && body) {
-        // Parse: {"room":"xxx","user":"numeric","uuid":"real-uuid"}
         pthread_mutex_lock(&g_cmdMutex);
         memset(&g_cmd, 0, sizeof(g_cmd));
         extractStr(body, "room", g_cmd.room, sizeof(g_cmd.room));
@@ -605,7 +694,7 @@ void handleHTTPRequest(int clientFd) {
         pthread_mutex_lock(&g_cmdMutex);
         memset(&g_cmd, 0, sizeof(g_cmd));
         extractStr(body, "file", g_cmd.file, sizeof(g_cmd.file));
-        g_cmd.loop = (strstr(body, "\"loop\":false") == NULL); // default true
+        g_cmd.loop = (strstr(body, "\"loop\":false") == NULL);
 
         if (strlen(g_cmd.file) > 0) {
             submitCommandAndWait(CMD_PLAY, 5000);
@@ -668,7 +757,6 @@ void handleHTTPRequest(int clientFd) {
         pthread_mutex_unlock(&g_cmdMutex);
     }
     else if (strcmp(path, "/voice-users") == 0) {
-        // Build JSON array of voice room users
         pthread_mutex_lock(&g_voiceUsersMutex);
         std::string json = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n"
                            "{\"count\":";
@@ -680,7 +768,6 @@ void handleHTTPRequest(int clientFd) {
         }
         json += "]}";
         pthread_mutex_unlock(&g_voiceUsersMutex);
-        // Use json string directly since it may exceed fixed buffer
         write(clientFd, json.c_str(), json.size());
         close(clientFd);
         return;
@@ -728,7 +815,7 @@ void crashHandler(int sig) {
     fprintf(stderr, "[CRASH] Backtrace:\n");
     void* frames[32];
     int n = backtrace(frames, 32);
-    backtrace_symbols_fd(frames, n, 2); // print to stderr
+    backtrace_symbols_fd(frames, n, 2);
     fprintf(stderr, "[CRASH] To debug: gdb -batch -ex run -ex bt --args ./gme-music-bot-linux --port 9876\n");
     fflush(stderr);
     _exit(1);
@@ -740,7 +827,7 @@ void signalHandler(int sig) {
     printf("\nShutting down...\n"); fflush(stdout);
     g_running = false;
     if (g_playing) stopMusic();
-    ITMGContext* ctx = ITMGContextGetInstance();
+    ITMGContext* ctx = GetGMEContext();
     if (ctx) {
         if (g_inRoom) ctx->ExitRoom();
         ctx->Uninit();
@@ -754,7 +841,7 @@ void signalHandler(int sig) {
 int main(int argc, char* argv[]) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    // Register crash handler BEFORE any SDK calls
+    // Register crash handler FIRST — before any SDK loading
     signal(SIGSEGV, crashHandler);
     signal(SIGABRT, crashHandler);
     signal(SIGINT, signalHandler);
@@ -771,55 +858,40 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    printf("GME Music Bot for YelloTalk (Linux)\n");
+    printf("GME Music Bot for YelloTalk (Linux) v2\n");
     printf("   AppID: %s\n", GME_APP_ID);
     printf("   HTTP Control: http://localhost:%d\n", g_httpPort);
     if (g_botId[0]) printf("   Bot ID: %s\n", g_botId);
     printf("   Callback URL: %s\n", g_callbackUrl);
-    printf("   Threading: GME on main thread, HTTP on background thread\n\n");
+    printf("   SDK Loading: runtime dlopen (safe mode)\n\n");
     fflush(stdout);
 
-    // Pre-check: verify libgmesdk.so can be loaded
-    printf("[INIT] Testing SDK library load...\n"); fflush(stdout);
-    void* testLib = dlopen("libgmesdk.so", RTLD_NOW);
-    if (!testLib) {
-        printf("[INIT] ERROR: Cannot load libgmesdk.so: %s\n", dlerror()); fflush(stdout);
-        return 1;
-    }
-    printf("[INIT] libgmesdk.so loaded OK\n"); fflush(stdout);
-
-    // Test: can we resolve ITMGContextGetInstance?
-    typedef void* (*GetInstanceFn)();
-    GetInstanceFn fn = (GetInstanceFn)dlsym(testLib, "ITMGContextGetInstance");
-    if (!fn) {
-        // Try C++ mangled name
-        fn = (GetInstanceFn)dlsym(testLib, "_Z21ITMGContextGetInstancev");
-    }
-    printf("[INIT] ITMGContextGetInstance symbol: %s\n", fn ? "FOUND" : "NOT FOUND"); fflush(stdout);
-    dlclose(testLib);
-
-    // Now call it for real
-    printf("[INIT] Calling ITMGContextGetInstance()...\n"); fflush(stdout);
-    ITMGContext* initCtx = ITMGContextGetInstance();
-    printf("[INIT] ITMGContextGetInstance() returned: %p\n", (void*)initCtx); fflush(stdout);
-
-    // Start HTTP server in background thread
+    // Start HTTP server FIRST (so /status works even if SDK fails)
     pthread_t httpThread;
     pthread_create(&httpThread, NULL, httpServerThread, NULL);
 
-    // If positional CLI args provided, auto-join (already on main thread)
-    // Skip flag args: count non-flag positional args
+    // Load GME SDK at runtime (not at binary load time)
+    g_sdkLoaded = loadGMESDK();
+    if (!g_sdkLoaded) {
+        printf("\n[FATAL] GME SDK failed to load. HTTP server still running for diagnostics.\n");
+        printf("        curl http://localhost:%d/status to check state.\n", g_httpPort);
+        printf("        The bot will respond to commands but GME operations will fail.\n\n");
+        fflush(stdout);
+        // Don't exit — keep HTTP server running for diagnostics
+    }
+
+    // If positional CLI args provided, auto-join
     int posArgCount = 0;
     const char* posArgs[10] = {0};
     for (int i = 1; i < argc && posArgCount < 10; i++) {
         if (strcmp(argv[i], "--port") == 0 || strcmp(argv[i], "--bot-id") == 0 || strcmp(argv[i], "--callback-url") == 0) {
-            i++; // skip the value
+            i++;
             continue;
         }
         posArgs[posArgCount++] = argv[i];
     }
 
-    if (posArgCount >= 2) {
+    if (posArgCount >= 2 && g_sdkLoaded) {
         const char* roomId = posArgs[0];
         const char* userId = posArgs[1];
         const char* authId = (posArgCount >= 3 && posArgs[2][0] != '/' && posArgs[2][0] != '.') ? posArgs[2] : NULL;
@@ -835,8 +907,9 @@ int main(int argc, char* argv[]) {
         if (!enterRoom(roomId, authId)) return 1;
 
         printf("Waiting for room entry...\n"); fflush(stdout);
-        for (int i = 0; i < 100 && !g_inRoom; i++) {
-            ITMGContextGetInstance()->Poll();
+        ITMGContext* pollCtx = GetGMEContext();
+        for (int i = 0; i < 100 && !g_inRoom && pollCtx; i++) {
+            pollCtx->Poll();
             usleep(100000);
         }
 
@@ -846,6 +919,9 @@ int main(int argc, char* argv[]) {
         } else if (!g_inRoom) {
             printf("Failed to enter room within 10s\n"); fflush(stdout);
         }
+    } else if (!g_sdkLoaded) {
+        printf("SDK not loaded — skipping auto-join. Waiting for HTTP commands...\n");
+        fflush(stdout);
     } else {
         printf("Usage: %s [--port PORT] [--bot-id ID] [--callback-url URL] [room_id] [gme_user_id] [uuid] [music.mp3]\n", argv[0]);
         printf("   Or control via HTTP API on port %d\n\n", g_httpPort);
@@ -853,20 +929,19 @@ int main(int argc, char* argv[]) {
     }
 
     // ==================== MAIN LOOP ====================
-    // Processes GME Poll() AND queued commands from HTTP thread
     while (g_running) {
-        ITMGContext* ctx = ITMGContextGetInstance();
-        if (ctx) ctx->Poll();
+        if (g_sdkLoaded) {
+            ITMGContext* ctx = GetGMEContext();
+            if (ctx) ctx->Poll();
+        }
 
-        // Check for pending command from HTTP thread
         if (g_cmd.pending) {
             g_cmd.pending = false;
             printf("[Main] Processing command type=%d\n", g_cmd.type); fflush(stdout);
             processCommand(&g_cmd);
-            g_cmd.done = true; // Signal HTTP thread that we're done
+            g_cmd.done = true;
         }
 
-        // Notify Node.js when a song finishes (async HTTP callback via libcurl)
         if (g_songFinished) {
             g_songFinished = false;
             std::string file(g_currentFile);
@@ -896,7 +971,7 @@ int main(int argc, char* argv[]) {
             }).detach();
         }
 
-        usleep(33000); // ~30fps poll rate
+        usleep(33000);
     }
 
     curl_global_cleanup();
