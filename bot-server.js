@@ -1679,6 +1679,7 @@ const pathModule = require('path');
 const GME_BASE_PORT = 9876;
 const GME_BINARY_NAME = process.platform === 'darwin' ? 'gme-music-bot' : 'gme-music-bot-linux';
 const GME_BINARY_PATH = pathModule.join(__dirname, 'gme-music-bot', GME_BINARY_NAME);
+const GME_SDK_LIB_PATH = pathModule.join(__dirname, 'gme-linux-sdk', 'lib');
 const gmePortMap = new Map();     // botId → port
 const gmeProcessMap = new Map();  // botId → { process, port }
 
@@ -1707,9 +1708,16 @@ function spawnGmeProcess(botId) {
   console.log(`🎵 [GME] Spawning GME process for ${botId} on port ${port}`);
   console.log(`🎵 [GME]   Command: ${GME_BINARY_PATH} ${args.join(' ')}`);
 
+  // Set LD_LIBRARY_PATH so the SDK can dlopen stubs (libOpenSLES.so etc.)
+  const gmeEnv = { ...process.env };
+  if (process.platform !== 'darwin') {
+    gmeEnv.LD_LIBRARY_PATH = GME_SDK_LIB_PATH + (gmeEnv.LD_LIBRARY_PATH ? ':' + gmeEnv.LD_LIBRARY_PATH : '');
+  }
+
   const proc = spawnProcess(GME_BINARY_PATH, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: false
+    detached: false,
+    env: gmeEnv
   });
 
   proc.stdout.on('data', (data) => {

@@ -21,12 +21,15 @@
 #include <thread>
 #include "tmg_sdk.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <dlfcn.h>
+#include <execinfo.h>
 
 // YelloTalk GME credentials (from APK reverse engineering)
 #define GME_APP_ID    "1400113874"
@@ -717,6 +720,20 @@ void* httpServerThread(void* arg) {
     return NULL;
 }
 
+// ==================== CRASH HANDLER ====================
+
+void crashHandler(int sig) {
+    fprintf(stderr, "\n[CRASH] Signal %d (%s) received!\n", sig,
+            sig == SIGSEGV ? "SIGSEGV" : sig == SIGABRT ? "SIGABRT" : "UNKNOWN");
+    fprintf(stderr, "[CRASH] Backtrace:\n");
+    void* frames[32];
+    int n = backtrace(frames, 32);
+    backtrace_symbols_fd(frames, n, 2); // print to stderr
+    fprintf(stderr, "[CRASH] To debug: gdb -batch -ex run -ex bt --args ./gme-music-bot-linux --port 9876\n");
+    fflush(stderr);
+    _exit(1);
+}
+
 // ==================== SIGNAL HANDLER ====================
 
 void signalHandler(int sig) {
@@ -737,6 +754,9 @@ void signalHandler(int sig) {
 int main(int argc, char* argv[]) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
+    // Register crash handler BEFORE any SDK calls
+    signal(SIGSEGV, crashHandler);
+    signal(SIGABRT, crashHandler);
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
 
@@ -758,6 +778,30 @@ int main(int argc, char* argv[]) {
     printf("   Callback URL: %s\n", g_callbackUrl);
     printf("   Threading: GME on main thread, HTTP on background thread\n\n");
     fflush(stdout);
+
+    // Pre-check: verify libgmesdk.so can be loaded
+    printf("[INIT] Testing SDK library load...\n"); fflush(stdout);
+    void* testLib = dlopen("libgmesdk.so", RTLD_NOW);
+    if (!testLib) {
+        printf("[INIT] ERROR: Cannot load libgmesdk.so: %s\n", dlerror()); fflush(stdout);
+        return 1;
+    }
+    printf("[INIT] libgmesdk.so loaded OK\n"); fflush(stdout);
+
+    // Test: can we resolve ITMGContextGetInstance?
+    typedef void* (*GetInstanceFn)();
+    GetInstanceFn fn = (GetInstanceFn)dlsym(testLib, "ITMGContextGetInstance");
+    if (!fn) {
+        // Try C++ mangled name
+        fn = (GetInstanceFn)dlsym(testLib, "_Z21ITMGContextGetInstancev");
+    }
+    printf("[INIT] ITMGContextGetInstance symbol: %s\n", fn ? "FOUND" : "NOT FOUND"); fflush(stdout);
+    dlclose(testLib);
+
+    // Now call it for real
+    printf("[INIT] Calling ITMGContextGetInstance()...\n"); fflush(stdout);
+    ITMGContext* initCtx = ITMGContextGetInstance();
+    printf("[INIT] ITMGContextGetInstance() returned: %p\n", (void*)initCtx); fflush(stdout);
 
     // Start HTTP server in background thread
     pthread_t httpThread;

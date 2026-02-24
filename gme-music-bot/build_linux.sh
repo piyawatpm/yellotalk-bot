@@ -11,8 +11,10 @@ SDK_PATH="../gme-linux-sdk"
 echo "Building GME Music Bot (Linux)..."
 
 # Build all stubs + patch .so files if not already done
-if [ ! -f "$SDK_PATH/lib/libbionic_compat.so" ] || [ ! -f "$SDK_PATH/lib/.patched" ]; then
+if [ ! -f "$SDK_PATH/lib/libbionic_compat.so" ] || [ ! -f "$SDK_PATH/lib/.patched" ] || [ ! -f "$SDK_PATH/lib/libOpenSLES.so" ]; then
     echo "Running compatibility layer setup..."
+    # Remove patch marker to force full rebuild
+    rm -f "$SDK_PATH/lib/.patched"
     (cd "$SDK_PATH/stubs" && bash build_stubs.sh)
 fi
 
