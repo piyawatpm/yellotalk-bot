@@ -28,15 +28,21 @@ echo -e "${GREEN}Starting web portal...${NC}"
 (cd web-portal && npm run dev) &
 WEB_PID=$!
 
-# Start GME Music Bot (if built)
-GME_BOT="./gme-music-bot/gme-music-bot"
+# Start GME Music Bot (if built) — detect platform
+if [ "$(uname)" = "Darwin" ]; then
+    GME_BOT="./gme-music-bot/gme-music-bot"
+    GME_BUILD_HINT="gme-music-bot/build.sh"
+else
+    GME_BOT="./gme-music-bot/gme-music-bot-linux"
+    GME_BUILD_HINT="gme-music-bot/build_linux.sh"
+fi
 if [ -f "$GME_BOT" ]; then
     echo -e "${GREEN}Starting GME Music Bot...${NC}"
     "$GME_BOT" &
     GME_PID=$!
     echo -e "GME Music Bot PID: ${GME_PID} (HTTP API on port 9876)"
 else
-    echo -e "${YELLOW}GME Music Bot not found. Run gme-music-bot/build.sh to build it.${NC}"
+    echo -e "${YELLOW}GME Music Bot not found. Run ${GME_BUILD_HINT} to build it.${NC}"
     GME_PID=""
 fi
 

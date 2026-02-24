@@ -1677,7 +1677,8 @@ const { spawn: spawnProcess } = require('child_process');
 const pathModule = require('path');
 
 const GME_BASE_PORT = 9876;
-const GME_BINARY_PATH = pathModule.join(__dirname, 'gme-music-bot', 'gme-music-bot');
+const GME_BINARY_NAME = process.platform === 'darwin' ? 'gme-music-bot' : 'gme-music-bot-linux';
+const GME_BINARY_PATH = pathModule.join(__dirname, 'gme-music-bot', GME_BINARY_NAME);
 const gmePortMap = new Map();     // botId → port
 const gmeProcessMap = new Map();  // botId → { process, port }
 
