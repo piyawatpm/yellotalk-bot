@@ -127,18 +127,32 @@ if [ ! -d "$SDK_DIR/lib" ]; then
     exit 1
 fi
 
-if [ "$FORCE_REBUILD" = true ] || [ ! -f "$GME_BINARY" ]; then
-    if [ "$FORCE_REBUILD" = true ]; then
-        echo -e "  Force rebuilding..."
-        # Clear patch marker so stubs get rebuilt
-        rm -f "$SDK_DIR/lib/.patched"
-    else
-        echo -e "  Binary not found, building..."
-    fi
+# Auto-detect if rebuild is needed:
+#  - binary missing
+#  - stubs missing (libOpenSLES.so, libbionic_compat.so)
+#  - source files newer than binary
+NEEDS_REBUILD="$FORCE_REBUILD"
+if [ ! -f "$GME_BINARY" ]; then
+    NEEDS_REBUILD=true
+    echo -e "  Binary not found."
+elif [ ! -f "$SDK_DIR/lib/libOpenSLES.so" ]; then
+    NEEDS_REBUILD=true
+    echo -e "${YELLOW}  libOpenSLES.so missing — need to rebuild stubs.${NC}"
+elif [ "$GME_BOT_DIR/main_linux.cpp" -nt "$GME_BINARY" ]; then
+    NEEDS_REBUILD=true
+    echo -e "${YELLOW}  Source code is newer than binary — rebuilding.${NC}"
+elif [ "$SDK_DIR/stubs/bionic_compat.c" -nt "$SDK_DIR/lib/libbionic_compat.so" ]; then
+    NEEDS_REBUILD=true
+    echo -e "${YELLOW}  Stubs source updated — rebuilding.${NC}"
+fi
+
+if [ "$NEEDS_REBUILD" = true ]; then
+    echo -e "  Building GME Music Bot..."
+    rm -f "$SDK_DIR/lib/.patched"
     (cd "$GME_BOT_DIR" && bash build_linux.sh)
     echo -e "${GREEN}  Build complete: $GME_BINARY${NC}"
 else
-    echo -e "${GREEN}  Binary already built: gme-music-bot-linux${NC}"
+    echo -e "${GREEN}  Binary up to date: gme-music-bot-linux${NC}"
 fi
 
 # Verify the binary
