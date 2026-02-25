@@ -58,6 +58,10 @@ gme-mac-sdk/
 # Music cache
 music-cache/
 
+# GME Web Bot
+gme-web-bot/node_modules/
+gme-web-bot/sdk/
+
 # GME compiled binary
 gme-music-bot/gme-music-bot
 

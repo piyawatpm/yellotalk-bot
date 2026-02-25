@@ -3,14 +3,14 @@
 # Start YelloTalk Bot on Ubuntu Linux
 #
 # This script:
-#   1. Checks & installs system dependencies (build-essential, libcurl, etc.)
-#   2. Builds the GME Music Bot for Linux (if not already built)
-#   3. Starts all services (bot-server, web-portal, GME music bot)
+#   1. Checks & installs system dependencies (chromium deps for Puppeteer, etc.)
+#   2. Installs npm packages (root + web-portal + gme-web-bot)
+#   3. Downloads GME H5 SDK if needed
+#   4. Starts all services (bot-server, web-portal)
 #
 # Usage:
 #   chmod +x start-linux.sh
 #   ./start-linux.sh              # normal start
-#   ./start-linux.sh --rebuild    # force rebuild GME bot
 #   ./start-linux.sh --skip-deps  # skip apt dependency check
 #
 
@@ -24,21 +24,16 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GME_BOT_DIR="$SCRIPT_DIR/gme-music-bot"
-GME_BINARY="$GME_BOT_DIR/gme-music-bot-linux"
-SDK_DIR="$SCRIPT_DIR/gme-linux-sdk"
+WEB_BOT_DIR="$SCRIPT_DIR/gme-web-bot"
 
-FORCE_REBUILD=false
 SKIP_DEPS=false
 
 for arg in "$@"; do
     case "$arg" in
-        --rebuild)    FORCE_REBUILD=true ;;
         --skip-deps)  SKIP_DEPS=true ;;
         --help|-h)
-            echo "Usage: $0 [--rebuild] [--skip-deps]"
+            echo "Usage: $0 [--skip-deps]"
             echo ""
-            echo "  --rebuild     Force rebuild GME Music Bot binary"
             echo "  --skip-deps   Skip system dependency check (faster startup)"
             echo ""
             exit 0
@@ -61,11 +56,19 @@ if [ "$SKIP_DEPS" = false ]; then
         fi
     }
 
-    check_pkg "build-essential"
-    check_pkg "libcurl4-openssl-dev"
-    check_pkg "zlib1g-dev"
     check_pkg "python3"
     check_pkg "ffmpeg"
+
+    # Chromium dependencies needed by Puppeteer
+    check_pkg "libnss3"
+    check_pkg "libatk1.0-0"
+    check_pkg "libatk-bridge2.0-0"
+    check_pkg "libcups2"
+    check_pkg "libxdamage1"
+    check_pkg "libxrandr2"
+    check_pkg "libgbm1"
+    check_pkg "libpango-1.0-0"
+    check_pkg "libasound2"
 
     # Check for yt-dlp (needed for YouTube music playback)
     if ! command -v yt-dlp &>/dev/null; then
@@ -118,56 +121,24 @@ else
     echo -e "${GREEN}  Web portal node_modules present.${NC}"
 fi
 
-# ---- Step 3: Build GME Music Bot ----
-echo -e "${BLUE}[3/4] Preparing GME Music Bot...${NC}"
-
-if [ ! -d "$SDK_DIR/lib" ]; then
-    echo -e "${RED}  ERROR: gme-linux-sdk/lib/ not found.${NC}"
-    echo "  Make sure the Android x86_64 .so files are in gme-linux-sdk/lib/"
-    exit 1
-fi
-
-# Auto-detect if rebuild is needed:
-#  - binary missing
-#  - stubs missing (libOpenSLES.so, libbionic_compat.so)
-#  - source files newer than binary
-NEEDS_REBUILD="$FORCE_REBUILD"
-if [ ! -f "$GME_BINARY" ]; then
-    NEEDS_REBUILD=true
-    echo -e "  Binary not found."
-elif [ ! -f "$SDK_DIR/lib/libOpenSLES.so" ]; then
-    NEEDS_REBUILD=true
-    echo -e "${YELLOW}  libOpenSLES.so missing — need to rebuild stubs.${NC}"
-elif [ "$GME_BOT_DIR/main_linux.cpp" -nt "$GME_BINARY" ]; then
-    NEEDS_REBUILD=true
-    echo -e "${YELLOW}  Source code is newer than binary — rebuilding.${NC}"
-elif [ "$SDK_DIR/stubs/bionic_compat.c" -nt "$SDK_DIR/lib/libbionic_compat.so" ]; then
-    NEEDS_REBUILD=true
-    echo -e "${YELLOW}  Stubs source updated — rebuilding.${NC}"
-fi
-
-if [ "$NEEDS_REBUILD" = true ]; then
-    echo -e "  Building GME Music Bot..."
-    rm -f "$SDK_DIR/lib/.patched"
-    (cd "$GME_BOT_DIR" && bash build_linux.sh)
-    echo -e "${GREEN}  Build complete: $GME_BINARY${NC}"
+if [ ! -d "$WEB_BOT_DIR/node_modules" ]; then
+    echo -e "  Installing gme-web-bot npm packages..."
+    (cd "$WEB_BOT_DIR" && npm install)
 else
-    echo -e "${GREEN}  Binary up to date: gme-music-bot-linux${NC}"
+    echo -e "${GREEN}  gme-web-bot node_modules present.${NC}"
 fi
 
-# Verify the binary
-if [ ! -x "$GME_BINARY" ]; then
-    chmod +x "$GME_BINARY"
-fi
+# ---- Step 3: Download GME H5 SDK ----
+echo -e "${BLUE}[3/4] Preparing GME Web Bot...${NC}"
 
-echo -e "  Checking shared libraries..."
-if ldd "$GME_BINARY" 2>&1 | grep -q "not found"; then
-    echo -e "${RED}  WARNING: Some shared libraries are missing:${NC}"
-    ldd "$GME_BINARY" 2>&1 | grep "not found"
-    echo -e "${YELLOW}  The bot may fail to start. Try: ./start-linux.sh --rebuild${NC}"
+if [ ! -f "$WEB_BOT_DIR/sdk/WebRTCService.min.js" ]; then
+    echo -e "  Downloading GME H5 SDK..."
+    (cd "$WEB_BOT_DIR" && bash download-sdk.sh)
 else
-    echo -e "${GREEN}  All shared libraries resolved.${NC}"
+    echo -e "${GREEN}  GME H5 SDK already present.${NC}"
 fi
+
+echo -e "${GREEN}  GME Web Bot ready (Puppeteer + H5 SDK)${NC}"
 
 # ---- Step 4: Start services ----
 echo -e "${BLUE}[4/4] Starting services...${NC}"
@@ -198,9 +169,8 @@ else
     WEB_PID=""
 fi
 
-# GME Music Bot is spawned by bot-server.js on demand, no need to start separately
-# But we can verify the binary works
-echo -e "${GREEN}  GME Music Bot ready (spawned on demand by bot-server)${NC}"
+# GME Web Bot is spawned by bot-server.js on demand via Puppeteer
+echo -e "${GREEN}  GME Web Bot ready (spawned on demand by bot-server)${NC}"
 
 echo ""
 echo -e "${BLUE}============================================${NC}"
@@ -209,7 +179,7 @@ echo -e "${BLUE}============================================${NC}"
 echo ""
 echo -e "  Bot Server:    http://localhost:5353  (PID: $BOT_PID)"
 [ -n "$WEB_PID" ] && echo -e "  Web Portal:    http://localhost:3000  (PID: $WEB_PID)"
-echo -e "  GME Music Bot: managed by bot-server (binary: gme-music-bot-linux)"
+echo -e "  GME Web Bot:   managed by bot-server (Puppeteer + H5 SDK)"
 echo ""
 echo -e "${BLUE}  Press CTRL+C to stop all services${NC}"
 echo ""

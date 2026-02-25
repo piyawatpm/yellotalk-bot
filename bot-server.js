@@ -1677,8 +1677,10 @@ const { spawn: spawnProcess } = require('child_process');
 const pathModule = require('path');
 
 const GME_BASE_PORT = 9876;
+const GME_USE_WEB_BOT = process.platform !== 'darwin';
 const GME_BINARY_NAME = process.platform === 'darwin' ? 'gme-music-bot' : 'gme-music-bot-linux';
 const GME_BINARY_PATH = pathModule.join(__dirname, 'gme-music-bot', GME_BINARY_NAME);
+const GME_WEB_BOT_PATH = pathModule.join(__dirname, 'gme-web-bot', 'server.js');
 const GME_SDK_LIB_PATH = pathModule.join(__dirname, 'gme-linux-sdk', 'lib');
 const gmePortMap = new Map();     // botId → port
 const gmeProcessMap = new Map();  // botId → { process, port }
@@ -1705,16 +1707,27 @@ function spawnGmeProcess(botId) {
   const callbackUrl = `http://localhost:5353/api/music/song-ended`;
   const args = ['--port', String(port), '--bot-id', botId, '--callback-url', callbackUrl];
 
-  console.log(`🎵 [GME] Spawning GME process for ${botId} on port ${port}`);
-  console.log(`🎵 [GME]   Command: ${GME_BINARY_PATH} ${args.join(' ')}`);
-
-  // Set LD_LIBRARY_PATH so the SDK can dlopen stubs (libOpenSLES.so etc.)
-  const gmeEnv = { ...process.env };
-  if (process.platform !== 'darwin') {
-    gmeEnv.LD_LIBRARY_PATH = GME_SDK_LIB_PATH + (gmeEnv.LD_LIBRARY_PATH ? ':' + gmeEnv.LD_LIBRARY_PATH : '');
+  // On Linux: use Puppeteer-based web bot; on macOS: use native C++ binary
+  let spawnCmd, spawnArgs, gmeEnv;
+  if (GME_USE_WEB_BOT) {
+    spawnCmd = process.execPath; // node
+    spawnArgs = [GME_WEB_BOT_PATH, ...args];
+    gmeEnv = { ...process.env };
+    console.log(`🎵 [GME] Spawning web bot for ${botId} on port ${port}`);
+    console.log(`🎵 [GME]   Command: node ${GME_WEB_BOT_PATH} ${args.join(' ')}`);
+  } else {
+    spawnCmd = GME_BINARY_PATH;
+    spawnArgs = args;
+    gmeEnv = { ...process.env };
+    // Set LD_LIBRARY_PATH so the SDK can dlopen stubs (libOpenSLES.so etc.)
+    if (process.platform !== 'darwin') {
+      gmeEnv.LD_LIBRARY_PATH = GME_SDK_LIB_PATH + (gmeEnv.LD_LIBRARY_PATH ? ':' + gmeEnv.LD_LIBRARY_PATH : '');
+    }
+    console.log(`🎵 [GME] Spawning GME process for ${botId} on port ${port}`);
+    console.log(`🎵 [GME]   Command: ${GME_BINARY_PATH} ${args.join(' ')}`);
   }
 
-  const proc = spawnProcess(GME_BINARY_PATH, args, {
+  const proc = spawnProcess(spawnCmd, spawnArgs, {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
     env: gmeEnv

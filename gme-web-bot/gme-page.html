@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GME Web Bot</title>
+</head>
+<body>
+  <!-- GME SDK requires this wrapper element -->
+  <div id="gme-audio-wrap"></div>
+
+  <script>
+    // ============================================================
+    // getUserMedia override — MUST run before SDK loads
+    // Returns a custom MediaStream from AudioContext destination
+    // so the SDK transmits our injected audio as "voice"
+    // ============================================================
+
+    const audioCtx = new AudioContext({ sampleRate: 48000 });
+    const gainNode = audioCtx.createGain();
+    const destination = audioCtx.createMediaStreamDestination();
+    gainNode.connect(destination);
+
+    // Keep a silent oscillator running to keep the stream active
+    const silentOsc = audioCtx.createOscillator();
+    const silentGain = audioCtx.createGain();
+    silentGain.gain.value = 0;
+    silentOsc.connect(silentGain);
+    silentGain.connect(destination);
+    silentOsc.start();
+
+    const fakeStream = destination.stream;
+
+    // Override getUserMedia to return our custom stream
+    const origGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async function(constraints) {
+      if (constraints && constraints.audio) {
+        console.log('[GME-BOT] getUserMedia intercepted — returning custom audio stream');
+        return fakeStream;
+      }
+      return origGetUserMedia(constraints);
+    };
+
+    // ============================================================
+    // Audio playback state
+    // ============================================================
+    let currentSource = null;
+    let currentBuffer = null;
+    let pauseOffset = 0;
+    let startTime = 0;
+    let isPlaying = false;
+    let isLooping = false;
+    window.__songFinished = false;
+    window.__gmeState = 'idle'; // idle, joining, joined, leaving, error
+    window.__gmeError = null;
+    window.__gmeEvents = [];
+
+    function pushEvent(type, data) {
+      window.__gmeEvents.push({ type, data, ts: Date.now() });
+      // Keep last 50 events
+      if (window.__gmeEvents.length > 50) window.__gmeEvents.shift();
+    }
+
+    // ============================================================
+    // GME SDK interface — called from Puppeteer via page.evaluate()
+    // ============================================================
+
+    window.gmeInit = function(appId, openId) {
+      return new Promise((resolve, reject) => {
+        try {
+          window.__gmeState = 'idle';
+          window.__gmeError = null;
+
+          if (typeof WebRTCService === 'undefined') {
+            throw new Error('WebRTCService SDK not loaded');
+          }
+
+          const gmeContext = new WebRTCService({
+            sdkAppId: appId,
+            openId: openId,
+            nativeAudio: true
+          });
+
+          window.__gme = gmeContext;
+
+          gmeContext.addEventListener('N_EVENT_START_COMPLETE', function(event) {
+            console.log('[GME] Init complete:', event);
+            pushEvent('init_complete', event);
+          });
+
+          gmeContext.addEventListener('N_EVENT_ROOM_DISCONNECT', function(event) {
+            console.log('[GME] Room disconnect:', event);
+            window.__gmeState = 'idle';
+            pushEvent('room_disconnect', event);
+          });
+
+          gmeContext.addEventListener('N_EVENT_ROOM_ENTER', function(event) {
+            console.log('[GME] Room enter:', event);
+            window.__gmeState = 'joined';
+            pushEvent('room_enter', event);
+          });
+
+          gmeContext.addEventListener('N_EVENT_ROOM_EXIT', function(event) {
+            console.log('[GME] Room exit:', event);
+            window.__gmeState = 'idle';
+            pushEvent('room_exit', event);
+          });
+
+          gmeContext.addEventListener('N_EVENT_MEMBER_V2', function(event) {
+            console.log('[GME] Member event:', event);
+            pushEvent('member', event);
+          });
+
+          gmeContext.addEventListener('N_EVENT_ERROR', function(event) {
+            console.log('[GME] Error:', event);
+            window.__gmeError = event;
+            pushEvent('error', event);
+          });
+
+          resolve({ ok: true });
+        } catch (e) {
+          window.__gmeState = 'error';
+          window.__gmeError = e.message;
+          reject(e);
+        }
+      });
+    };
+
+    window.gmeEnterRoom = function(roomId, authBuffer) {
+      return new Promise((resolve, reject) => {
+        try {
+          if (!window.__gme) throw new Error('GME not initialized');
+          window.__gmeState = 'joining';
+
+          window.__gme.enterRoom(roomId, authBuffer, function(res) {
+            console.log('[GME] enterRoom callback:', res);
+            if (res && res.errCode === 0) {
+              window.__gmeState = 'joined';
+              // Enable mic (sends our custom stream)
+              window.__gme.enableMic();
+              // Enable speaker (receive audio from room)
+              window.__gme.enableSpeaker();
+              resolve({ ok: true });
+            } else {
+              window.__gmeState = 'error';
+              window.__gmeError = res;
+              reject(new Error('enterRoom failed: ' + JSON.stringify(res)));
+            }
+          });
+        } catch (e) {
+          window.__gmeState = 'error';
+          window.__gmeError = e.message;
+          reject(e);
+        }
+      });
+    };
+
+    window.gmeExitRoom = function() {
+      return new Promise((resolve) => {
+        try {
+          if (!window.__gme) { resolve({ ok: true }); return; }
+          window.__gmeState = 'leaving';
+          window.__gme.exitRoom(function(res) {
+            console.log('[GME] exitRoom callback:', res);
+            window.__gmeState = 'idle';
+            resolve({ ok: true });
+          });
+        } catch (e) {
+          window.__gmeState = 'idle';
+          resolve({ ok: true, warn: e.message });
+        }
+      });
+    };
+
+    // ============================================================
+    // Audio playback — decode MP3 and inject into getUserMedia stream
+    // ============================================================
+
+    window.playAudio = async function(base64Data, loop) {
+      // Stop current playback
+      window.stopAudio();
+
+      isLooping = !!loop;
+      window.__songFinished = false;
+
+      // Decode base64 → ArrayBuffer → AudioBuffer
+      const binaryStr = atob(base64Data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+      currentBuffer = await audioCtx.decodeAudioData(bytes.buffer);
+      _startPlayback(0);
+      return { ok: true, duration: currentBuffer.duration };
+    };
+
+    function _startPlayback(offset) {
+      if (!currentBuffer) return;
+
+      // Resume context if suspended
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      currentSource = audioCtx.createBufferSource();
+      currentSource.buffer = currentBuffer;
+      currentSource.connect(gainNode);
+
+      currentSource.onended = function() {
+        if (isLooping && isPlaying) {
+          _startPlayback(0);
+        } else {
+          isPlaying = false;
+          window.__songFinished = true;
+          console.log('[GME-BOT] Song finished');
+          pushEvent('song_finished', {});
+        }
+      };
+
+      currentSource.start(0, offset);
+      startTime = audioCtx.currentTime - offset;
+      pauseOffset = 0;
+      isPlaying = true;
+    }
+
+    window.stopAudio = function() {
+      if (currentSource) {
+        try { currentSource.onended = null; currentSource.stop(); } catch (e) {}
+        currentSource = null;
+      }
+      isPlaying = false;
+      isLooping = false;
+      pauseOffset = 0;
+      currentBuffer = null;
+      window.__songFinished = false;
+      return { ok: true };
+    };
+
+    window.pauseAudio = function() {
+      if (!isPlaying || !currentSource) return { ok: false, reason: 'not playing' };
+      pauseOffset = audioCtx.currentTime - startTime;
+      try { currentSource.onended = null; currentSource.stop(); } catch (e) {}
+      currentSource = null;
+      isPlaying = false;
+      return { ok: true, offset: pauseOffset };
+    };
+
+    window.resumeAudio = function() {
+      if (isPlaying || !currentBuffer || pauseOffset === 0) return { ok: false, reason: 'cannot resume' };
+      _startPlayback(pauseOffset);
+      return { ok: true };
+    };
+
+    window.setVolume = function(vol) {
+      // vol: 0-100 → gain 0-1
+      gainNode.gain.value = Math.max(0, Math.min(1, vol / 100));
+      return { ok: true, volume: vol };
+    };
+
+    window.getPlaybackState = function() {
+      return {
+        isPlaying: isPlaying,
+        songFinished: window.__songFinished,
+        gmeState: window.__gmeState,
+        gmeError: window.__gmeError,
+        volume: Math.round(gainNode.gain.value * 100)
+      };
+    };
+
+    console.log('[GME-BOT] Page loaded, getUserMedia overridden, audio context ready');
+  </script>
+
+  <!-- GME H5 SDK — loaded after getUserMedia override -->
+  <script src="sdk/WebRTCService.min.js"></script>
+
+  <script>
+    if (typeof WebRTCService !== 'undefined') {
+      console.log('[GME-BOT] WebRTCService SDK loaded successfully');
+      window.__sdkLoaded = true;
+    } else {
+      console.error('[GME-BOT] WebRTCService SDK failed to load');
+      window.__sdkLoaded = false;
+    }
+  </script>
+</body>
+</html>
