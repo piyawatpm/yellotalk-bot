@@ -239,7 +239,7 @@ public:
             audioCtrl->EnableAudioCaptureDevice(true);  // Open audio engine (needed for accompaniment uplink)
             audioCtrl->EnableAudioSend(true);            // Enable sending to room
             audioCtrl->SetMicVolume(0);                  // Mute actual mic so Mac ambient sound doesn't leak
-            audioCtrl->EnableSpeaker(false);             // Disable local playback (no sound from terminal)
+            audioCtrl->EnableSpeaker(false);             // No local audio output
 
             // Set default accompaniment volume (5 = 50% on portal slider)
             ITMGAudioEffectCtrl* effectCtrl = context->GetAudioEffectCtrl();
@@ -248,7 +248,7 @@ public:
             }
 
             g_audioEnabled = true;
-            printf("🎤 [GME] Audio enabled (mic muted, accompany vol=5)\n");
+            printf("🎤 [GME] Audio enabled (mic muted, speaker off, accompany vol=5)\n");
             fflush(stdout);
         }
     }
