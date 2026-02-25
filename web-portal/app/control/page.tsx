@@ -176,10 +176,13 @@ export default function ControlPage() {
   const [profileSearch, setProfileSearch] = useState('')
 
   useEffect(() => {
-    connectToServer()
-    fetchRooms()
-    fetchBots()
-    fetchUnavailableRooms()
+    // Resolve API URL first (handles tunnel discovery), then init everything
+    resolveApiUrl().then(() => {
+      connectToServer()
+      fetchRooms()
+      fetchBots()
+      fetchUnavailableRooms()
+    })
   }, [])
 
   // Keep selectedBotIdRef in sync with selectedBotId state
