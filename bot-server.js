@@ -4582,6 +4582,7 @@ app.post('/api/bot/start', async (req, res) => {
           // 🔥 AUTOMATIC ROOM HIJACK - Claim ownership with create_room (if enabled)!
           if (joinResponse?.result === 200 && instance.state.autoHijackRooms) {
             setTimeout(() => {
+              if (!instance.socket || !instance.socket.connected) return;
               console.log(`\n🔥 [${botConfig.name}] AUTO-HIJACKING ROOM (create_room exploit)...`);
 
               instance.socket.emit('create_room', {
@@ -4634,6 +4635,7 @@ app.post('/api/bot/start', async (req, res) => {
 
         // Load messages after delay
         setTimeout(() => {
+          if (!instance.socket || !instance.socket.connected) return;
           console.log('📜 Requesting message history...');
           instance.socket.emit('load_message', { room: roomId });
         }, 2000); // Increased to 2s to let hijack complete first
