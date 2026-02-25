@@ -4707,7 +4707,8 @@ app.post('/api/bot/start', async (req, res) => {
         }, 30000); // Check every 30 seconds
       });
     } else if (mode === 'follow' && userUuid) {
-      // Follow user mode - find the user first (using selected bot)
+      // Follow user mode - DISABLED
+      throw new Error('Follow mode is currently disabled');
       const rooms = await fetchAllRooms(botConfig.jwt_token);
       const targetRoom = rooms.find(r => r.owner?.uuid === userUuid);
       const targetUser = targetRoom ? targetRoom.owner : rooms.find(r => r.owner?.uuid === userUuid)?.owner;
