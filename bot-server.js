@@ -114,7 +114,9 @@ function createBotState() {
       maxHistory: 20,
       isSearching: false
     },
-    isDownloading: false
+    isDownloading: false,
+    playlist: [],           // [{ title, videoId, file, query, addedBy, status }]
+    currentlyPlaying: null  // currently playing playlist item
   };
 }
 
@@ -131,6 +133,166 @@ function getAutoPlayState(botId) {
     };
   }
   return instance.state.autoPlayState;
+}
+
+// Helper to get playlist for a bot (lazy-init)
+function getPlaylist(botId) {
+  const instance = botInstances.get(botId);
+  if (!instance) return null;
+  if (!instance.state.playlist) {
+    instance.state.playlist = [];
+  }
+  return instance.state.playlist;
+}
+
+// Pre-download next 1-2 pending items in the playlist
+function preDownloadNext(botId) {
+  const instance = botInstances.get(botId);
+  if (!instance) return;
+  const playlist = getPlaylist(botId);
+  if (!playlist) return;
+
+  const pending = playlist.filter(item => item.status === 'pending');
+  const toDownload = pending.slice(0, 2);
+
+  for (const item of toDownload) {
+    // Check cache first
+    const cachedFile = item.videoId ? path.join(MUSIC_CACHE_DIR, `${item.videoId}.mp3`) : null;
+    if (cachedFile && fs.existsSync(cachedFile)) {
+      item.file = cachedFile;
+      item.status = 'ready';
+      console.log(`📋 [${botId}] Pre-download cache hit: ${item.title}`);
+      continue;
+    }
+
+    item.status = 'downloading';
+    const url = `https://www.youtube.com/watch?v=${item.videoId}`;
+    // Pass null botId to suppress chat progress messages
+    downloadYouTubeAudio(url, null).then(filePath => {
+      item.file = filePath;
+      item.status = 'ready';
+      console.log(`📋 [${botId}] Pre-downloaded: ${item.title}`);
+    }).catch(err => {
+      item.status = 'error';
+      console.error(`📋 [${botId}] Pre-download failed for ${item.title}:`, err.message);
+    });
+  }
+}
+
+// Guard against concurrent playNextFromPlaylist calls per bot
+const _playlistLock = new Map(); // botId -> boolean
+
+// Play next song from playlist. Returns true if something will play.
+async function playNextFromPlaylist(botId) {
+  // Prevent concurrent calls for the same bot
+  if (_playlistLock.get(botId)) {
+    console.log(`📋 [${botId}] playNextFromPlaylist already running, skipping`);
+    return false;
+  }
+  _playlistLock.set(botId, true);
+
+  try {
+    return await _playNextFromPlaylistInner(botId);
+  } finally {
+    _playlistLock.set(botId, false);
+  }
+}
+
+async function _playNextFromPlaylistInner(botId, depth = 0) {
+  if (depth > 20) return false; // prevent infinite recursion
+
+  const instance = botInstances.get(botId);
+  if (!instance) return false;
+  const playlist = getPlaylist(botId);
+  if (!playlist || playlist.length === 0) return false;
+
+  const next = playlist[0];
+  if (!next) return false;
+
+  const timestamp = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+
+  // Helper: play a file that's ready
+  async function playFile(next, label) {
+    next.status = 'playing';
+    instance.state.currentlyPlaying = next;
+    const gmeUrl = await ensureGmeProcess(botId);
+    if (!gmeUrl) {
+      playlist.shift();
+      return _playNextFromPlaylistInner(botId, depth + 1);
+    }
+    await axios.post(`${gmeUrl}/play`, { file: next.file, loop: false }, { timeout: 10000 });
+    console.log(`[${timestamp}] 🎵 [${botId}] Playing from queue${label}: ${next.title}`);
+    sendMessageForBot(botId, `🎵 กำลังเล่น: ${next.title}`);
+
+    const autoPlay = getAutoPlayState(botId);
+    if (autoPlay) {
+      autoPlay.history.push({ title: next.title, query: next.query, videoId: next.videoId, file: next.file });
+      if (autoPlay.history.length > autoPlay.maxHistory) autoPlay.history.shift();
+    }
+    preDownloadNext(botId);
+    return true;
+  }
+
+  // If ready, play immediately
+  if (next.status === 'ready' && next.file) {
+    try {
+      return await playFile(next, '');
+    } catch (err) {
+      console.error(`[${timestamp}] ❌ [${botId}] playNextFromPlaylist play error:`, err.message);
+      playlist.shift();
+      return _playNextFromPlaylistInner(botId, depth + 1);
+    }
+  }
+
+  // If downloading, wait for file to appear with timeout
+  if (next.status === 'downloading') {
+    instance.state.currentlyPlaying = next;
+    sendMessageForBot(botId, `⏳ กำลังโหลดเพลงถัดไป: ${next.title}`);
+    const waitStart = Date.now();
+    const MAX_WAIT = 60000;
+    while (!(next.file && fs.existsSync(next.file)) && (Date.now() - waitStart) < MAX_WAIT) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    if (next.file && fs.existsSync(next.file)) {
+      try {
+        return await playFile(next, ' (after wait)');
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ [${botId}] playNextFromPlaylist play after wait error:`, err.message);
+        playlist.shift();
+        return _playNextFromPlaylistInner(botId, depth + 1);
+      }
+    } else {
+      console.log(`[${timestamp}] ⏭ [${botId}] Skipping (download timeout/error): ${next.title}`);
+      playlist.shift();
+      return _playNextFromPlaylistInner(botId, depth + 1);
+    }
+  }
+
+  // If pending, start download and wait
+  if (next.status === 'pending') {
+    next.status = 'downloading';
+    instance.state.currentlyPlaying = next;
+    sendMessageForBot(botId, `⏳ กำลังโหลดเพลงถัดไป: ${next.title}`);
+    try {
+      const url = `https://www.youtube.com/watch?v=${next.videoId}`;
+      const filePath = await downloadYouTubeAudio(url, null);
+      next.file = filePath;
+      return await playFile(next, ' (fresh download)');
+    } catch (err) {
+      console.error(`[${timestamp}] ❌ [${botId}] playNextFromPlaylist download error:`, err.message);
+      next.status = 'error';
+      playlist.shift();
+      return _playNextFromPlaylistInner(botId, depth + 1);
+    }
+  }
+
+  // If error, skip
+  if (next.status === 'error') {
+    playlist.shift();
+    return _playNextFromPlaylistInner(botId, depth + 1);
+  }
+
+  return false;
 }
 
 // Fetch ALL rooms with pagination (API returns max ~20 per page)
@@ -1118,8 +1280,8 @@ ABILITIES: สุ่มเลข/สุ่มคน from participant list, ด�
 
 COMMANDS - put [CMD:ACTION:PARAM] at START of response when user wants action:
 VOICE: [CMD:JOIN_SLOT] ขึ้นหลุม | [CMD:LEAVE_SLOT] ลงหลุม
-MUSIC: [CMD:PLAY:search query] เปิดเพลง (craft good YouTube query with artist/year/genre) | [CMD:PAUSE] หยุดเพลง/ปิดเพลง (DEFAULT for หยุด) | [CMD:RESUME] เล่นต่อ | [CMD:STOP] เลิกเล่นถาวร (ONLY for ไม่ฟังแล้ว/ปิดถาวร) | [CMD:VOLUME_UP] เสียงเบา | [CMD:VOLUME_DOWN] เสียงดัง | [CMD:NOW_PLAYING] เพลงอะไร
-RULES: "หยุดเพลง"=PAUSE not STOP. Only [CMD:...] for clear action requests. Can combine: [CMD:JOIN_SLOT] [CMD:PLAY:query]
+MUSIC: [CMD:PLAY:search query] เปิดเพลงทันที (craft good YouTube query with artist/year/genre) | [CMD:QUEUE:search query] เพิ่มเพลงในคิว/เปิดต่อ/add to queue | [CMD:SKIP] ข้ามเพลง/เพลงถัดไป/skip/next song | [CMD:PLAYLIST] ดูคิวเพลง/มีเพลงไหน/รายการเพลง/show queue | [CMD:REMOVE:N] ลบเพลงที่ N ออกจากคิว | [CMD:CLEAR_PLAYLIST] ล้างคิว/ล้างเพลงทั้งหมด | [CMD:PAUSE] หยุดเพลง/ปิดเพลง (DEFAULT for หยุด) | [CMD:RESUME] เล่นต่อ | [CMD:STOP] เลิกเล่นถาวร (ONLY for ไม่ฟังแล้ว/ปิดถาวร) | [CMD:VOLUME_UP] เสียงเบา | [CMD:VOLUME_DOWN] เสียงดัง | [CMD:NOW_PLAYING] เพลงอะไร
+RULES: "หยุดเพลง"=PAUSE not STOP. "เพิ่มเพลง/เปิดต่อ/add song"=QUEUE (adds to queue, not PLAY). "ข้ามเพลง/skip/next"=SKIP. "มีเพลงไหน/รายการเพลง/show queue"=PLAYLIST. "ลบเพลง N"=REMOVE:N. "ล้างคิว/clear queue"=CLEAR_PLAYLIST. PLAY=play NOW (interrupts current). Understand user INTENT in any language (Thai/English). Only [CMD:...] for clear action requests. Can combine: [CMD:JOIN_SLOT] [CMD:PLAY:query]
 `;
 
     // Build messages array for Groq (convert Gemini history format to Groq format)
@@ -2691,6 +2853,37 @@ app.post('/api/music/song-ended', async (req, res) => {
 
   res.json({ ok: true }); // Respond immediately
 
+  // --- Playlist check: play next from queue before falling through to auto-play ---
+  // Skip if playNextFromPlaylist is already running (e.g. SKIP command triggered it)
+  const instance_se = botInstances.get(botId);
+  if (instance_se && !_playlistLock.get(botId)) {
+    const playlist = getPlaylist(botId);
+    if (playlist && playlist.length > 0) {
+      // Remove the item that was playing
+      const playingIdx = playlist.findIndex(item => item.status === 'playing');
+      if (playingIdx !== -1) playlist.splice(playingIdx, 1);
+      instance_se.state.currentlyPlaying = null;
+
+      if (playlist.length > 0) {
+        try {
+          const played = await playNextFromPlaylist(botId);
+          if (played) {
+            console.log(`[${timestamp}] 📋 [${botId}] Playing next from playlist queue`);
+            return; // Skip auto-play
+          }
+        } catch (err) {
+          console.error(`[${timestamp}] ❌ [${botId}] Playlist play error:`, err.message);
+        }
+      }
+    } else {
+      // No playlist items — clear currentlyPlaying
+      instance_se.state.currentlyPlaying = null;
+    }
+  } else if (instance_se && _playlistLock.get(botId)) {
+    console.log(`[${timestamp}] 📋 [${botId}] song-ended: playlist already being advanced (SKIP in progress)`);
+    return;
+  }
+
   const autoPlay = getAutoPlayState(botId);
   if (!autoPlay) {
     console.log(`[${timestamp}] ⏭ No bot instance for ${botId}, skipping auto-play`);
@@ -2838,7 +3031,7 @@ app.get('/api/music/auto-play-state', (req, res) => {
 // Track volume per bot for AI volume up/down commands
 const botMusicVolume = new Map(); // botId -> current volume (0-50 GME scale)
 
-async function executeBotCommand(action, param, botId) {
+async function executeBotCommand(action, param, botId, sender = '') {
   const timestamp = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
   const instance = botInstances.get(botId);
 
@@ -2953,6 +3146,14 @@ async function executeBotCommand(action, param, botId) {
         return;
       }
 
+      // PLAY overrides current playlist item — clear it
+      const playlistForPlay = getPlaylist(botId);
+      if (playlistForPlay) {
+        const playingIdx = playlistForPlay.findIndex(item => item.status === 'playing');
+        if (playingIdx !== -1) playlistForPlay.splice(playingIdx, 1);
+      }
+      instance.state.currentlyPlaying = null;
+
       // Use yt-dlp search format: ytsearch1:query
       const searchUrl = `ytsearch1:${param}`;
       console.log(`[${timestamp}] 🎵 AI PLAY: searching "${param}"`);
@@ -2985,6 +3186,9 @@ async function executeBotCommand(action, param, botId) {
           setTimeout(() => {
             sendMessageForBot(botId, `🎵 กำลังเล่น: ${resp.data.title}`);
           }, 2000);
+
+          // Pre-download next playlist items if any
+          preDownloadNext(botId);
         } else {
           console.log(`[${timestamp}] ❌ AI PLAY failed: ${resp.data.error}`);
           setTimeout(() => {
@@ -3089,6 +3293,175 @@ async function executeBotCommand(action, param, botId) {
       } catch (err) {
         console.error(`[${timestamp}] ❌ AI NOW_PLAYING failed:`, err.message);
       }
+      break;
+    }
+
+    case 'QUEUE': {
+      if (!param) {
+        console.log(`[${timestamp}] ⚠️ QUEUE command but no search query`);
+        return;
+      }
+      if (!instance || !instance.state.currentRoom) {
+        console.log(`[${timestamp}] ⚠️ QUEUE command but bot not in room`);
+        return;
+      }
+
+      const playlist = getPlaylist(botId);
+      if (!playlist) return;
+
+      // Search YouTube for the song
+      try {
+        const searchResult = await new Promise((resolve, reject) => {
+          execFile('yt-dlp', [
+            `ytsearch1:${param}`,
+            '--print', '%(id)s\t%(title)s',
+            '--no-download', '--flat-playlist'
+          ], { timeout: 15000 }, (err, stdout) => {
+            if (err) return reject(err);
+            const [id, title] = stdout.trim().split('\t');
+            if (!id) return reject(new Error('No results'));
+            resolve({ id, title: title || param });
+          });
+        });
+
+        const item = {
+          title: searchResult.title,
+          videoId: searchResult.id,
+          file: null,
+          query: param,
+          addedBy: sender,
+          status: 'pending'
+        };
+
+        playlist.push(item);
+        const position = playlist.length;
+        console.log(`[${timestamp}] 📋 [${botId}] QUEUE: added "${searchResult.title}" at #${position}`);
+
+        setTimeout(() => {
+          sendMessageForBot(botId, `📋 เพิ่มในคิวแล้วค่ะ (#${position}): ${searchResult.title}`);
+        }, 1500);
+
+        // Start pre-downloading
+        preDownloadNext(botId);
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ QUEUE search failed:`, err.message);
+        setTimeout(() => {
+          sendMessageForBot(botId, `ขอโทษค่ะ หาเพลงไม่เจอ 😢`);
+        }, 1500);
+      }
+      break;
+    }
+
+    case 'SKIP': {
+      if (!instance || !instance.state.currentRoom) {
+        console.log(`[${timestamp}] ⚠️ SKIP command but bot not in room`);
+        return;
+      }
+
+      // Stop current song
+      const gmeUrlSkip = getGmeUrl(botId);
+      if (gmeUrlSkip) {
+        try { await axios.post(`${gmeUrlSkip}/stop`, {}, { timeout: 5000 }); } catch (e) {}
+      }
+
+      const playlist = getPlaylist(botId);
+      if (!playlist) return;
+
+      // Remove the currently playing item (first in queue with status 'playing')
+      const playingIdx = playlist.findIndex(item => item.status === 'playing');
+      if (playingIdx !== -1) playlist.splice(playingIdx, 1);
+      instance.state.currentlyPlaying = null;
+
+      // Play next from queue
+      const played = await playNextFromPlaylist(botId);
+      if (!played) {
+        setTimeout(() => {
+          sendMessageForBot(botId, `ไม่มีเพลงต่อไปในคิวค่ะ 🎵`);
+        }, 1500);
+      }
+      break;
+    }
+
+    case 'PLAYLIST': {
+      const playlist = getPlaylist(botId);
+      if (!playlist || playlist.length === 0) {
+        // Check if something is currently playing (via PLAY, not queue)
+        const gmeUrlPl = getGmeUrl(botId);
+        let nowPlaying = null;
+        if (gmeUrlPl) {
+          try {
+            const resp = await axios.get(`${gmeUrlPl}/status`, { timeout: 3000 });
+            if (resp.data.playing) nowPlaying = resp.data.currentFile;
+          } catch (e) {}
+        }
+        if (nowPlaying) {
+          setTimeout(() => {
+            sendMessageForBot(botId, `🎵 กำลังเล่น: ${nowPlaying}\n📋 คิวเพลงว่างค่ะ`);
+          }, 1500);
+        } else {
+          setTimeout(() => {
+            sendMessageForBot(botId, `📋 ไม่มีเพลงในคิวค่ะ`);
+          }, 1500);
+        }
+        return;
+      }
+
+      const statusEmoji = { playing: '▶️', ready: '✅', downloading: '⏳', pending: '⏸', error: '❌' };
+      const lines = playlist.map((item, i) => {
+        const emoji = statusEmoji[item.status] || '⏸';
+        const statusText = item.status === 'playing' ? 'กำลังเล่น' : item.status === 'ready' ? 'พร้อมเล่น' : item.status === 'downloading' ? 'กำลังโหลด' : item.status === 'error' ? 'ผิดพลาด' : 'รอคิว';
+        return `${i + 1}. ${emoji} ${item.title} (${statusText})`;
+      });
+
+      setTimeout(() => {
+        sendMessageForBot(botId, `📋 คิวเพลง (${playlist.length} เพลง):\n${lines.join('\n')}`);
+      }, 1500);
+      break;
+    }
+
+    case 'REMOVE': {
+      const playlist = getPlaylist(botId);
+      if (!playlist) return;
+
+      const idx = parseInt(param) - 1; // 1-indexed to 0-indexed
+      if (isNaN(idx) || idx < 0 || idx >= playlist.length) {
+        setTimeout(() => {
+          sendMessageForBot(botId, `ไม่มีเพลงที่ ${param} ในคิวค่ะ 🤔`);
+        }, 1500);
+        return;
+      }
+
+      const removed = playlist[idx];
+      // Don't allow removing currently playing song (use SKIP instead)
+      if (removed.status === 'playing') {
+        setTimeout(() => {
+          sendMessageForBot(botId, `เพลงนี้กำลังเล่นอยู่ค่ะ ใช้คำสั่งข้ามเพลงแทนนะคะ 🎵`);
+        }, 1500);
+        return;
+      }
+
+      playlist.splice(idx, 1);
+      console.log(`[${timestamp}] 📋 [${botId}] REMOVE: removed #${idx + 1} "${removed.title}"`);
+      setTimeout(() => {
+        sendMessageForBot(botId, `🗑 ลบเพลง '${removed.title}' ออกจากคิวแล้วค่ะ`);
+      }, 1500);
+      break;
+    }
+
+    case 'CLEAR_PLAYLIST': {
+      const playlist = getPlaylist(botId);
+      if (!playlist) return;
+
+      // Keep currently playing item, clear the rest (mutate in-place)
+      const removedCount = playlist.filter(item => item.status !== 'playing').length;
+      for (let i = playlist.length - 1; i >= 0; i--) {
+        if (playlist[i].status !== 'playing') playlist.splice(i, 1);
+      }
+
+      console.log(`[${timestamp}] 📋 [${botId}] CLEAR_PLAYLIST: removed ${removedCount} items`);
+      setTimeout(() => {
+        sendMessageForBot(botId, `🗑 ล้างคิวเพลงแล้วค่ะ (${removedCount} เพลง)`);
+      }, 1500);
       break;
     }
 
@@ -3461,7 +3834,7 @@ app.post('/api/bot/start', async (req, res) => {
                   // Execute commands sequentially
                   for (const cmd of commands) {
                     try {
-                      await executeBotCommand(cmd.action, cmd.param, targetBotId);
+                      await executeBotCommand(cmd.action, cmd.param, targetBotId, sender);
                     } catch (cmdErr) {
                       console.error(`[${timestamp}] ❌ Command ${cmd.action} failed:`, cmdErr.message);
                     }
