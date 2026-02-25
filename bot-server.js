@@ -1280,8 +1280,8 @@ ABILITIES: สุ่มเลข/สุ่มคน from participant list, ด�
 
 COMMANDS - put [CMD:ACTION:PARAM] at START of response when user wants action:
 VOICE: [CMD:JOIN_SLOT] ขึ้นหลุม | [CMD:LEAVE_SLOT] ลงหลุม
-MUSIC: [CMD:PLAY:search query] เปิดเพลงทันที (craft good YouTube query with artist/year/genre) | [CMD:QUEUE:search query] เพิ่มเพลงในคิว/เปิดต่อ/add to queue | [CMD:SKIP] ข้ามเพลง/เพลงถัดไป/skip/next song | [CMD:PLAYLIST] ดูคิวเพลง/มีเพลงไหน/รายการเพลง/show queue | [CMD:REMOVE:N] ลบเพลงที่ N ออกจากคิว | [CMD:CLEAR_PLAYLIST] ล้างคิว/ล้างเพลงทั้งหมด | [CMD:PAUSE] หยุดเพลง/ปิดเพลง (DEFAULT for หยุด) | [CMD:RESUME] เล่นต่อ | [CMD:STOP] เลิกเล่นถาวร (ONLY for ไม่ฟังแล้ว/ปิดถาวร) | [CMD:VOLUME_UP] เสียงเบา | [CMD:VOLUME_DOWN] เสียงดัง | [CMD:NOW_PLAYING] เพลงอะไร
-RULES: "หยุดเพลง"=PAUSE not STOP. "เพิ่มเพลง/เปิดต่อ/add song"=QUEUE (adds to queue, not PLAY). "ข้ามเพลง/skip/next"=SKIP. "มีเพลงไหน/รายการเพลง/show queue"=PLAYLIST. "ลบเพลง N"=REMOVE:N. "ล้างคิว/clear queue"=CLEAR_PLAYLIST. PLAY=play NOW (interrupts current). Understand user INTENT in any language (Thai/English). Only [CMD:...] for clear action requests. Can combine: [CMD:JOIN_SLOT] [CMD:PLAY:query]
+MUSIC: [CMD:PLAY:search query] เปิดเพลงทันที (craft good YouTube query with artist/year/genre) | [CMD:QUEUE:search query] เพิ่มเพลงในคิว/เปิดต่อ/add to queue | [CMD:SKIP] ข้ามเพลง/เพลงถัดไป/skip/next song | [CMD:PLAYLIST] ดูคิวเพลง/มีเพลงไหน/รายการเพลง/show queue | [CMD:REMOVE:N] ลบเพลงที่ N ออกจากคิว | [CMD:CLEAR_PLAYLIST] ล้างคิว/ล้างเพลงทั้งหมด | [CMD:PAUSE] หยุดเพลง/ปิดเพลง (DEFAULT for หยุด) | [CMD:RESUME] เล่นต่อ | [CMD:STOP] เลิกเล่นถาวร (ONLY for ไม่ฟังแล้ว/ปิดถาวร) | [CMD:VOLUME:N] ปรับเสียง (N=0-10, 0=mute 10=max) | [CMD:NOW_PLAYING] เพลงอะไร/เสียงเท่าไหร่
+RULES: "หยุดเพลง"=PAUSE not STOP. "เพิ่มเพลง/เปิดต่อ/add song"=QUEUE (adds to queue, not PLAY). "ข้ามเพลง/skip/next"=SKIP. "มีเพลงไหน/รายการเพลง/show queue"=PLAYLIST. "ลบเพลง N"=REMOVE:N. "ล้างคิว/clear queue"=CLEAR_PLAYLIST. PLAY=play NOW (interrupts current). VOLUME: user scale 0-10 (0=mute/ปิดเสียง, 1=เบาสุด/lowest, 5=กลาง/medium, 10=ดังสุด/max). "เบาลง/ลดเสียง/quieter"=VOLUME with current-2. "ดังขึ้น/เพิ่มเสียง/louder"=VOLUME with current+2. "เสียงเท่าไหร่/what volume"=NOW_PLAYING. Understand user INTENT in any language (Thai/English). Only [CMD:...] for clear action requests. Can combine: [CMD:JOIN_SLOT] [CMD:PLAY:query]
 `;
 
     // Build messages array for Groq (convert Gemini history format to Groq format)
@@ -3242,14 +3242,17 @@ async function executeBotCommand(action, param, botId, sender = '') {
     }
 
     case 'VOLUME_UP': {
+      // Legacy: treat as +2 on user scale
       const gmeUrl = getGmeUrl(botId);
       if (!gmeUrl) break;
-      let currentVol = botMusicVolume.get(botId) || 5;
-      currentVol = Math.min(currentVol + 5, 50); // +5 on GME scale (0-50)
-      botMusicVolume.set(botId, currentVol);
+      const curUser = Math.round((botMusicVolume.get(botId) || 5) / 5);
+      const newUser = Math.min(curUser + 2, 10);
+      const gmeVol = newUser * 5;
+      botMusicVolume.set(botId, gmeVol);
       try {
-        await axios.post(`${gmeUrl}/volume`, { vol: currentVol }, { timeout: 5000 });
-        console.log(`[${timestamp}] 🔊 AI VOLUME_UP → ${currentVol}`);
+        await axios.post(`${gmeUrl}/volume`, { vol: gmeVol }, { timeout: 5000 });
+        console.log(`[${timestamp}] 🔊 AI VOLUME_UP → ${newUser}/10 (GME: ${gmeVol})`);
+        setTimeout(() => sendMessageForBot(botId, `🔊 ปรับเสียงเป็น ${newUser}/10`), 1500);
       } catch (err) {
         console.error(`[${timestamp}] ❌ AI VOLUME_UP failed:`, err.message);
       }
@@ -3257,16 +3260,42 @@ async function executeBotCommand(action, param, botId, sender = '') {
     }
 
     case 'VOLUME_DOWN': {
+      // Legacy: treat as -2 on user scale
       const gmeUrl = getGmeUrl(botId);
       if (!gmeUrl) break;
-      let currentVol = botMusicVolume.get(botId) || 5;
-      currentVol = Math.max(currentVol - 5, 0); // -5 on GME scale (0-50)
-      botMusicVolume.set(botId, currentVol);
+      const curUser = Math.round((botMusicVolume.get(botId) || 5) / 5);
+      const newUser = Math.max(curUser - 2, 0);
+      const gmeVol = newUser * 5;
+      botMusicVolume.set(botId, gmeVol);
       try {
-        await axios.post(`${gmeUrl}/volume`, { vol: currentVol }, { timeout: 5000 });
-        console.log(`[${timestamp}] 🔉 AI VOLUME_DOWN → ${currentVol}`);
+        await axios.post(`${gmeUrl}/volume`, { vol: gmeVol }, { timeout: 5000 });
+        console.log(`[${timestamp}] 🔉 AI VOLUME_DOWN → ${newUser}/10 (GME: ${gmeVol})`);
+        setTimeout(() => sendMessageForBot(botId, `🔉 ปรับเสียงเป็น ${newUser}/10`), 1500);
       } catch (err) {
         console.error(`[${timestamp}] ❌ AI VOLUME_DOWN failed:`, err.message);
+      }
+      break;
+    }
+
+    case 'VOLUME': {
+      const gmeUrl = getGmeUrl(botId);
+      if (!gmeUrl) {
+        setTimeout(() => sendMessageForBot(botId, `ไม่ได้เปิดเพลงอยู่ค่ะ 🔇`), 1500);
+        break;
+      }
+      // Parse user volume (0-10 scale)
+      const userVol = Math.max(0, Math.min(10, parseInt(param) || 0));
+      const gmeVol = userVol * 5; // Convert to GME scale (0-50)
+      botMusicVolume.set(botId, gmeVol);
+      try {
+        await axios.post(`${gmeUrl}/volume`, { vol: gmeVol }, { timeout: 5000 });
+        const volEmoji = userVol === 0 ? '🔇' : userVol <= 3 ? '🔈' : userVol <= 6 ? '🔉' : '🔊';
+        console.log(`[${timestamp}] ${volEmoji} AI VOLUME → ${userVol}/10 (GME: ${gmeVol})`);
+        setTimeout(() => {
+          sendMessageForBot(botId, `${volEmoji} ปรับเสียงเป็น ${userVol}/10`);
+        }, 1500);
+      } catch (err) {
+        console.error(`[${timestamp}] ❌ AI VOLUME failed:`, err.message);
       }
       break;
     }
@@ -3280,16 +3309,17 @@ async function executeBotCommand(action, param, botId, sender = '') {
       try {
         const resp = await axios.get(`${gmeUrl}/status`, { timeout: 3000 });
         const status = resp.data;
+        const curVol = Math.round((botMusicVolume.get(botId) || 5) / 5);
         if (status.playing) {
           setTimeout(() => {
-            sendMessageForBot(botId, `🎵 กำลังเล่น: ${status.currentFile || 'ไม่ทราบชื่อเพลง'}`);
+            sendMessageForBot(botId, `🎵 กำลังเล่น: ${status.currentFile || 'ไม่ทราบชื่อเพลง'}\n🔊 เสียง: ${curVol}/10`);
           }, 1500);
         } else {
           setTimeout(() => {
             sendMessageForBot(botId, `ไม่ได้เปิดเพลงอยู่ค่ะ 🔇`);
           }, 1500);
         }
-        console.log(`[${timestamp}] ℹ️ AI NOW_PLAYING: playing=${status.playing}`);
+        console.log(`[${timestamp}] ℹ️ AI NOW_PLAYING: playing=${status.playing}, vol=${curVol}/10`);
       } catch (err) {
         console.error(`[${timestamp}] ❌ AI NOW_PLAYING failed:`, err.message);
       }
