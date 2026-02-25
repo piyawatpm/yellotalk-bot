@@ -139,13 +139,17 @@ else
     GME_BOT="./gme-music-bot/gme-music-bot-linux"
     GME_BUILD_HINT="gme-music-bot/build_linux.sh"
 fi
+if [ ! -f "$GME_BOT" ]; then
+    echo -e "${YELLOW}GME Music Bot not found. Building...${NC}"
+    (cd "$SCRIPT_DIR/gme-music-bot" && bash "$(basename "$GME_BUILD_HINT")")
+fi
 if [ -f "$GME_BOT" ]; then
     echo -e "${GREEN}Starting GME Music Bot...${NC}"
     "$GME_BOT" &
     GME_PID=$!
     echo -e "GME Music Bot PID: ${GME_PID} (HTTP API on port 9876)"
 else
-    echo -e "${YELLOW}GME Music Bot not found. Run ${GME_BUILD_HINT} to build it.${NC}"
+    echo -e "${RED}GME Music Bot build failed. Skipping.${NC}"
     GME_PID=""
 fi
 
