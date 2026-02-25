@@ -239,7 +239,7 @@ public:
             audioCtrl->EnableAudioCaptureDevice(true);  // Open audio engine (needed for accompaniment uplink)
             audioCtrl->EnableAudioSend(true);            // Enable sending to room
             audioCtrl->SetMicVolume(0);                  // Mute actual mic so Mac ambient sound doesn't leak
-            audioCtrl->EnableSpeaker(true);              // Enable receiving + playback
+            audioCtrl->EnableSpeaker(false);             // Disable local playback (no sound from terminal)
 
             // Set default accompaniment volume (5 = 50% on portal slider)
             ITMGAudioEffectCtrl* effectCtrl = context->GetAudioEffectCtrl();

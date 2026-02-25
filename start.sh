@@ -28,10 +28,20 @@ fi
 if ! command -v cloudflared &>/dev/null; then
     echo -e "${YELLOW}cloudflared not found. Installing...${NC}"
     if [ "$(uname)" = "Darwin" ]; then
-        brew install cloudflare/cloudflare/cloudflared 2>/dev/null || echo -e "${RED}Failed to install cloudflared. Install manually: brew install cloudflare/cloudflare/cloudflared${NC}"
+        if command -v brew &>/dev/null; then
+            brew install cloudflare/cloudflare/cloudflared 2>/dev/null || echo -e "${RED}Failed to install cloudflared via brew${NC}"
+        else
+            # No brew — download binary directly
+            curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz -o /tmp/cloudflared.tgz 2>/dev/null \
+              && tar -xzf /tmp/cloudflared.tgz -C /tmp 2>/dev/null \
+              && mv /tmp/cloudflared /usr/local/bin/cloudflared 2>/dev/null \
+              && chmod +x /usr/local/bin/cloudflared \
+              || echo -e "${YELLOW}Could not install cloudflared automatically. Skipping tunnel.${NC}"
+            rm -f /tmp/cloudflared.tgz 2>/dev/null
+        fi
     else
         # Linux: download binary
-        curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared 2>/dev/null && chmod +x /usr/local/bin/cloudflared || echo -e "${RED}Failed to install cloudflared. See: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/${NC}"
+        curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared 2>/dev/null && chmod +x /usr/local/bin/cloudflared || echo -e "${YELLOW}Could not install cloudflared automatically. Skipping tunnel.${NC}"
     fi
 fi
 
