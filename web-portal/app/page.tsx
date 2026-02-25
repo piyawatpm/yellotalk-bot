@@ -20,9 +20,34 @@ import {
 import Link from 'next/link'
 import io from 'socket.io-client'
 
+let _resolvedApiUrl: string | null = null
+
 const getApiUrl = () => {
+  if (_resolvedApiUrl) return _resolvedApiUrl
   if (typeof window === 'undefined') return 'http://localhost:5353'
-  return `http://${window.location.hostname}:5353`
+  const h = window.location.hostname
+  if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:5353'
+  return `http://${h}:5353`
+}
+
+async function resolveApiUrl(): Promise<string> {
+  if (_resolvedApiUrl) return _resolvedApiUrl
+  if (typeof window === 'undefined') return 'http://localhost:5353'
+  const h = window.location.hostname
+  if (h === 'localhost' || h === '127.0.0.1' || /^(10|172|192)\.\d/.test(h)) {
+    _resolvedApiUrl = getApiUrl()
+    return _resolvedApiUrl
+  }
+  try {
+    const resp = await fetch('/api/tunnel-url')
+    const data = await resp.json()
+    if (data.url) {
+      _resolvedApiUrl = data.url
+      return data.url
+    }
+  } catch {}
+  _resolvedApiUrl = getApiUrl()
+  return _resolvedApiUrl
 }
 
 export default function DashboardPage() {
@@ -30,21 +55,24 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const socket = io(getApiUrl())
+    let socket: any
+    resolveApiUrl().then(url => {
+      socket = io(url)
 
-    socket.on('connect', () => {
-      setLoading(false)
+      socket.on('connect', () => {
+        setLoading(false)
+      })
+
+      socket.on('bot-state', (state) => {
+        setBotState(state)
+      })
+
+      socket.on('connect_error', () => {
+        setLoading(false)
+      })
     })
 
-    socket.on('bot-state', (state) => {
-      setBotState(state)
-    })
-
-    socket.on('connect_error', () => {
-      setLoading(false)
-    })
-
-    return () => { socket.disconnect() }
+    return () => { if (socket) socket.disconnect() }
   }, [])
 
   const metrics = [

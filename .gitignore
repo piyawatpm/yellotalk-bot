@@ -66,8 +66,10 @@ gme-web-bot/sdk/
 gme-music-bot/gme-music-bot
 
 # Start scripts (local only)
-start.sh
 start-services.sh
+
+# Tunnel URL (generated at runtime)
+.api-tunnel-url
 
 # Yarn
 yarn.lock

@@ -149,28 +149,44 @@ else
     GME_PID=""
 fi
 
-# Start cloudflared tunnel for web portal
+# Clean up old tunnel URL file
+rm -f "$SCRIPT_DIR/.api-tunnel-url"
+
+# Start cloudflared tunnels
 TUNNEL_PID=""
+API_TUNNEL_PID=""
 if command -v cloudflared &>/dev/null; then
+    # Tunnel for web portal (port 5252)
     echo -e "${GREEN}Starting cloudflared tunnel for web portal (port 5252)...${NC}"
     cloudflared tunnel --url http://localhost:5252 2>&1 | while read -r line; do
-        # Extract and display the public URL
         if echo "$line" | grep -qoE 'https://[a-z0-9-]+\.trycloudflare\.com'; then
             URL=$(echo "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com')
-            echo -e "${GREEN}Public URL: ${URL}${NC}"
+            echo -e "${GREEN}Portal URL: ${URL}${NC}"
         fi
     done &
     TUNNEL_PID=$!
-    echo -e "Cloudflared Tunnel PID: ${TUNNEL_PID}"
+
+    # Tunnel for bot-server API (port 5353)
+    echo -e "${GREEN}Starting cloudflared tunnel for bot-server API (port 5353)...${NC}"
+    cloudflared tunnel --url http://localhost:5353 2>&1 | while read -r line; do
+        if echo "$line" | grep -qoE 'https://[a-z0-9-]+\.trycloudflare\.com'; then
+            URL=$(echo "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com')
+            echo -e "${GREEN}API URL: ${URL}${NC}"
+            # Write API tunnel URL to file so the portal can discover it
+            echo "$URL" > "$SCRIPT_DIR/.api-tunnel-url"
+        fi
+    done &
+    API_TUNNEL_PID=$!
 else
-    echo -e "${YELLOW}cloudflared not installed — skipping public tunnel${NC}"
+    echo -e "${YELLOW}cloudflared not installed — skipping public tunnels${NC}"
 fi
 
 echo -e "${BLUE}Services started!${NC}"
 echo -e "Bot Server PID: ${BOT_PID} (port 5353)"
 echo -e "Web Portal PID: ${WEB_PID} (port 5252)"
 [ -n "$GME_PID" ] && echo -e "GME Music Bot PID: ${GME_PID} (port 9876)"
-[ -n "$TUNNEL_PID" ] && echo -e "Cloudflared Tunnel PID: ${TUNNEL_PID} (public URL printed above)"
+[ -n "$TUNNEL_PID" ] && echo -e "Cloudflared Portal Tunnel PID: ${TUNNEL_PID}"
+[ -n "$API_TUNNEL_PID" ] && echo -e "Cloudflared API Tunnel PID: ${API_TUNNEL_PID}"
 echo -e "\n${BLUE}Press CTRL+C to stop all services${NC}\n"
 
 # Wait for all processes

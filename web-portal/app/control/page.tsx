@@ -52,9 +52,35 @@ import {
 import io from 'socket.io-client'
 import { useToast } from '@/hooks/use-toast'
 
+let _resolvedApiUrl: string | null = null
+
 const getApiUrl = () => {
+  if (_resolvedApiUrl) return _resolvedApiUrl
   if (typeof window === 'undefined') return 'http://localhost:5353'
-  return `http://${window.location.hostname}:5353`
+  const h = window.location.hostname
+  if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:5353'
+  return `http://${h}:5353`
+}
+
+async function resolveApiUrl(): Promise<string> {
+  if (_resolvedApiUrl) return _resolvedApiUrl
+  if (typeof window === 'undefined') return 'http://localhost:5353'
+  const h = window.location.hostname
+  if (h === 'localhost' || h === '127.0.0.1' || /^(10|172|192)\.\d/.test(h)) {
+    _resolvedApiUrl = getApiUrl()
+    return _resolvedApiUrl
+  }
+  // On tunnel — fetch the API tunnel URL
+  try {
+    const resp = await fetch('/api/tunnel-url')
+    const data = await resp.json()
+    if (data.url) {
+      _resolvedApiUrl = data.url
+      return data.url
+    }
+  } catch {}
+  _resolvedApiUrl = getApiUrl()
+  return _resolvedApiUrl
 }
 
 // Avatar component with fallback
@@ -171,9 +197,10 @@ export default function ControlPage() {
     }
   }, [selectedBotId, botStates])
 
-  const connectToServer = () => {
+  const connectToServer = async () => {
     try {
-      const newSocket = io(getApiUrl(), {
+      const apiUrl = await resolveApiUrl()
+      const newSocket = io(apiUrl, {
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionAttempts: 5
