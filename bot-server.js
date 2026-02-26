@@ -43,7 +43,7 @@ app.use(express.json());
 // ==================== MULTI-BOT INSTANCE MANAGEMENT ====================
 // Each bot runs independently with its own state, socket, and intervals
 
-// Map of active bot instances: botId -> { config, state, socket, followInterval, originalRoomOwner }
+// Map of active bot instances: botId -> { config, state, socket, originalRoomOwner }
 const botInstances = new Map();
 
 // Track unavailable rooms: roomId -> { reason, timestamp, roomTopic, blockedBy }
@@ -98,7 +98,6 @@ function createBotState() {
     status: 'stopped', // stopped, starting, running, waiting, error
     mode: null,
     currentRoom: null,
-    followUser: null,
     messageCount: 0,
     participants: [],
     speakers: [],
@@ -370,7 +369,6 @@ function getBotInstance(botId) {
       config: botConfig,
       state: createBotState(),
       socket: null,
-      followInterval: null,
       originalRoomOwner: null
     });
   }
@@ -403,28 +401,25 @@ function broadcastBotState(botId) {
     // This handles "Waiting for room..." state - should close like clicking stop button
     if ((instance.state.status === 'running' || instance.state.status === 'waiting') &&
         !instance.state.currentRoom) {
-      // Exception: follow mode with a follow user set (actively polling)
-      if (!(instance.state.mode === 'follow' && instance.state.followUser)) {
-        console.log(`🔄 [broadcastBotState] Auto-closing bot ${botId} - no currentRoom`);
-        instance.state.status = 'stopped';
-        instance.state.mode = null;
-        instance.state.participants = [];
-        instance.state.speakers = [];
-        instance.state.messages = [];
-        instance.state.connected = false;
-        instance.hasJoinedRoom = false;
-        instance.previousParticipants = new Map();
-        instance.departedParticipants = new Map();
-        instance.participantJoinTimes = new Map();
+      console.log(`🔄 [broadcastBotState] Auto-closing bot ${botId} - no currentRoom`);
+      instance.state.status = 'stopped';
+      instance.state.mode = null;
+      instance.state.participants = [];
+      instance.state.speakers = [];
+      instance.state.messages = [];
+      instance.state.connected = false;
+      instance.hasJoinedRoom = false;
+      instance.previousParticipants = new Map();
+      instance.departedParticipants = new Map();
+      instance.participantJoinTimes = new Map();
 
-        // Disconnect socket fully
-        cleanupBotSocket(instance);
+      // Disconnect socket fully
+      cleanupBotSocket(instance);
 
-        // Trigger auto-join if enabled
-        if (instance.state.autoJoinRandomRoom) {
-          console.log(`🎲 [broadcastBotState] Auto-join enabled, will join random room in 10 seconds...`);
-          startAutoJoinCountdown(botId, 10, 'Room closed — auto-joining', () => autoJoinRandomRoom(botId));
-        }
+      // Trigger auto-join if enabled
+      if (instance.state.autoJoinRandomRoom) {
+        console.log(`🎲 [broadcastBotState] Auto-join enabled, will join random room in 10 seconds...`);
+        startAutoJoinCountdown(botId, 10, 'Room closed — auto-joining', () => autoJoinRandomRoom(botId));
       }
     }
 
@@ -466,7 +461,6 @@ let selectedBotId = null;
 // This provides backward compatibility with code that hasn't been fully refactored
 let botState = createBotState();
 let yellotalkSocket = null;
-let followInterval = null;
 
 // Update global botState to match the active/selected bot instance
 function syncGlobalBotState() {
@@ -475,7 +469,6 @@ function syncGlobalBotState() {
     if (instance.state.status === 'running' || instance.state.status === 'waiting') {
       botState = instance.state;
       yellotalkSocket = instance.socket;
-      followInterval = instance.followInterval;
       return;
     }
   }
@@ -485,7 +478,6 @@ function syncGlobalBotState() {
     if (instance) {
       botState = instance.state;
       yellotalkSocket = instance.socket;
-      followInterval = instance.followInterval;
       return;
     }
   }
@@ -1272,9 +1264,9 @@ async function getAIResponse(userQuestion, userUuid, userName, botName = 'Siri',
 
     contextInfo += `]
 
-You are "${botName}", a female Thai chat bot in YelloTalk. Creator: คุณ${config.pin_name}.
+You are "${botName}", a female Thai chat bot in YelloTalk.
 Use ค่ะ/นะคะ. Be polite, short (2-4 sentences max). No jokes/slang.
-Creator question → "คุณ ${config.pin_name} เป็นผู้สร้างบอทนี้ค่ะ"
+CREATOR: Your creator is ONLY "คุณ${config.pin_name}". When asked who created/made you, ALWAYS answer "คุณ ${config.pin_name} เป็นผู้สร้างบอทนี้ค่ะ". NEVER use the name of the person asking as the creator. The creator is FIXED — it does NOT change based on who is chatting.
 
 ABILITIES: สุ่มเลข/สุ่มคน from participant list, ดูดวง (2-3 topics + lucky number/color).
 
@@ -1309,7 +1301,7 @@ RULES: "หยุดเพลง"=PAUSE not STOP. "เพิ่มเพลง/�
     for (let attempt = 0; attempt <= totalKeys; attempt++) {
       try {
         const client = attempt === 0 ? groqClient : getNextClient();
-        const model = 'llama-3.1-8b-instant';
+        const model = 'llama-3.3-70b-versatile';
         const chatCompletion = await client.chat.completions.create({
           messages: messages,
           model: model,
@@ -1562,234 +1554,25 @@ function hasProfile(instance, uuid) {
   return getProfileEntry(instance, uuid) !== null;
 }
 
-// Auto-follow a user and fetch their profile into instance.userProfiles
-async function autoFollowAndFetchProfile(botConfig, instance, participantUuid, botId) {
-  const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-  const headers = {
-    'Authorization': `Bearer ${botConfig.jwt_token}`,
-    'User-Agent': 'ios',
-    'Content-Type': 'application/json',
-    'X-App-Version': '4.4.9',
-    'Accept': '*/*'
-  };
-
-  // Decode JWT to get bot's own UUID
-  const jwtPayload = JSON.parse(Buffer.from(botConfig.jwt_token.split('.')[1], 'base64').toString());
-  if (participantUuid === jwtPayload.uuid || participantUuid === botConfig.user_uuid) return;
-
-  // Skip if already have profile (case-insensitive)
-  if (hasProfile(instance, participantUuid)) return;
-
-  try {
-    // Follow the user
-    await axios({
-      method: 'PATCH',
-      url: `https://live.yellotalk.co/v1/users/me/follow/following/${participantUuid}`,
-      headers: { ...headers, 'Content-Length': '0' },
-      httpsAgent, timeout: 5000
-    });
-  } catch (err) {
-    // Already following or other - continue anyway
-  }
-
-  // Fetch following list and find this user
-  try {
-    let offset = 0;
-    const limit = 200;
-    let found = false;
-    while (!found) {
-      const resp = await axios.get(`https://live.yellotalk.co/v1/users/me/follow/following?limit=${limit}&offset=${offset}`, {
-        headers, httpsAgent, timeout: 10000
-      });
-      const list = resp.data.json || [];
-      for (const entry of list) {
-        if (entry.target_user) {
-          if (!instance.userProfiles) instance.userProfiles = new Map();
-          instance.userProfiles.set(entry.target_user.uuid, entry);
-          if (entry.target_user.uuid.toLowerCase() === participantUuid.toLowerCase()) found = true;
-        }
-      }
-      if (list.length < limit) break;
-      offset += limit;
-    }
-  } catch (err) {
-    // silent
-  }
-
-  // Broadcast updated state so portal gets the new profile
-  if (botId) broadcastBotState(botId);
-}
-
-// Auto-follow all participants in batch and broadcast updated state
-async function autoFollowAllParticipants(botConfig, instance, participants, botId) {
-  console.log(`📋 [Auto-follow] Starting for ${participants.length} participants (bot: ${botConfig.name})...`);
-  const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-  const headers = {
-    'Authorization': `Bearer ${botConfig.jwt_token}`,
-    'User-Agent': 'ios',
-    'Content-Type': 'application/json',
-    'X-App-Version': '4.4.9',
-    'Accept': '*/*'
-  };
-  const jwtPayload = JSON.parse(Buffer.from(botConfig.jwt_token.split('.')[1], 'base64').toString());
-
-  // Follow each participant
-  let followCount = 0;
-  for (const p of participants) {
-    if (p.uuid === jwtPayload.uuid || p.uuid === botConfig.user_uuid) continue;
-    if (hasProfile(instance, p.uuid)) continue;
-    try {
-      await axios({
-        method: 'PATCH',
-        url: `https://live.yellotalk.co/v1/users/me/follow/following/${p.uuid}`,
-        headers: { ...headers, 'Content-Length': '0' },
-        httpsAgent, timeout: 5000
-      });
-      followCount++;
-      console.log(`  📋 [Auto-follow] Followed ${p.pin_name}`);
-    } catch (err) {
-      console.log(`  📋 [Auto-follow] ${p.pin_name}: ${err.response?.status || err.message}`);
-    }
-  }
-
-  // Small delay to let follows persist
-  if (followCount > 0) await new Promise(r => setTimeout(r, 1000));
-
-  // Fetch full following list and cache ALL profiles
-  try {
-    if (!instance.userProfiles) instance.userProfiles = new Map();
-    let offset = 0;
-    const limit = 200;
-    let hasMore = true;
-    while (hasMore) {
-      const resp = await axios.get(`https://live.yellotalk.co/v1/users/me/follow/following?limit=${limit}&offset=${offset}`, {
-        headers, httpsAgent, timeout: 10000
-      });
-      const list = resp.data.json || [];
-      console.log(`📋 [Auto-follow] Following list: ${list.length} users (offset=${offset})`);
-      list.forEach(entry => {
-        if (entry.target_user) {
-          instance.userProfiles.set(entry.target_user.uuid, entry);
-        }
-      });
-      hasMore = list.length >= limit;
-      offset += limit;
-    }
-    console.log(`✅ [Auto-follow] Cached ${instance.userProfiles.size} user profiles`);
-
-    // DEBUG: Log all cached UUIDs vs participant UUIDs to find mismatch
-    console.log(`🔍 [DEBUG] Participant UUIDs vs cached keys:`);
-    for (const p of participants) {
-      if (p.uuid === jwtPayload.uuid || p.uuid === botConfig.user_uuid) continue;
-      const found = getProfileEntry(instance, p.uuid);
-      console.log(`  ${found ? '✅' : '❌'} ${p.pin_name}: participant=${p.uuid} cached=${found?.target_user?.uuid || 'NOT FOUND'}`);
-    }
-
-    // Broadcast updated state so portal gets the profiles
-    if (botId) broadcastBotState(botId);
-  } catch (err) {
-    console.log(`⚠️ [Auto-follow] Could not fetch following list: ${err.response?.status || err.message}`);
-  }
-}
-
-// Fetch detailed user profiles for all participants in room
-// Step 1: Follow each user  Step 2: Fetch following list for full details
+// Fetch participants in room
 app.get('/api/bot/room-users', async (req, res) => {
   try {
     const { botId } = req.query;
-    let botConfig;
-
-    if (botId) {
-      const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
-      botConfig = config.bots?.find(b => b.id === botId);
-    }
-    if (!botConfig) {
-      botConfig = getSelectedBot();
-    }
-
-    const targetBotId = botId || selectedBotId || botConfig.id;
+    const targetBotId = botId || selectedBotId || 'bot-1';
     const instance = botInstances.get(targetBotId);
 
     if (!instance || !instance.state.participants || instance.state.participants.length === 0) {
       return res.json({ users: [], message: 'No participants in room' });
     }
 
-    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-    const headers = {
-      'Authorization': `Bearer ${botConfig.jwt_token}`,
-      'User-Agent': 'ios',
-      'Content-Type': 'application/json',
-      'X-App-Version': '4.4.9',
-      'Accept': '*/*'
-    };
-
     const participants = instance.state.participants;
     const joinTimes = instance.participantJoinTimes;
 
-    // Decode JWT to see which UUID the token belongs to
-    const jwtPayload = JSON.parse(Buffer.from(botConfig.jwt_token.split('.')[1], 'base64').toString());
-    console.log(`🔑 Using token for UUID: ${jwtPayload.uuid} (bot: ${botConfig.name})`);
-
-    // Follow each participant and fetch following list
-    console.log(`📋 Following ${participants.length} participants to fetch profiles...`);
-    for (const p of participants) {
-      if (p.uuid === jwtPayload.uuid || p.uuid === botConfig.user_uuid) continue;
-      if (hasProfile(instance, p.uuid)) continue;
-      try {
-        await axios({
-          method: 'PATCH',
-          url: `https://live.yellotalk.co/v1/users/me/follow/following/${p.uuid}`,
-          headers: { ...headers, 'Content-Length': '0' },
-          httpsAgent, timeout: 5000
-        });
-      } catch (err) {
-        // Already following or other - continue
-      }
-    }
-
-    await new Promise(r => setTimeout(r, 1000));
-
-    // Fetch full following list
-    if (!instance.userProfiles) instance.userProfiles = new Map();
-    try {
-      let offset = 0;
-      const limit = 200;
-      let hasMore = true;
-      while (hasMore) {
-        const resp = await axios.get(`https://live.yellotalk.co/v1/users/me/follow/following?limit=${limit}&offset=${offset}`, {
-          headers, httpsAgent, timeout: 10000
-        });
-        const list = resp.data.json || [];
-        list.forEach(entry => {
-          if (entry.target_user) {
-            instance.userProfiles.set(entry.target_user.uuid, entry);
-          }
-        });
-        hasMore = list.length >= limit;
-        offset += limit;
-      }
-    } catch (err) {
-      // silent
-    }
-    console.log(`📋 Cached ${instance.userProfiles.size} profiles total`);
-
-    // Match participants with their profiles (case-insensitive)
     const users = participants.map(p => {
       const joinInfo = joinTimes?.get(p.uuid);
-      const followEntry = getProfileEntry(instance, p.uuid);
-      const fullProfile = followEntry?.target_user || null;
-
       return {
         ...p,
         joinTime: joinInfo?.joinTime || null,
-        profile: fullProfile,
-        followInfo: followEntry ? {
-          is_blocked: followEntry.is_blocked,
-          followed_at: followEntry.created_at,
-          updated_at: followEntry.updated_at,
-          id: followEntry.id,
-          user_id: followEntry.user_id
-        } : null
       };
     });
 
@@ -4149,11 +3932,6 @@ app.post('/api/bot/start', async (req, res) => {
           instance.hasJoinedRoom = true;
           console.log(`[${timestamp}] 📋 Initial state saved - NOT greeting existing ${participants.length} participants`);
 
-          // Auto-follow all participants to get their profiles
-          autoFollowAllParticipants(botConfig, instance, participants, targetBotId).catch(err =>
-            console.log(`⚠️ Auto-follow batch error: ${err.message}`)
-          );
-
           // Send welcome message explaining bot feature (if enabled)
           console.log(`[${timestamp}] 🔍 Welcome message setting: ${instance.state.enableWelcomeMessage ? 'ENABLED' : 'DISABLED'}`);
 
@@ -4197,11 +3975,6 @@ app.post('/api/bot/start', async (req, res) => {
               console.log(`[${timestamp}] 🕵️ ${userName} re-joined — removing from departed tracking`);
               instance.departedParticipants.delete(pGmeId);
             }
-
-            // Auto-follow new participant to get their profile
-            autoFollowAndFetchProfile(botConfig, instance, uuid, targetBotId).catch(err =>
-              console.log(`⚠️ Auto-follow ${userName} error: ${err.message}`)
-            );
 
             // Also check if we already have join time (prevent duplicate greets)
             if (!instance.participantJoinTimes.has(uuid)) {
@@ -4330,14 +4103,6 @@ app.post('/api/bot/start', async (req, res) => {
 
         // Update previous participants for next comparison
         instance.previousParticipants = new Map(currentParticipants);
-
-        // Auto-follow any participants we don't have profiles for yet (case-insensitive)
-        const unfollowed = participants.filter(p => !hasProfile(instance, p.uuid));
-        if (unfollowed.length > 0) {
-          autoFollowAllParticipants(botConfig, instance, unfollowed, targetBotId).catch(err =>
-            console.log(`⚠️ Auto-follow on participant_changed error: ${err.message}`)
-          );
-        }
 
         // DEBUG: Final state before broadcast
         console.log(`[${timestamp}] 📤 Broadcasting state with ${instance.state.participants.length} participants (profiles: ${instance.userProfiles?.size || 0})`);
@@ -4708,33 +4473,8 @@ app.post('/api/bot/start', async (req, res) => {
           }
         }, 30000); // Check every 30 seconds
       });
-    } else if (mode === 'follow' && userUuid) {
-      // Follow user mode - DISABLED
-      throw new Error('Follow mode is currently disabled');
-      const rooms = await fetchAllRooms(botConfig.jwt_token);
-      const targetRoom = rooms.find(r => r.owner?.uuid === userUuid);
-      const targetUser = targetRoom ? targetRoom.owner : rooms.find(r => r.owner?.uuid === userUuid)?.owner;
-
-      if (!targetUser) {
-        throw new Error('User not found');
-      }
-
-      instance.state.followUser = {
-        uuid: targetUser.uuid,
-        name: targetUser.pin_name
-      };
-
-      console.log(`🎯 Following user: ${targetUser.pin_name}`);
-
-      if (targetRoom) {
-        console.log(`✅ User has active room: ${targetRoom.topic}`);
-        await joinRoom(targetRoom, botConfig);
-      } else {
-        console.log(`⏳ User has no room - starting polling...`);
-        instance.state.status = 'running';
-        broadcastBotState(targetBotId);
-        await startFollowPolling(userUuid, targetUser.pin_name, botConfig);
-      }
+    } else if (mode === 'follow') {
+      throw new Error('Follow mode has been removed');
     }
 
     res.json({ success: true, botId: targetBotId });
@@ -4748,81 +4488,6 @@ app.post('/api/bot/start', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-// Follow user polling (bot parameter contains selected bot config)
-async function startFollowPolling(targetUserUuid, targetUserName, bot) {
-  let checkCount = 0;
-
-  // Clear any existing interval first!
-  if (followInterval) {
-    console.log('⚠️  Clearing old follow interval');
-    clearInterval(followInterval);
-    followInterval = null;
-  }
-
-  // Set status to waiting
-  botState.status = 'waiting';
-  broadcastState();
-
-  const checkForRoom = async () => {
-    // Don't check if we're already in a room!
-    if (botState.status === 'running' && botState.currentRoom) {
-      console.log('ℹ️  Already in room - skipping check');
-      return;
-    }
-
-    // Don't check if mode changed (user stopped bot)
-    if (botState.mode !== 'follow' || botState.status === 'stopped') {
-      // Silently stop checking - the stop endpoint already logged this
-      if (followInterval) {
-        clearInterval(followInterval);
-        followInterval = null;
-      }
-      return;
-    }
-
-    checkCount++;
-    console.log(`[Check #${checkCount}] 🔍 Looking for ${targetUserName}'s room...`);
-
-    // Notify UI that we're checking
-    io.emit('poll-check', { checkCount, userName: targetUserName });
-
-    try {
-      const rooms = await fetchAllRooms(bot.jwt_token);
-      const targetRoom = rooms.find(r => r.owner?.uuid === targetUserUuid);
-
-      if (targetRoom) {
-        console.log(`✅ FOUND ${targetUserName}'s room: ${targetRoom.topic}`);
-
-        // STOP POLLING IMMEDIATELY
-        if (followInterval) {
-          clearInterval(followInterval);
-          followInterval = null;
-          console.log('🛑 Stopped polling - joining room');
-        }
-
-        // Join the room with selected bot
-        await joinRoom(targetRoom, bot);
-      } else {
-        console.log(`   ❌ No room - waiting 5s...`);
-        // Keep status as 'waiting' and broadcast
-        botState.status = 'waiting';
-        broadcastState();
-      }
-    } catch (error) {
-      console.error('❌ Error checking for room:', error.message);
-    }
-  };
-
-  // Check immediately first
-  await checkForRoom();
-
-  // Only start interval if we didn't find a room
-  if (!botState.currentRoom) {
-    console.log('⏱️  Starting 5-second polling...');
-    followInterval = setInterval(checkForRoom, 5000);
-  }
-}
 
 // Join room with selected bot configuration
 async function joinRoom(room, bot) {
@@ -4987,33 +4652,9 @@ function setupSocketListeners(socket, roomId, bot) {
       reason: data?.event || 'live_end'
     });
 
-    // If in follow mode, disconnect and restart polling
-    if (botState.mode === 'follow' && botState.followUser) {
-      console.log(`🔄 Room ended - waiting for ${botState.followUser.name}'s next room...`);
-
-      botState.status = 'waiting';
-      botState.currentRoom = null;
-      botState.messages = [];
-      botState.participants = [];
-      botState.speakers = [];
-      botState.connected = false;
-      broadcastState();
-
-      socket.disconnect();
-
-      // Use selected bot for follow polling restart
-      const selectedBot = getSelectedBot();
-      setTimeout(() => {
-        if (botState.followUser && botState.mode === 'follow') {
-          startFollowPolling(botState.followUser.uuid, botState.followUser.name, selectedBot);
-        }
-      }, 2000);
-    } else {
-      // Regular mode - just update state
-      botState.currentRoom = null;
-      botState.speakers = [];
-      broadcastState();
-    }
+    botState.currentRoom = null;
+    botState.speakers = [];
+    broadcastState();
   });
 
   socket.on('end_live', (data) => {
@@ -5027,40 +4668,7 @@ function setupSocketListeners(socket, roomId, bot) {
 
     botState.connected = false;
     botState.currentRoom = null;
-
-    // Preserve followUser info for restart
-    const savedFollowUser = botState.followUser;
-    const savedMode = botState.mode;
-
-    // If in follow mode, restart polling
-    if (savedMode === 'follow' && savedFollowUser && savedFollowUser.uuid) {
-      console.log(`🔄 Restarting follow polling for ${savedFollowUser.name}...`);
-
-      try {
-        // Use selected bot for reconnection
-        const selectedBot = getSelectedBot();
-
-        // Ensure followUser is preserved in state
-        botState.followUser = savedFollowUser;
-        botState.mode = savedMode;
-
-        setTimeout(() => {
-          // Triple check mode hasn't been changed by user clicking stop
-          if (botState.followUser && botState.mode === 'follow') {
-            startFollowPolling(savedFollowUser.uuid, savedFollowUser.name, selectedBot);
-          } else {
-            console.log('❌ Follow mode cancelled - not restarting');
-          }
-        }, 2000);
-      } catch (error) {
-        console.error('❌ Error restarting follow polling:', error.message);
-        botState.status = 'error';
-      }
-    } else {
-      // Regular mode - just mark as error
-      console.log('ℹ️  Regular mode - marking as error');
-      botState.status = 'error';
-    }
+    botState.status = 'error';
 
     broadcastState();
   });
@@ -5105,12 +4713,6 @@ function stopBotInstance(botId) {
   console.log(`Current room topic: ${instance.state.currentRoom?.topic}`);
   console.log(`Socket connected: ${instance.socket?.connected}`);
   console.log('='.repeat(80) + '\n');
-
-  // Clear follow interval if exists
-  if (instance.followInterval) {
-    clearInterval(instance.followInterval);
-    instance.followInterval = null;
-  }
 
   // Clear room health check interval
   if (instance.roomHealthInterval) {
@@ -5177,7 +4779,6 @@ function stopBotInstance(botId) {
   instance.state.status = 'stopped';
   instance.state.mode = null;
   instance.state.currentRoom = null;
-  instance.state.followUser = null;
   instance.state.participants = [];
   instance.state.speakers = [];
   instance.state.connected = false;
@@ -5663,13 +5264,95 @@ io.on('connection', (socket) => {
   });
 });
 
+// Unfollow all users for a bot account on startup
+async function unfollowAllForBot(botConfig) {
+  const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+  const headers = {
+    'Authorization': `Bearer ${botConfig.jwt_token}`,
+    'User-Agent': 'ios',
+    'Content-Type': 'application/json',
+    'X-App-Version': '4.4.9',
+    'Accept': '*/*'
+  };
+
+  try {
+    // Fetch all following
+    let allFollowing = [];
+    let offset = 0;
+    const limit = 200;
+    while (true) {
+      const resp = await axios.get(`https://live.yellotalk.co/v1/users/me/follow/following?limit=${limit}&offset=${offset}`, {
+        headers, httpsAgent, timeout: 10000
+      });
+      const list = resp.data.json || [];
+      allFollowing.push(...list);
+      if (list.length < limit) break;
+      offset += limit;
+    }
+
+    if (allFollowing.length === 0) {
+      console.log(`  ✅ [${botConfig.name}] No following — clean`);
+      return;
+    }
+
+    console.log(`  🔄 [${botConfig.name}] Unfollowing ${allFollowing.length} users...`);
+    // Batch in chunks of 10 for speed
+    let count = 0;
+    const BATCH = 10;
+    for (let i = 0; i < allFollowing.length; i += BATCH) {
+      const batch = allFollowing.slice(i, i + BATCH);
+      const results = await Promise.allSettled(batch.map(entry => {
+        const uuid = entry.target_user?.uuid;
+        if (!uuid) return Promise.resolve();
+        // Try DELETE first (explicit unfollow), fallback to PATCH (toggle)
+        return axios({
+          method: 'DELETE',
+          url: `https://live.yellotalk.co/v1/users/me/follow/following/${uuid}`,
+          headers: { ...headers, 'Content-Length': '0' },
+          httpsAgent, timeout: 5000
+        }).catch(() => {
+          // If DELETE not supported, try PATCH toggle
+          return axios({
+            method: 'PATCH',
+            url: `https://live.yellotalk.co/v1/users/me/follow/following/${uuid}`,
+            headers: { ...headers, 'Content-Length': '0' },
+            httpsAgent, timeout: 5000
+          });
+        });
+      }));
+      count += results.filter(r => r.status === 'fulfilled').length;
+      console.log(`  🔄 [${botConfig.name}] Progress: ${Math.min(i + BATCH, allFollowing.length)}/${allFollowing.length}`);
+    }
+    console.log(`  ✅ [${botConfig.name}] Unfollowed ${count}/${allFollowing.length} users`);
+  } catch (err) {
+    console.log(`  ⚠️ [${botConfig.name}] Unfollow error: ${err.message}`);
+  }
+}
+
 const PORT = 5353;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log('='.repeat(70));
   console.log('🚀 YelloTalk Bot Control Server');
   console.log('='.repeat(70));
   console.log(`📡 API: http://localhost:${PORT}`);
   console.log(`🌐 Portal: http://localhost:5252`);
+  console.log('');
+
+  // Unfollow all on startup
+  try {
+    const config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+    const bots = config.bots || [];
+    if (bots.length > 0) {
+      console.log('🧹 Cleaning up follows for all bots...');
+      for (const bot of bots) {
+        await unfollowAllForBot(bot);
+      }
+      console.log('🧹 Follow cleanup done.');
+    }
+  } catch (err) {
+    console.log(`⚠️ Unfollow cleanup error: ${err.message}`);
+  }
+
   console.log('');
   console.log('✅ Ready! Open web portal to control bot.');
   console.log('='.repeat(70));

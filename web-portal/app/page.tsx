@@ -63,7 +63,7 @@ export default function DashboardPage() {
         setLoading(false)
       })
 
-      socket.on('bot-state', (state) => {
+      socket.on('bot-state', (state: any) => {
         setBotState(state)
       })
 

@@ -120,7 +120,7 @@ export default function ControlPage() {
   const { toast } = useToast()
   const [botState, setBotState] = useState<any>(null)
   const [rooms, setRooms] = useState<any[]>([])
-  const [selectedMode, setSelectedMode] = useState<'regular' | 'follow'>('regular')
+  const [selectedMode, setSelectedMode] = useState<'regular'>('regular')
   const [selectedRoom, setSelectedRoom] = useState('')
   const [selectedUser, setSelectedUser] = useState('')
   const [message, setMessage] = useState('')
@@ -244,7 +244,7 @@ export default function ControlPage() {
           }
           // Fetch voice users whenever bot has participants (all participants = voice users)
           if (state.participants?.length > 0 || state.speakers?.length > 0) {
-            fetch(`${getApiUrl()}/api/music/voice-users?botId=${botId || selectedBot}`).then(r => r.json()).then(d => setVoiceUsers(d.users || [])).catch(() => {})
+            fetch(`${getApiUrl()}/api/music/voice-users?botId=${botId || selectedBotId}`).then(r => r.json()).then(d => setVoiceUsers(d.users || [])).catch(() => {})
           }
         }
 
@@ -276,7 +276,7 @@ export default function ControlPage() {
           setSpeakers(state.speakers)
         }
         if (state.participants?.length > 0 || state.speakers?.length > 0) {
-          fetch(`${getApiUrl()}/api/music/voice-users?botId=${selectedBot}`).then(r => r.json()).then(d => setVoiceUsers(d.users || [])).catch(() => {})
+          fetch(`${getApiUrl()}/api/music/voice-users?botId=${selectedBotId}`).then(r => r.json()).then(d => setVoiceUsers(d.users || [])).catch(() => {})
         }
       })
 
@@ -521,7 +521,7 @@ export default function ControlPage() {
       if (data.success) {
         setSelectedBotId(botId)
         setSelectedRoom('') // Reset room selection when changing bots
-        setSelectedUser('') // Reset user selection (for follow mode) when changing bots
+        setSelectedUser('')
         // Update botState to show selected bot's state
         if (botStates[botId]) {
           setBotState(botStates[botId])
@@ -1067,7 +1067,7 @@ export default function ControlPage() {
 
   const fetchVoiceUsers = async () => {
     try {
-      const res = await fetch(`${getApiUrl()}/api/music/voice-users?botId=${selectedBot}`)
+      const res = await fetch(`${getApiUrl()}/api/music/voice-users?botId=${selectedBotId}`)
       const data = await res.json()
       setVoiceUsers(data.users || [])
     } catch {
@@ -1182,16 +1182,10 @@ export default function ControlPage() {
   const currentBotState = botStates[selectedBotId] || botState
   const isRunning = currentBotState?.status === 'running'
   const isWaiting = currentBotState?.status === 'waiting'
-  const isFollowMode = currentBotState?.mode === 'follow'
   const uptime = currentBotState?.startTime ? Math.floor((Date.now() - currentBotState.startTime) / 1000) : 0
   const minutes = Math.floor(uptime / 60)
   const seconds = uptime % 60
   const uptimeStr = uptime > 0 ? `${minutes}:${seconds.toString().padStart(2, '0')}` : '--:--'
-
-  // Get unique owners for follow mode
-  const uniqueOwners = Array.from(
-    new Map(rooms.map(r => [r.owner?.uuid, r.owner])).values()
-  ).filter(Boolean)
 
   // Helper to get uptime string for any bot
   const getUptimeStr = (startTime: number | null) => {
@@ -1519,10 +1513,8 @@ export default function ControlPage() {
               </CardTitle>
               <CardDescription>
                 {(isRunning || isWaiting)
-                  ? isFollowMode
-                    ? `Following ${botState?.followUser?.name || 'user'} - Click below to stop`
-                    : `Bot "${botState?.activeBotName || bots.find(b => b.id === selectedBotId)?.name || 'Unknown'}" is running`
-                  : 'Select a mode and room to start'}
+                  ? `Bot "${botState?.activeBotName || bots.find(b => b.id === selectedBotId)?.name || 'Unknown'}" is running`
+                  : 'Select a room to start'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1535,54 +1527,9 @@ export default function ControlPage() {
                     exit={{ opacity: 0 }}
                     className="space-y-4"
                   >
-                    <Tabs value={selectedMode} onValueChange={(v: any) => setSelectedMode(v)}>
-                      <TabsList className="grid w-full grid-cols-2 bg-rose-50 dark:bg-rose-950/30">
-                        <TabsTrigger value="regular" className="data-[state=active]:bg-white dark:data-[state=active]:bg-gray-800">
-                          <Radio className="mr-2 h-4 w-4" />
-                          Regular
-                        </TabsTrigger>
-                        <TabsTrigger value="follow" className="data-[state=active]:bg-white dark:data-[state=active]:bg-gray-800">
-                          <Users className="mr-2 h-4 w-4" />
-                          Follow
-                        </TabsTrigger>
-                      </TabsList>
-
-                      <TabsContent value="regular" className="mt-4">
-                        <p className="text-sm text-muted-foreground mb-3">
-                          Select a room from the grid below to start monitoring
-                        </p>
-                      </TabsContent>
-
-                      <TabsContent value="follow" className="space-y-4 mt-4">
-                        <p className="text-sm text-muted-foreground mb-3">
-                          Select a user to follow. Bot will auto-join their rooms.
-                        </p>
-                        <ScrollArea className="h-[200px]">
-                          <div className="space-y-2">
-                            {uniqueOwners.map((owner: any) => (
-                              <div
-                                key={owner.uuid}
-                                onClick={() => setSelectedUser(owner.uuid)}
-                                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 ${
-                                  selectedUser === owner.uuid
-                                    ? 'bg-rose-100 dark:bg-rose-900/40 ring-2 ring-rose-500'
-                                    : 'hover:bg-rose-50 dark:hover:bg-rose-950/30'
-                                }`}
-                              >
-                                <UserAvatar user={owner} size="md" />
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-medium truncate">{owner.pin_name}</p>
-                                  <p className="text-xs text-muted-foreground">Click to select</p>
-                                </div>
-                                {selectedUser === owner.uuid && (
-                                  <CheckCircle2 className="h-5 w-5 text-rose-500" />
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </ScrollArea>
-                      </TabsContent>
-                    </Tabs>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Select a room from the grid below to start monitoring
+                    </p>
 
                     {/* Welcome Message Toggle - Available Before Starting */}
                     <div className="flex items-center justify-between p-3 border-2 border-purple-500/50 rounded-xl bg-purple-50/50 dark:bg-purple-950/20">
@@ -1729,7 +1676,7 @@ export default function ControlPage() {
                     <Button
                       onClick={startBot}
                       className="w-full h-12 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25 transition-all duration-300"
-                      disabled={starting || (selectedMode === 'regular' && !selectedRoom) || (selectedMode === 'follow' && !selectedUser)}
+                      disabled={starting || !selectedRoom}
                     >
                       {starting ? (
                         <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Starting...</>
@@ -1757,32 +1704,14 @@ export default function ControlPage() {
                         <Zap className="h-4 w-4 text-emerald-500" />
                       )}
                       <AlertDescription className="ml-2">
-                        {currentBotState?.status === 'waiting' ? (
-                          <>
-                            <p className="font-semibold text-yellow-700 dark:text-yellow-300">
-                              Waiting for {currentBotState?.followUser?.name || 'user'} to create a room...
-                            </p>
-                            <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-1">
-                              {pollCheck ? (
-                                <span className="animate-pulse">🔍 Check #{pollCheck.checkCount} in progress...</span>
-                              ) : (
-                                'Checking every 5 seconds'
-                              )}
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="font-semibold text-emerald-700 dark:text-emerald-300">
-                              {currentBotState?.mode === 'follow'
-                                ? `Following: ${currentBotState?.followUser?.name || 'User'}`
-                                : 'Bot is Running'
-                              }
-                            </p>
-                            <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1 truncate">
-                              {currentBotState?.currentRoom?.topic || 'Monitoring room'}
-                            </p>
-                          </>
-                        )}
+                        <>
+                          <p className="font-semibold text-emerald-700 dark:text-emerald-300">
+                            Bot is Running
+                          </p>
+                          <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1 truncate">
+                            {currentBotState?.currentRoom?.topic || 'Monitoring room'}
+                          </p>
+                        </>
                       </AlertDescription>
                     </Alert>
                     <Button
@@ -1790,7 +1719,7 @@ export default function ControlPage() {
                       className="w-full h-12 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-lg shadow-rose-500/25 transition-all duration-300"
                     >
                       <Square className="mr-2 h-5 w-5" />
-                      {isFollowMode ? 'Stop Following' : 'Stop Bot'}
+                      Stop Bot
                     </Button>
 
                     <Button
@@ -1810,14 +1739,6 @@ export default function ControlPage() {
                       </div>
                     )}
 
-                    {/* Additional info for follow mode */}
-                    {isFollowMode && (
-                      <p className="text-xs text-center text-muted-foreground">
-                        {isWaiting
-                          ? 'Bot will stop waiting for the user'
-                          : 'Bot will leave the room and stop following'}
-                      </p>
-                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
