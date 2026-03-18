@@ -113,9 +113,7 @@ echo -e "${GREEN}Clean.${NC}"
 # Function to cleanup background processes on exit
 cleanup() {
     echo -e "\n${BLUE}Stopping services...${NC}"
-    # Kill tunnels only on full shutdown (CTRL+C)
-    pkill -f 'cloudflared tunnel' 2>/dev/null
-    rm -f "$SCRIPT_DIR/.api-tunnel-url"
+    # Keep tunnels alive — only kill bot/portal/gme
     kill $(jobs -p) 2>/dev/null
     exit
 }
