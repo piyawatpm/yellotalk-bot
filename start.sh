@@ -110,11 +110,12 @@ done
 sleep 1
 echo -e "${GREEN}Clean.${NC}"
 
-# Function to cleanup background processes on exit
+# Function to cleanup — only kill bot/portal/gme, NOT tunnels
 cleanup() {
-    echo -e "\n${BLUE}Stopping services...${NC}"
-    # Keep tunnels alive — only kill bot/portal/gme
-    kill $(jobs -p) 2>/dev/null
+    echo -e "\n${BLUE}Stopping services (tunnels stay alive)...${NC}"
+    [ -n "$BOT_PID" ] && kill "$BOT_PID" 2>/dev/null
+    [ -n "$WEB_PID" ] && kill "$WEB_PID" 2>/dev/null
+    [ -n "$GME_PID" ] && kill "$GME_PID" 2>/dev/null
     exit
 }
 
@@ -188,9 +189,8 @@ if command -v cloudflared &>/dev/null; then
     else
         rm -f "$SCRIPT_DIR/.portal-tunnel-url"
         echo -e "${GREEN}Starting cloudflared tunnel for web portal (port 5252)...${NC}"
-        nohup cloudflared tunnel --url http://localhost:5252 > "$SCRIPT_DIR/.tunnel-portal.log" 2>&1 &
-        TUNNEL_PID=$!
-        disown $TUNNEL_PID
+        # Launch in subshell so CTRL+C doesn't kill it
+        TUNNEL_PID=$(bash -c 'nohup cloudflared tunnel --url http://localhost:5252 > "'"$SCRIPT_DIR"'/.tunnel-portal.log" 2>&1 & echo $!')
         echo "$TUNNEL_PID" > "$PORTAL_PID_FILE"
         # Wait for URL to appear in log
         for i in $(seq 1 15); do
@@ -213,9 +213,8 @@ if command -v cloudflared &>/dev/null; then
     else
         rm -f "$SCRIPT_DIR/.api-tunnel-url"
         echo -e "${GREEN}Starting cloudflared tunnel for bot-server API (port 5353)...${NC}"
-        nohup cloudflared tunnel --url http://localhost:5353 > "$SCRIPT_DIR/.tunnel-api.log" 2>&1 &
-        API_TUNNEL_PID=$!
-        disown $API_TUNNEL_PID
+        # Launch in subshell so CTRL+C doesn't kill it
+        API_TUNNEL_PID=$(bash -c 'nohup cloudflared tunnel --url http://localhost:5353 > "'"$SCRIPT_DIR"'/.tunnel-api.log" 2>&1 & echo $!')
         echo "$API_TUNNEL_PID" > "$API_PID_FILE"
         # Wait for URL to appear in log
         for i in $(seq 1 15); do
