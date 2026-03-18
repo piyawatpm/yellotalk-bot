@@ -154,32 +154,44 @@ else
 fi
 
 # ==================== Cloudflared tunnels ====================
-# Tunnels persist across restarts — only start if not already running
+# Tunnels persist across restarts using PID files
 
 TUNNEL_PID=""
 API_TUNNEL_PID=""
+PORTAL_PID_FILE="$SCRIPT_DIR/.tunnel-portal.pid"
+API_PID_FILE="$SCRIPT_DIR/.tunnel-api.pid"
+
+# Check if a saved PID is still alive
+is_tunnel_alive() {
+    local pid_file="$1"
+    if [ -f "$pid_file" ]; then
+        local pid=$(cat "$pid_file")
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "$pid"
+            return 0
+        fi
+    fi
+    return 1
+}
 
 if command -v cloudflared &>/dev/null; then
-    # Check if portal tunnel is already running
-    EXISTING_PORTAL_TUNNEL=$(pgrep -f 'cloudflared tunnel.*5252' 2>/dev/null)
-    EXISTING_API_TUNNEL=$(pgrep -f 'cloudflared tunnel.*5353' 2>/dev/null)
+    # Check if portal tunnel is still alive
+    EXISTING_PORTAL=$(is_tunnel_alive "$PORTAL_PID_FILE")
+    EXISTING_API=$(is_tunnel_alive "$API_PID_FILE")
 
-    if [ -n "$EXISTING_PORTAL_TUNNEL" ]; then
-        echo -e "${GREEN}Portal tunnel already running (PID: ${EXISTING_PORTAL_TUNNEL}) — keeping existing URL${NC}"
-        # Read saved portal URL
+    if [ -n "$EXISTING_PORTAL" ]; then
+        echo -e "${GREEN}Portal tunnel already running (PID: ${EXISTING_PORTAL}) — keeping existing URL${NC}"
         if [ -f "$SCRIPT_DIR/.portal-tunnel-url" ]; then
             echo -e "${GREEN}Portal URL: $(cat "$SCRIPT_DIR/.portal-tunnel-url")${NC}"
         fi
-        TUNNEL_PID="$EXISTING_PORTAL_TUNNEL"
+        TUNNEL_PID="$EXISTING_PORTAL"
     else
-        # Clean up old tunnel URL files since we're starting fresh
-        rm -f "$SCRIPT_DIR/.api-tunnel-url"
         rm -f "$SCRIPT_DIR/.portal-tunnel-url"
         echo -e "${GREEN}Starting cloudflared tunnel for web portal (port 5252)...${NC}"
-        # Use nohup so tunnel survives script exit
         nohup cloudflared tunnel --url http://localhost:5252 > "$SCRIPT_DIR/.tunnel-portal.log" 2>&1 &
         TUNNEL_PID=$!
         disown $TUNNEL_PID
+        echo "$TUNNEL_PID" > "$PORTAL_PID_FILE"
         # Wait for URL to appear in log
         for i in $(seq 1 15); do
             PORTAL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$SCRIPT_DIR/.tunnel-portal.log" 2>/dev/null | head -1)
@@ -192,17 +204,19 @@ if command -v cloudflared &>/dev/null; then
         done
     fi
 
-    if [ -n "$EXISTING_API_TUNNEL" ]; then
-        echo -e "${GREEN}API tunnel already running (PID: ${EXISTING_API_TUNNEL}) — keeping existing URL${NC}"
+    if [ -n "$EXISTING_API" ]; then
+        echo -e "${GREEN}API tunnel already running (PID: ${EXISTING_API}) — keeping existing URL${NC}"
         if [ -f "$SCRIPT_DIR/.api-tunnel-url" ]; then
             echo -e "${GREEN}API URL: $(cat "$SCRIPT_DIR/.api-tunnel-url")${NC}"
         fi
-        API_TUNNEL_PID="$EXISTING_API_TUNNEL"
+        API_TUNNEL_PID="$EXISTING_API"
     else
+        rm -f "$SCRIPT_DIR/.api-tunnel-url"
         echo -e "${GREEN}Starting cloudflared tunnel for bot-server API (port 5353)...${NC}"
         nohup cloudflared tunnel --url http://localhost:5353 > "$SCRIPT_DIR/.tunnel-api.log" 2>&1 &
         API_TUNNEL_PID=$!
         disown $API_TUNNEL_PID
+        echo "$API_TUNNEL_PID" > "$API_PID_FILE"
         # Wait for URL to appear in log
         for i in $(seq 1 15); do
             API_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$SCRIPT_DIR/.tunnel-api.log" 2>/dev/null | head -1)

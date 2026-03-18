@@ -71,6 +71,8 @@ start-services.sh
 # Tunnel URL (generated at runtime)
 .api-tunnel-url
 .portal-tunnel-url
+.tunnel-portal.pid
+.tunnel-api.pid
 
 # Yarn
 yarn.lock
