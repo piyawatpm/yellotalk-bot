@@ -181,10 +181,11 @@ if command -v cloudflared &>/dev/null; then
     EXISTING_API=$(is_tunnel_alive "$API_PID_FILE")
 
     if [ -n "$EXISTING_PORTAL" ]; then
-        echo -e "${GREEN}Portal tunnel already running (PID: ${EXISTING_PORTAL}) — keeping existing URL${NC}"
-        if [ -f "$SCRIPT_DIR/.portal-tunnel-url" ]; then
-            echo -e "${GREEN}Portal URL: $(cat "$SCRIPT_DIR/.portal-tunnel-url")${NC}"
-        fi
+        SAVED_PORTAL_URL=""
+        [ -f "$SCRIPT_DIR/.portal-tunnel-url" ] && SAVED_PORTAL_URL=$(cat "$SCRIPT_DIR/.portal-tunnel-url")
+        [ -z "$SAVED_PORTAL_URL" ] && [ -f "$SCRIPT_DIR/.tunnel-portal.log" ] && SAVED_PORTAL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$SCRIPT_DIR/.tunnel-portal.log" 2>/dev/null | head -1)
+        [ -n "$SAVED_PORTAL_URL" ] && echo "$SAVED_PORTAL_URL" > "$SCRIPT_DIR/.portal-tunnel-url"
+        echo -e "${GREEN}Portal tunnel already running (PID: ${EXISTING_PORTAL}) — ${SAVED_PORTAL_URL:-unknown URL}${NC}"
         TUNNEL_PID="$EXISTING_PORTAL"
     else
         rm -f "$SCRIPT_DIR/.portal-tunnel-url"
@@ -205,10 +206,11 @@ if command -v cloudflared &>/dev/null; then
     fi
 
     if [ -n "$EXISTING_API" ]; then
-        echo -e "${GREEN}API tunnel already running (PID: ${EXISTING_API}) — keeping existing URL${NC}"
-        if [ -f "$SCRIPT_DIR/.api-tunnel-url" ]; then
-            echo -e "${GREEN}API URL: $(cat "$SCRIPT_DIR/.api-tunnel-url")${NC}"
-        fi
+        SAVED_API_URL=""
+        [ -f "$SCRIPT_DIR/.api-tunnel-url" ] && SAVED_API_URL=$(cat "$SCRIPT_DIR/.api-tunnel-url")
+        [ -z "$SAVED_API_URL" ] && [ -f "$SCRIPT_DIR/.tunnel-api.log" ] && SAVED_API_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$SCRIPT_DIR/.tunnel-api.log" 2>/dev/null | head -1)
+        [ -n "$SAVED_API_URL" ] && echo "$SAVED_API_URL" > "$SCRIPT_DIR/.api-tunnel-url"
+        echo -e "${GREEN}API tunnel already running (PID: ${EXISTING_API}) — ${SAVED_API_URL:-unknown URL}${NC}"
         API_TUNNEL_PID="$EXISTING_API"
     else
         rm -f "$SCRIPT_DIR/.api-tunnel-url"
