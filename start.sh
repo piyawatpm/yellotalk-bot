@@ -231,14 +231,35 @@ else
     echo -e "${YELLOW}cloudflared not installed — skipping public tunnels${NC}"
 fi
 
-echo -e "${BLUE}Services started!${NC}"
-echo -e "Bot Server PID: ${BOT_PID} (port 5353)"
-echo -e "Web Portal PID: ${WEB_PID} (port 5252)"
-[ -n "$GME_PID" ] && echo -e "GME Music Bot PID: ${GME_PID} (port 9876)"
-[ -n "$TUNNEL_PID" ] && echo -e "Cloudflared Portal Tunnel PID: ${TUNNEL_PID}"
-[ -n "$API_TUNNEL_PID" ] && echo -e "Cloudflared API Tunnel PID: ${API_TUNNEL_PID}"
-echo -e "\n${BLUE}Press CTRL+C to stop all services${NC}"
-echo -e "${YELLOW}Tunnels persist across restarts. Only CTRL+C kills tunnels.${NC}\n"
+# Read tunnel URLs from files
+PORTAL_URL=""
+API_URL=""
+[ -f "$SCRIPT_DIR/.portal-tunnel-url" ] && PORTAL_URL=$(cat "$SCRIPT_DIR/.portal-tunnel-url")
+[ -f "$SCRIPT_DIR/.api-tunnel-url" ] && API_URL=$(cat "$SCRIPT_DIR/.api-tunnel-url")
+
+# Set terminal title with URLs (always visible in title bar/tab)
+TITLE="YelloTalk Bot"
+[ -n "$PORTAL_URL" ] && TITLE="$TITLE | Portal: $PORTAL_URL"
+printf '\033]0;%s\007' "$TITLE"
+
+echo ""
+echo -e "${BLUE}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║${NC}  ${GREEN}YelloTalk Bot Services Started${NC}                                      ${BLUE}║${NC}"
+echo -e "${BLUE}╠══════════════════════════════════════════════════════════════════════╣${NC}"
+echo -e "${BLUE}║${NC}  📡 Local API:    http://localhost:5353                              ${BLUE}║${NC}"
+echo -e "${BLUE}║${NC}  🌐 Local Portal: http://localhost:5252                              ${BLUE}║${NC}"
+if [ -n "$PORTAL_URL" ]; then
+echo -e "${BLUE}║${NC}                                                                      ${BLUE}║${NC}"
+echo -e "${BLUE}║${NC}  🔗 ${GREEN}Portal: ${PORTAL_URL}${NC}"
+fi
+if [ -n "$API_URL" ]; then
+echo -e "${BLUE}║${NC}  🔗 ${GREEN}API:    ${API_URL}${NC}"
+fi
+echo -e "${BLUE}╠══════════════════════════════════════════════════════════════════════╣${NC}"
+echo -e "${BLUE}║${NC}  ${YELLOW}Tunnels persist across restarts. pkill cloudflared to reset.${NC}        ${BLUE}║${NC}"
+echo -e "${BLUE}║${NC}  ${YELLOW}Press CTRL+C to stop bot (tunnels stay alive).${NC}                      ${BLUE}║${NC}"
+echo -e "${BLUE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+echo ""
 
 # Wait for all processes
 wait
