@@ -166,38 +166,53 @@ if command -v cloudflared &>/dev/null; then
 
     if [ -n "$EXISTING_PORTAL_TUNNEL" ]; then
         echo -e "${GREEN}Portal tunnel already running (PID: ${EXISTING_PORTAL_TUNNEL}) — keeping existing URL${NC}"
+        # Read saved portal URL
+        if [ -f "$SCRIPT_DIR/.portal-tunnel-url" ]; then
+            echo -e "${GREEN}Portal URL: $(cat "$SCRIPT_DIR/.portal-tunnel-url")${NC}"
+        fi
         TUNNEL_PID="$EXISTING_PORTAL_TUNNEL"
     else
-        # Clean up old tunnel URL file since we're starting fresh
+        # Clean up old tunnel URL files since we're starting fresh
         rm -f "$SCRIPT_DIR/.api-tunnel-url"
+        rm -f "$SCRIPT_DIR/.portal-tunnel-url"
         echo -e "${GREEN}Starting cloudflared tunnel for web portal (port 5252)...${NC}"
-        cloudflared tunnel --url http://localhost:5252 2>&1 | while read -r line; do
-            if echo "$line" | grep -qoE 'https://[a-z0-9-]+\.trycloudflare\.com'; then
-                URL=$(echo "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com')
-                echo -e "${GREEN}Portal URL: ${URL}${NC}"
-            fi
-        done &
+        # Use nohup so tunnel survives script exit
+        nohup cloudflared tunnel --url http://localhost:5252 > "$SCRIPT_DIR/.tunnel-portal.log" 2>&1 &
         TUNNEL_PID=$!
+        disown $TUNNEL_PID
+        # Wait for URL to appear in log
+        for i in $(seq 1 15); do
+            PORTAL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$SCRIPT_DIR/.tunnel-portal.log" 2>/dev/null | head -1)
+            if [ -n "$PORTAL_URL" ]; then
+                echo -e "${GREEN}Portal URL: ${PORTAL_URL}${NC}"
+                echo "$PORTAL_URL" > "$SCRIPT_DIR/.portal-tunnel-url"
+                break
+            fi
+            sleep 1
+        done
     fi
 
     if [ -n "$EXISTING_API_TUNNEL" ]; then
         echo -e "${GREEN}API tunnel already running (PID: ${EXISTING_API_TUNNEL}) — keeping existing URL${NC}"
-        API_TUNNEL_PID="$EXISTING_API_TUNNEL"
-        # Re-read existing API tunnel URL from file
         if [ -f "$SCRIPT_DIR/.api-tunnel-url" ]; then
             echo -e "${GREEN}API URL: $(cat "$SCRIPT_DIR/.api-tunnel-url")${NC}"
         fi
+        API_TUNNEL_PID="$EXISTING_API_TUNNEL"
     else
         echo -e "${GREEN}Starting cloudflared tunnel for bot-server API (port 5353)...${NC}"
-        cloudflared tunnel --url http://localhost:5353 2>&1 | while read -r line; do
-            if echo "$line" | grep -qoE 'https://[a-z0-9-]+\.trycloudflare\.com'; then
-                URL=$(echo "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com')
-                echo -e "${GREEN}API URL: ${URL}${NC}"
-                # Write API tunnel URL to file so the portal can discover it
-                echo "$URL" > "$SCRIPT_DIR/.api-tunnel-url"
-            fi
-        done &
+        nohup cloudflared tunnel --url http://localhost:5353 > "$SCRIPT_DIR/.tunnel-api.log" 2>&1 &
         API_TUNNEL_PID=$!
+        disown $API_TUNNEL_PID
+        # Wait for URL to appear in log
+        for i in $(seq 1 15); do
+            API_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$SCRIPT_DIR/.tunnel-api.log" 2>/dev/null | head -1)
+            if [ -n "$API_URL" ]; then
+                echo -e "${GREEN}API URL: ${API_URL}${NC}"
+                echo "$API_URL" > "$SCRIPT_DIR/.api-tunnel-url"
+                break
+            fi
+            sleep 1
+        done
     fi
 else
     echo -e "${YELLOW}cloudflared not installed — skipping public tunnels${NC}"

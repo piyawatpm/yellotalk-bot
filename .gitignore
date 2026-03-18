@@ -70,6 +70,7 @@ start-services.sh
 
 # Tunnel URL (generated at runtime)
 .api-tunnel-url
+.portal-tunnel-url
 
 # Yarn
 yarn.lock
