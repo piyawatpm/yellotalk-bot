@@ -112,7 +112,7 @@ echo -e "${GREEN}Clean.${NC}"
 
 # Function to cleanup — only kill bot/portal/gme, NOT tunnels
 cleanup() {
-    echo -e "\n${BLUE}Stopping services (tunnels stay alive)...${NC}"
+    echo -e "\n${BLUE}Stopping services (tunnels stay alive as launchd services)...${NC}"
     [ -n "$BOT_PID" ] && kill "$BOT_PID" 2>/dev/null
     [ -n "$WEB_PID" ] && kill "$WEB_PID" 2>/dev/null
     [ -n "$GME_PID" ] && kill "$GME_PID" 2>/dev/null
@@ -154,80 +154,139 @@ else
     GME_PID=""
 fi
 
-# ==================== Cloudflared tunnels ====================
-# Tunnels persist across restarts using PID files
+# ==================== Cloudflared tunnels (launchd services) ====================
+# Tunnels run as macOS launchd services — they survive CTRL+C, restarts, and sleep.
+# Only a reboot or `launchctl stop` kills them (and launchd auto-restarts on reboot).
 
-TUNNEL_PID=""
-API_TUNNEL_PID=""
-PORTAL_PID_FILE="$SCRIPT_DIR/.tunnel-portal.pid"
-API_PID_FILE="$SCRIPT_DIR/.tunnel-api.pid"
+CLOUDFLARED_BIN=$(which cloudflared 2>/dev/null)
+LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
+PORTAL_PLIST="$LAUNCH_AGENTS_DIR/com.yellotalk.tunnel-portal.plist"
+API_PLIST="$LAUNCH_AGENTS_DIR/com.yellotalk.tunnel-api.plist"
+PORTAL_LOG="$SCRIPT_DIR/.tunnel-portal.log"
+API_LOG="$SCRIPT_DIR/.tunnel-api.log"
 
-# Check if a saved PID is still alive
-is_tunnel_alive() {
-    local pid_file="$1"
-    if [ -f "$pid_file" ]; then
-        local pid=$(cat "$pid_file")
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "$pid"
+# Helper: install and start a launchd tunnel service
+setup_tunnel_service() {
+    local label="$1"
+    local port="$2"
+    local plist="$3"
+    local logfile="$4"
+
+    # Create plist
+    cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${CLOUDFLARED_BIN}</string>
+        <string>tunnel</string>
+        <string>--url</string>
+        <string>http://localhost:${port}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${logfile}</string>
+    <key>StandardErrorPath</key>
+    <string>${logfile}</string>
+</dict>
+</plist>
+PLIST
+
+    # Load and start
+    launchctl unload "$plist" 2>/dev/null
+    launchctl load "$plist"
+}
+
+# Helper: get tunnel URL from log file (wait up to 15s)
+get_tunnel_url() {
+    local logfile="$1"
+    for i in $(seq 1 15); do
+        local url=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$logfile" 2>/dev/null | head -1)
+        if [ -n "$url" ]; then
+            echo "$url"
             return 0
         fi
-    fi
+        sleep 1
+    done
     return 1
 }
 
-if command -v cloudflared &>/dev/null; then
-    # Check if portal tunnel is still alive
-    EXISTING_PORTAL=$(is_tunnel_alive "$PORTAL_PID_FILE")
-    EXISTING_API=$(is_tunnel_alive "$API_PID_FILE")
+if [ -n "$CLOUDFLARED_BIN" ]; then
+    mkdir -p "$LAUNCH_AGENTS_DIR"
 
-    if [ -n "$EXISTING_PORTAL" ]; then
-        SAVED_PORTAL_URL=""
-        [ -f "$SCRIPT_DIR/.portal-tunnel-url" ] && SAVED_PORTAL_URL=$(cat "$SCRIPT_DIR/.portal-tunnel-url")
-        [ -z "$SAVED_PORTAL_URL" ] && [ -f "$SCRIPT_DIR/.tunnel-portal.log" ] && SAVED_PORTAL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$SCRIPT_DIR/.tunnel-portal.log" 2>/dev/null | head -1)
-        [ -n "$SAVED_PORTAL_URL" ] && echo "$SAVED_PORTAL_URL" > "$SCRIPT_DIR/.portal-tunnel-url"
-        echo -e "${GREEN}Portal tunnel already running (PID: ${EXISTING_PORTAL}) — ${SAVED_PORTAL_URL:-unknown URL}${NC}"
-        TUNNEL_PID="$EXISTING_PORTAL"
-    else
-        rm -f "$SCRIPT_DIR/.portal-tunnel-url"
-        echo -e "${GREEN}Starting cloudflared tunnel for web portal (port 5252)...${NC}"
-        # Launch in subshell so CTRL+C doesn't kill it
-        TUNNEL_PID=$(bash -c 'nohup cloudflared tunnel --url http://localhost:5252 > "'"$SCRIPT_DIR"'/.tunnel-portal.log" 2>&1 & echo $!')
-        echo "$TUNNEL_PID" > "$PORTAL_PID_FILE"
-        # Wait for URL to appear in log
-        for i in $(seq 1 15); do
-            PORTAL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$SCRIPT_DIR/.tunnel-portal.log" 2>/dev/null | head -1)
+    # --- Portal tunnel (port 5252) ---
+    # Check if service is already running with a valid URL
+    PORTAL_URL=""
+    if launchctl list 2>/dev/null | grep -q 'com.yellotalk.tunnel-portal'; then
+        # Service exists, check if URL is saved
+        [ -f "$SCRIPT_DIR/.portal-tunnel-url" ] && PORTAL_URL=$(cat "$SCRIPT_DIR/.portal-tunnel-url")
+        # Fallback: read from log
+        [ -z "$PORTAL_URL" ] && [ -f "$PORTAL_LOG" ] && PORTAL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$PORTAL_LOG" 2>/dev/null | head -1)
+
+        if [ -n "$PORTAL_URL" ]; then
+            echo -e "${GREEN}Portal tunnel service running — ${PORTAL_URL}${NC}"
+            echo "$PORTAL_URL" > "$SCRIPT_DIR/.portal-tunnel-url"
+        else
+            # Service running but no URL — restart it
+            echo -e "${YELLOW}Portal tunnel service running but no URL found. Restarting...${NC}"
+            rm -f "$PORTAL_LOG"
+            setup_tunnel_service "com.yellotalk.tunnel-portal" 5252 "$PORTAL_PLIST" "$PORTAL_LOG"
+            PORTAL_URL=$(get_tunnel_url "$PORTAL_LOG")
             if [ -n "$PORTAL_URL" ]; then
                 echo -e "${GREEN}Portal URL: ${PORTAL_URL}${NC}"
                 echo "$PORTAL_URL" > "$SCRIPT_DIR/.portal-tunnel-url"
-                break
             fi
-            sleep 1
-        done
+        fi
+    else
+        echo -e "${GREEN}Installing portal tunnel service (port 5252)...${NC}"
+        rm -f "$PORTAL_LOG" "$SCRIPT_DIR/.portal-tunnel-url"
+        setup_tunnel_service "com.yellotalk.tunnel-portal" 5252 "$PORTAL_PLIST" "$PORTAL_LOG"
+        PORTAL_URL=$(get_tunnel_url "$PORTAL_LOG")
+        if [ -n "$PORTAL_URL" ]; then
+            echo -e "${GREEN}Portal URL: ${PORTAL_URL}${NC}"
+            echo "$PORTAL_URL" > "$SCRIPT_DIR/.portal-tunnel-url"
+        else
+            echo -e "${YELLOW}Portal tunnel started but URL not ready yet. Check log: $PORTAL_LOG${NC}"
+        fi
     fi
 
-    if [ -n "$EXISTING_API" ]; then
-        SAVED_API_URL=""
-        [ -f "$SCRIPT_DIR/.api-tunnel-url" ] && SAVED_API_URL=$(cat "$SCRIPT_DIR/.api-tunnel-url")
-        [ -z "$SAVED_API_URL" ] && [ -f "$SCRIPT_DIR/.tunnel-api.log" ] && SAVED_API_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$SCRIPT_DIR/.tunnel-api.log" 2>/dev/null | head -1)
-        [ -n "$SAVED_API_URL" ] && echo "$SAVED_API_URL" > "$SCRIPT_DIR/.api-tunnel-url"
-        echo -e "${GREEN}API tunnel already running (PID: ${EXISTING_API}) — ${SAVED_API_URL:-unknown URL}${NC}"
-        API_TUNNEL_PID="$EXISTING_API"
-    else
-        rm -f "$SCRIPT_DIR/.api-tunnel-url"
-        echo -e "${GREEN}Starting cloudflared tunnel for bot-server API (port 5353)...${NC}"
-        # Launch in subshell so CTRL+C doesn't kill it
-        API_TUNNEL_PID=$(bash -c 'nohup cloudflared tunnel --url http://localhost:5353 > "'"$SCRIPT_DIR"'/.tunnel-api.log" 2>&1 & echo $!')
-        echo "$API_TUNNEL_PID" > "$API_PID_FILE"
-        # Wait for URL to appear in log
-        for i in $(seq 1 15); do
-            API_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$SCRIPT_DIR/.tunnel-api.log" 2>/dev/null | head -1)
+    # --- API tunnel (port 5353) ---
+    API_URL=""
+    if launchctl list 2>/dev/null | grep -q 'com.yellotalk.tunnel-api'; then
+        [ -f "$SCRIPT_DIR/.api-tunnel-url" ] && API_URL=$(cat "$SCRIPT_DIR/.api-tunnel-url")
+        [ -z "$API_URL" ] && [ -f "$API_LOG" ] && API_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$API_LOG" 2>/dev/null | head -1)
+
+        if [ -n "$API_URL" ]; then
+            echo -e "${GREEN}API tunnel service running — ${API_URL}${NC}"
+            echo "$API_URL" > "$SCRIPT_DIR/.api-tunnel-url"
+        else
+            echo -e "${YELLOW}API tunnel service running but no URL found. Restarting...${NC}"
+            rm -f "$API_LOG"
+            setup_tunnel_service "com.yellotalk.tunnel-api" 5353 "$API_PLIST" "$API_LOG"
+            API_URL=$(get_tunnel_url "$API_LOG")
             if [ -n "$API_URL" ]; then
                 echo -e "${GREEN}API URL: ${API_URL}${NC}"
                 echo "$API_URL" > "$SCRIPT_DIR/.api-tunnel-url"
-                break
             fi
-            sleep 1
-        done
+        fi
+    else
+        echo -e "${GREEN}Installing API tunnel service (port 5353)...${NC}"
+        rm -f "$API_LOG" "$SCRIPT_DIR/.api-tunnel-url"
+        setup_tunnel_service "com.yellotalk.tunnel-api" 5353 "$API_PLIST" "$API_LOG"
+        API_URL=$(get_tunnel_url "$API_LOG")
+        if [ -n "$API_URL" ]; then
+            echo -e "${GREEN}API URL: ${API_URL}${NC}"
+            echo "$API_URL" > "$SCRIPT_DIR/.api-tunnel-url"
+        else
+            echo -e "${YELLOW}API tunnel started but URL not ready yet. Check log: $API_LOG${NC}"
+        fi
     fi
 else
     echo -e "${YELLOW}cloudflared not installed — skipping public tunnels${NC}"
@@ -258,8 +317,9 @@ if [ -n "$API_URL" ]; then
 echo -e "${BLUE}║${NC}  🔗 ${GREEN}API:    ${API_URL}${NC}"
 fi
 echo -e "${BLUE}╠══════════════════════════════════════════════════════════════════════╣${NC}"
-echo -e "${BLUE}║${NC}  ${YELLOW}Tunnels persist across restarts. pkill cloudflared to reset.${NC}        ${BLUE}║${NC}"
-echo -e "${BLUE}║${NC}  ${YELLOW}Press CTRL+C to stop bot (tunnels stay alive).${NC}                      ${BLUE}║${NC}"
+echo -e "${BLUE}║${NC}  ${YELLOW}Tunnels run as launchd services (survive CTRL+C & restarts).${NC}        ${BLUE}║${NC}"
+echo -e "${BLUE}║${NC}  ${YELLOW}Reset tunnels: launchctl stop com.yellotalk.tunnel-portal${NC}           ${BLUE}║${NC}"
+echo -e "${BLUE}║${NC}  ${YELLOW}Press CTRL+C to stop bot only.${NC}                                      ${BLUE}║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
