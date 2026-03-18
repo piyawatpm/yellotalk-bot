@@ -95,11 +95,10 @@ echo ""
 # ==================== Start services ====================
 echo -e "${BLUE}Starting YelloTalk Bot Services...${NC}"
 
-# Kill any existing bot processes first
+# Kill any existing bot processes first (but NOT cloudflared!)
 echo -e "${YELLOW}Killing existing processes...${NC}"
 pkill -f 'node bot-server.js' 2>/dev/null
 pkill -f 'gme-music-bot' 2>/dev/null
-pkill -f 'cloudflared tunnel' 2>/dev/null
 # Free GME ports (9876-9899)
 for pid in $(lsof -ti :9876-9899 2>/dev/null); do
     kill "$pid" 2>/dev/null
@@ -114,6 +113,9 @@ echo -e "${GREEN}Clean.${NC}"
 # Function to cleanup background processes on exit
 cleanup() {
     echo -e "\n${BLUE}Stopping services...${NC}"
+    # Kill tunnels only on full shutdown (CTRL+C)
+    pkill -f 'cloudflared tunnel' 2>/dev/null
+    rm -f "$SCRIPT_DIR/.api-tunnel-url"
     kill $(jobs -p) 2>/dev/null
     exit
 }
@@ -153,34 +155,52 @@ else
     GME_PID=""
 fi
 
-# Clean up old tunnel URL file
-rm -f "$SCRIPT_DIR/.api-tunnel-url"
+# ==================== Cloudflared tunnels ====================
+# Tunnels persist across restarts — only start if not already running
 
-# Start cloudflared tunnels
 TUNNEL_PID=""
 API_TUNNEL_PID=""
-if command -v cloudflared &>/dev/null; then
-    # Tunnel for web portal (port 5252)
-    echo -e "${GREEN}Starting cloudflared tunnel for web portal (port 5252)...${NC}"
-    cloudflared tunnel --url http://localhost:5252 2>&1 | while read -r line; do
-        if echo "$line" | grep -qoE 'https://[a-z0-9-]+\.trycloudflare\.com'; then
-            URL=$(echo "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com')
-            echo -e "${GREEN}Portal URL: ${URL}${NC}"
-        fi
-    done &
-    TUNNEL_PID=$!
 
-    # Tunnel for bot-server API (port 5353)
-    echo -e "${GREEN}Starting cloudflared tunnel for bot-server API (port 5353)...${NC}"
-    cloudflared tunnel --url http://localhost:5353 2>&1 | while read -r line; do
-        if echo "$line" | grep -qoE 'https://[a-z0-9-]+\.trycloudflare\.com'; then
-            URL=$(echo "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com')
-            echo -e "${GREEN}API URL: ${URL}${NC}"
-            # Write API tunnel URL to file so the portal can discover it
-            echo "$URL" > "$SCRIPT_DIR/.api-tunnel-url"
+if command -v cloudflared &>/dev/null; then
+    # Check if portal tunnel is already running
+    EXISTING_PORTAL_TUNNEL=$(pgrep -f 'cloudflared tunnel.*5252' 2>/dev/null)
+    EXISTING_API_TUNNEL=$(pgrep -f 'cloudflared tunnel.*5353' 2>/dev/null)
+
+    if [ -n "$EXISTING_PORTAL_TUNNEL" ]; then
+        echo -e "${GREEN}Portal tunnel already running (PID: ${EXISTING_PORTAL_TUNNEL}) — keeping existing URL${NC}"
+        TUNNEL_PID="$EXISTING_PORTAL_TUNNEL"
+    else
+        # Clean up old tunnel URL file since we're starting fresh
+        rm -f "$SCRIPT_DIR/.api-tunnel-url"
+        echo -e "${GREEN}Starting cloudflared tunnel for web portal (port 5252)...${NC}"
+        cloudflared tunnel --url http://localhost:5252 2>&1 | while read -r line; do
+            if echo "$line" | grep -qoE 'https://[a-z0-9-]+\.trycloudflare\.com'; then
+                URL=$(echo "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com')
+                echo -e "${GREEN}Portal URL: ${URL}${NC}"
+            fi
+        done &
+        TUNNEL_PID=$!
+    fi
+
+    if [ -n "$EXISTING_API_TUNNEL" ]; then
+        echo -e "${GREEN}API tunnel already running (PID: ${EXISTING_API_TUNNEL}) — keeping existing URL${NC}"
+        API_TUNNEL_PID="$EXISTING_API_TUNNEL"
+        # Re-read existing API tunnel URL from file
+        if [ -f "$SCRIPT_DIR/.api-tunnel-url" ]; then
+            echo -e "${GREEN}API URL: $(cat "$SCRIPT_DIR/.api-tunnel-url")${NC}"
         fi
-    done &
-    API_TUNNEL_PID=$!
+    else
+        echo -e "${GREEN}Starting cloudflared tunnel for bot-server API (port 5353)...${NC}"
+        cloudflared tunnel --url http://localhost:5353 2>&1 | while read -r line; do
+            if echo "$line" | grep -qoE 'https://[a-z0-9-]+\.trycloudflare\.com'; then
+                URL=$(echo "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com')
+                echo -e "${GREEN}API URL: ${URL}${NC}"
+                # Write API tunnel URL to file so the portal can discover it
+                echo "$URL" > "$SCRIPT_DIR/.api-tunnel-url"
+            fi
+        done &
+        API_TUNNEL_PID=$!
+    fi
 else
     echo -e "${YELLOW}cloudflared not installed — skipping public tunnels${NC}"
 fi
@@ -191,7 +211,8 @@ echo -e "Web Portal PID: ${WEB_PID} (port 5252)"
 [ -n "$GME_PID" ] && echo -e "GME Music Bot PID: ${GME_PID} (port 9876)"
 [ -n "$TUNNEL_PID" ] && echo -e "Cloudflared Portal Tunnel PID: ${TUNNEL_PID}"
 [ -n "$API_TUNNEL_PID" ] && echo -e "Cloudflared API Tunnel PID: ${API_TUNNEL_PID}"
-echo -e "\n${BLUE}Press CTRL+C to stop all services${NC}\n"
+echo -e "\n${BLUE}Press CTRL+C to stop all services${NC}"
+echo -e "${YELLOW}Tunnels persist across restarts. Only CTRL+C kills tunnels.${NC}\n"
 
 # Wait for all processes
 wait
