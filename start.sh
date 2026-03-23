@@ -221,73 +221,65 @@ get_tunnel_url() {
 if [ -n "$CLOUDFLARED_BIN" ]; then
     mkdir -p "$LAUNCH_AGENTS_DIR"
 
-    # --- Portal tunnel (port 5252) ---
-    # Check if service is already running with a valid URL
-    PORTAL_URL=""
-    if launchctl list 2>/dev/null | grep -q 'com.yellotalk.tunnel-portal'; then
-        # Service exists, check if URL is saved
-        [ -f "$SCRIPT_DIR/.portal-tunnel-url" ] && PORTAL_URL=$(cat "$SCRIPT_DIR/.portal-tunnel-url")
-        # Fallback: read from log
-        [ -z "$PORTAL_URL" ] && [ -f "$PORTAL_LOG" ] && PORTAL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$PORTAL_LOG" 2>/dev/null | head -1)
+    # Helper: get current URL for a tunnel service, verifying it actually works
+    resolve_tunnel_url() {
+        local label="$1"
+        local port="$2"
+        local plist="$3"
+        local logfile="$4"
+        local urlfile="$5"
 
-        if [ -n "$PORTAL_URL" ]; then
-            echo -e "${GREEN}Portal tunnel service running — ${PORTAL_URL}${NC}"
-            echo "$PORTAL_URL" > "$SCRIPT_DIR/.portal-tunnel-url"
-        else
-            # Service running but no URL — restart it
-            echo -e "${YELLOW}Portal tunnel service running but no URL found. Restarting...${NC}"
-            rm -f "$PORTAL_LOG"
-            setup_tunnel_service "com.yellotalk.tunnel-portal" 5252 "$PORTAL_PLIST" "$PORTAL_LOG"
-            PORTAL_URL=$(get_tunnel_url "$PORTAL_LOG")
-            if [ -n "$PORTAL_URL" ]; then
-                echo -e "${GREEN}Portal URL: ${PORTAL_URL}${NC}"
-                echo "$PORTAL_URL" > "$SCRIPT_DIR/.portal-tunnel-url"
+        if launchctl list 2>/dev/null | grep -q "$label"; then
+            # Service is running — always read URL from log (may have changed after reboot)
+            local log_url=""
+            [ -f "$logfile" ] && log_url=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$logfile" 2>/dev/null | tail -1)
+
+            if [ -n "$log_url" ]; then
+                # Verify the URL actually works (quick 3s check)
+                local http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$log_url" 2>/dev/null)
+                if [ "$http_code" != "000" ]; then
+                    echo "$log_url" > "$urlfile"
+                    echo -e "${GREEN}Tunnel service running ($label) — ${log_url}${NC}"
+                    echo "$log_url"
+                    return 0
+                fi
             fi
-        fi
-    else
-        echo -e "${GREEN}Installing portal tunnel service (port 5252)...${NC}"
-        rm -f "$PORTAL_LOG" "$SCRIPT_DIR/.portal-tunnel-url"
-        setup_tunnel_service "com.yellotalk.tunnel-portal" 5252 "$PORTAL_PLIST" "$PORTAL_LOG"
-        PORTAL_URL=$(get_tunnel_url "$PORTAL_LOG")
-        if [ -n "$PORTAL_URL" ]; then
-            echo -e "${GREEN}Portal URL: ${PORTAL_URL}${NC}"
-            echo "$PORTAL_URL" > "$SCRIPT_DIR/.portal-tunnel-url"
+
+            # URL not found or dead — restart service
+            echo -e "${YELLOW}Tunnel $label has stale/missing URL. Restarting...${NC}"
+            rm -f "$logfile" "$urlfile"
+            setup_tunnel_service "$label" "$port" "$plist" "$logfile"
+            local new_url=$(get_tunnel_url "$logfile")
+            if [ -n "$new_url" ]; then
+                echo "$new_url" > "$urlfile"
+                echo -e "${GREEN}Tunnel URL: ${new_url}${NC}"
+                echo "$new_url"
+                return 0
+            fi
+            echo -e "${YELLOW}Tunnel started but URL not ready. Check log: $logfile${NC}"
+            return 1
         else
-            echo -e "${YELLOW}Portal tunnel started but URL not ready yet. Check log: $PORTAL_LOG${NC}"
+            # Service not installed — install it
+            echo -e "${GREEN}Installing tunnel service ($label, port $port)...${NC}"
+            rm -f "$logfile" "$urlfile"
+            setup_tunnel_service "$label" "$port" "$plist" "$logfile"
+            local new_url=$(get_tunnel_url "$logfile")
+            if [ -n "$new_url" ]; then
+                echo "$new_url" > "$urlfile"
+                echo -e "${GREEN}Tunnel URL: ${new_url}${NC}"
+                echo "$new_url"
+                return 0
+            fi
+            echo -e "${YELLOW}Tunnel started but URL not ready. Check log: $logfile${NC}"
+            return 1
         fi
-    fi
+    }
+
+    # --- Portal tunnel (port 5252) ---
+    PORTAL_URL=$(resolve_tunnel_url "com.yellotalk.tunnel-portal" 5252 "$PORTAL_PLIST" "$PORTAL_LOG" "$SCRIPT_DIR/.portal-tunnel-url")
 
     # --- API tunnel (port 5353) ---
-    API_URL=""
-    if launchctl list 2>/dev/null | grep -q 'com.yellotalk.tunnel-api'; then
-        [ -f "$SCRIPT_DIR/.api-tunnel-url" ] && API_URL=$(cat "$SCRIPT_DIR/.api-tunnel-url")
-        [ -z "$API_URL" ] && [ -f "$API_LOG" ] && API_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$API_LOG" 2>/dev/null | head -1)
-
-        if [ -n "$API_URL" ]; then
-            echo -e "${GREEN}API tunnel service running — ${API_URL}${NC}"
-            echo "$API_URL" > "$SCRIPT_DIR/.api-tunnel-url"
-        else
-            echo -e "${YELLOW}API tunnel service running but no URL found. Restarting...${NC}"
-            rm -f "$API_LOG"
-            setup_tunnel_service "com.yellotalk.tunnel-api" 5353 "$API_PLIST" "$API_LOG"
-            API_URL=$(get_tunnel_url "$API_LOG")
-            if [ -n "$API_URL" ]; then
-                echo -e "${GREEN}API URL: ${API_URL}${NC}"
-                echo "$API_URL" > "$SCRIPT_DIR/.api-tunnel-url"
-            fi
-        fi
-    else
-        echo -e "${GREEN}Installing API tunnel service (port 5353)...${NC}"
-        rm -f "$API_LOG" "$SCRIPT_DIR/.api-tunnel-url"
-        setup_tunnel_service "com.yellotalk.tunnel-api" 5353 "$API_PLIST" "$API_LOG"
-        API_URL=$(get_tunnel_url "$API_LOG")
-        if [ -n "$API_URL" ]; then
-            echo -e "${GREEN}API URL: ${API_URL}${NC}"
-            echo "$API_URL" > "$SCRIPT_DIR/.api-tunnel-url"
-        else
-            echo -e "${YELLOW}API tunnel started but URL not ready yet. Check log: $API_LOG${NC}"
-        fi
-    fi
+    API_URL=$(resolve_tunnel_url "com.yellotalk.tunnel-api" 5353 "$API_PLIST" "$API_LOG" "$SCRIPT_DIR/.api-tunnel-url")
 else
     echo -e "${YELLOW}cloudflared not installed — skipping public tunnels${NC}"
 fi
