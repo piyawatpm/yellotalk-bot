@@ -3,6 +3,7 @@ import type { NextConfig } from 'next'
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
     '*.trycloudflare.com',
+    '*.ts.net',
     'localhost',
     '0.0.0.0',
   ],

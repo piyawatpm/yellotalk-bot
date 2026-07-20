@@ -847,7 +847,7 @@ int main(int argc, char* argv[]) {
                 });
             }
 
-            usleep(33000); // ~30fps poll rate
+            usleep(100000); // 100ms poll rate (GME recommended)
         }
     }
     return 0;

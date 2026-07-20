@@ -45,6 +45,21 @@ if ! command -v cloudflared &>/dev/null; then
     fi
 fi
 
+# Check for tailscale (preferred tunnel — gives a PERMANENT public URL that
+# never changes across restarts, reboots, or different networks)
+if ! command -v tailscale &>/dev/null && [ ! -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]; then
+    echo -e "${YELLOW}tailscale not found. Installing (permanent public URL)...${NC}"
+    if [ "$(uname)" = "Darwin" ]; then
+        if command -v brew &>/dev/null; then
+            brew install tailscale 2>/dev/null || echo -e "${YELLOW}Could not install tailscale via brew — will use cloudflared fallback.${NC}"
+        else
+            echo -e "${YELLOW}Homebrew not found — install Tailscale from https://tailscale.com/download/macos (falls back to cloudflared meanwhile).${NC}"
+        fi
+    else
+        curl -fsSL https://tailscale.com/install.sh | sh 2>/dev/null || echo -e "${YELLOW}Could not install tailscale automatically — will use cloudflared fallback.${NC}"
+    fi
+fi
+
 # Check for yt-dlp (needed for music)
 if ! command -v yt-dlp &>/dev/null; then
     echo -e "${YELLOW}yt-dlp not found. Installing...${NC}"
@@ -132,7 +147,7 @@ echo -e "${GREEN}Starting web portal...${NC}"
 (cd web-portal && npm run dev) &
 WEB_PID=$!
 
-# Start GME Music Bot (if built) — detect platform
+# Pre-build GME Music Bot if not built (bot-server.js spawns it on demand)
 if [ "$(uname)" = "Darwin" ]; then
     GME_BOT="./gme-music-bot/gme-music-bot"
     GME_BUILD_HINT="gme-music-bot/build.sh"
@@ -143,21 +158,92 @@ fi
 if [ ! -f "$GME_BOT" ]; then
     echo -e "${YELLOW}GME Music Bot not found. Building...${NC}"
     (cd "$SCRIPT_DIR/gme-music-bot" && bash "$(basename "$GME_BUILD_HINT")")
-fi
-if [ -f "$GME_BOT" ]; then
-    echo -e "${GREEN}Starting GME Music Bot...${NC}"
-    "$GME_BOT" &
-    GME_PID=$!
-    echo -e "GME Music Bot PID: ${GME_PID} (HTTP API on port 9876)"
+    if [ -f "$GME_BOT" ]; then
+        echo -e "${GREEN}GME Music Bot built successfully${NC}"
+    else
+        echo -e "${RED}GME Music Bot build failed.${NC}"
+    fi
 else
-    echo -e "${RED}GME Music Bot build failed. Skipping.${NC}"
-    GME_PID=""
+    echo -e "${GREEN}GME Music Bot binary OK (spawned on demand by bot-server)${NC}"
+fi
+GME_PID=""
+
+# ==================== Public tunnels ====================
+# Preferred: Tailscale Funnel. The public URL is bound to THIS Mac's tailnet
+# identity (its MagicDNS name), so it NEVER changes — not on restart, reboot,
+# sleep, or when the Mac moves to a different Wi-Fi/network.
+# Fallback: cloudflared quick tunnels (random *.trycloudflare.com each start).
+
+TUNNEL_MODE=""
+TS_BIN="$(command -v tailscale 2>/dev/null)"
+if [ -z "$TS_BIN" ] && [ -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]; then
+    TS_BIN="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 fi
 
-# ==================== Cloudflared tunnels (launchd services) ====================
-# Tunnels run as macOS launchd services — they survive CTRL+C, restarts, and sleep.
-# Only a reboot or `launchctl stop` kills them (and launchd auto-restarts on reboot).
+# Tailscale backend state: "Running" = logged in & connected, "" = daemon not reachable.
+ts_state() {
+    "$TS_BIN" status --json 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('BackendState',''))" 2>/dev/null
+}
 
+# Ensure the daemon is running AND this Mac is logged in. Auto-starts the daemon
+# and opens a browser login when needed. Returns 0 only when state is "Running".
+ensure_tailscale() {
+    [ -z "$TS_BIN" ] && return 1
+    if [ -z "$(ts_state)" ]; then
+        echo -e "${YELLOW}Starting Tailscale daemon (may prompt for your password)...${NC}"
+        local ts_daemon
+        ts_daemon="$(command -v tailscaled 2>/dev/null)"
+        if command -v brew &>/dev/null; then
+            sudo brew services start tailscale 2>/dev/null || { [ -n "$ts_daemon" ] && sudo "$ts_daemon" install-system-daemon 2>/dev/null; }
+        elif [ -n "$ts_daemon" ]; then
+            sudo "$ts_daemon" install-system-daemon 2>/dev/null
+        fi
+        for _ in $(seq 1 10); do [ -n "$(ts_state)" ] && break; sleep 1; done
+    fi
+    if [ "$(ts_state)" != "Running" ]; then
+        echo -e "${YELLOW}Logging in to Tailscale — a browser will open. Finish it, then setup continues...${NC}"
+        "$TS_BIN" up 2>/dev/null || sudo "$TS_BIN" up 2>/dev/null
+    fi
+    [ "$(ts_state)" = "Running" ]
+}
+
+if [ -n "$TS_BIN" ] && ensure_tailscale; then
+    # Resolve this node's stable MagicDNS name.
+    TS_HOST=$("$TS_BIN" status --json 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))" 2>/dev/null)
+    if [ -n "$TS_HOST" ]; then
+        echo -e "${GREEN}Setting up Tailscale Funnel (permanent URLs)...${NC}"
+        # Funnel allows public ports 443/8443/10000 only: portal->443, API->8443.
+        # --bg persists in tailscaled and is restored automatically after reboot.
+        ts_ok=1
+        for pair in "443:5252" "8443:5353"; do
+            pub="${pair%%:*}"; loc="${pair##*:}"
+            if ! out=$("$TS_BIN" funnel --bg --https="$pub" "http://127.0.0.1:$loc" 2>&1); then
+                echo -e "${YELLOW}Tailscale Funnel could not start:${NC}"
+                echo "$out"
+                ts_ok=0
+                break
+            fi
+        done
+        if [ "$ts_ok" = 1 ]; then
+            PORTAL_URL="https://${TS_HOST}"
+            API_URL="https://${TS_HOST}:8443"
+            echo "$PORTAL_URL" > "$SCRIPT_DIR/.portal-tunnel-url"
+            echo "$API_URL"    > "$SCRIPT_DIR/.api-tunnel-url"
+            TUNNEL_MODE="tailscale"
+            echo -e "${GREEN}Tailscale Funnel ready — permanent URLs for this Mac:${NC}"
+            echo -e "  ${GREEN}Portal: ${PORTAL_URL}${NC}"
+            echo -e "  ${GREEN}API:    ${API_URL}${NC}"
+        else
+            echo -e "${YELLOW}Funnel not enabled for your tailnet yet. Enable it, then re-run:${NC}"
+            echo -e "  ${YELLOW}https://tailscale.com/kb/1223/funnel${NC}"
+        fi
+    fi
+elif [ -n "$TS_BIN" ]; then
+    echo -e "${YELLOW}Tailscale setup didn't finish (login or Funnel still pending) — using cloudflared fallback for now.${NC}"
+fi
+
+# ---- Fallback: cloudflared quick tunnels (used only if Tailscale isn't ready) ----
+# These run as launchd services — they survive CTRL+C, restarts, and sleep.
 CLOUDFLARED_BIN=$(which cloudflared 2>/dev/null)
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 PORTAL_PLIST="$LAUNCH_AGENTS_DIR/com.yellotalk.tunnel-portal.plist"
@@ -218,7 +304,7 @@ get_tunnel_url() {
     return 1
 }
 
-if [ -n "$CLOUDFLARED_BIN" ]; then
+if [ "$TUNNEL_MODE" != "tailscale" ] && [ -n "$CLOUDFLARED_BIN" ]; then
     mkdir -p "$LAUNCH_AGENTS_DIR"
 
     # Helper: get current URL for a tunnel service, verifying it actually works
@@ -280,8 +366,8 @@ if [ -n "$CLOUDFLARED_BIN" ]; then
 
     # --- API tunnel (port 5353) ---
     API_URL=$(resolve_tunnel_url "com.yellotalk.tunnel-api" 5353 "$API_PLIST" "$API_LOG" "$SCRIPT_DIR/.api-tunnel-url")
-else
-    echo -e "${YELLOW}cloudflared not installed — skipping public tunnels${NC}"
+elif [ "$TUNNEL_MODE" != "tailscale" ]; then
+    echo -e "${YELLOW}No public tunnel: install Tailscale (recommended, stable URL) or cloudflared.${NC}"
 fi
 
 # Read tunnel URLs from files
@@ -309,8 +395,13 @@ if [ -n "$API_URL" ]; then
 echo -e "${BLUE}║${NC}  🔗 ${GREEN}API:    ${API_URL}${NC}"
 fi
 echo -e "${BLUE}╠══════════════════════════════════════════════════════════════════════╣${NC}"
+if [ "$TUNNEL_MODE" = "tailscale" ]; then
+echo -e "${BLUE}║${NC}  ${YELLOW}Tailscale Funnel: URLs are permanent & follow this Mac anywhere.${NC}     ${BLUE}║${NC}"
+echo -e "${BLUE}║${NC}  ${YELLOW}Turn off tunnels: tailscale funnel reset${NC}                            ${BLUE}║${NC}"
+else
 echo -e "${BLUE}║${NC}  ${YELLOW}Tunnels run as launchd services (survive CTRL+C & restarts).${NC}        ${BLUE}║${NC}"
 echo -e "${BLUE}║${NC}  ${YELLOW}Reset tunnels: launchctl stop com.yellotalk.tunnel-portal${NC}           ${BLUE}║${NC}"
+fi
 echo -e "${BLUE}║${NC}  ${YELLOW}Press CTRL+C to stop bot only.${NC}                                      ${BLUE}║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
