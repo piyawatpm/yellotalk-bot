@@ -23,15 +23,22 @@ rm -rf "$EXTRACT_DIR"
 mkdir -p "$EXTRACT_DIR"
 unzip -o "$ZIP_FILE" -d "$EXTRACT_DIR"
 
-# Find WebRTCService.min.js in the extracted files
+# Find the browser bundle. Newer GME H5 packages ship the minified browser
+# build as dist/WebRTCService.js (with a *.source.js sibling and an npm-package/
+# variant). Prefer an explicit *.min.js, else the dist bundle (not source, not
+# the npm-package module build). It exposes the global window.WebGMEAPI.
 SDK_JS=$(find "$EXTRACT_DIR" -name "WebRTCService.min.js" | head -1)
+if [ -z "$SDK_JS" ]; then
+  SDK_JS=$(find "$EXTRACT_DIR" -name "WebRTCService.js" ! -name "*.source.js" ! -path "*npm-package*" | head -1)
+fi
 
 if [ -z "$SDK_JS" ]; then
-  echo "ERROR: WebRTCService.min.js not found in archive."
+  echo "ERROR: WebRTCService browser bundle not found in archive."
   echo "Contents:"
   find "$EXTRACT_DIR" -type f
   exit 1
 fi
+echo "Using SDK bundle: $SDK_JS"
 
 mkdir -p "$SDK_DIR"
 cp "$SDK_JS" "$SDK_DIR/WebRTCService.min.js"

@@ -51,6 +51,26 @@ let state = {
 
 let songPollInterval = null;
 
+// Browser-readiness gate. The HTTP server starts listening before Puppeteer
+// finishes launching, so bot-server's /status poll can pass and call /join while
+// `page` is still null. Gate every page.evaluate() behind this.
+let browserReady = false;
+let _browserReadyResolve = null;
+const browserReadyPromise = new Promise((resolve) => { _browserReadyResolve = resolve; });
+
+async function ensureBrowserReady(timeoutMs = 25000) {
+  if (browserReady && page) return;
+  let timer;
+  try {
+    await Promise.race([
+      browserReadyPromise,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('browser not ready (timeout)')), timeoutMs); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ---------- Puppeteer setup ----------
 
 async function launchBrowser() {
@@ -72,12 +92,9 @@ async function launchBrowser() {
 
   page = await browser.newPage();
 
-  // Log browser console to stdout
+  // Log ALL browser console to stdout (verbose — surfaces GME/TRTC internals)
   page.on('console', msg => {
-    const text = msg.text();
-    if (text.includes('[GME') || text.includes('Error') || text.includes('error')) {
-      console.log(`[${BOT_ID}:chrome] ${text}`);
-    }
+    console.log(`[${BOT_ID}:chrome:${msg.type()}] ${msg.text()}`);
   });
 
   page.on('pageerror', err => {
@@ -101,6 +118,8 @@ async function launchBrowser() {
     console.warn(`[${BOT_ID}] WARNING: GME H5 SDK failed to load — check sdk/WebRTCService.min.js`);
   }
 
+  browserReady = true;
+  if (_browserReadyResolve) _browserReadyResolve();
   console.log(`[${BOT_ID}] Browser ready`);
 }
 
@@ -167,9 +186,15 @@ app.use(express.static(__dirname));
 
 // GET /status
 app.get('/status', (req, res) => {
+  // Report "not ready" (503) until the browser/page is fully initialized so that
+  // bot-server's waitForGmeReady keeps polling instead of calling /join too early.
+  if (!browserReady) {
+    return res.status(503).json({ botId: BOT_ID, status: 'starting', ready: false });
+  }
   res.json({
     botId: BOT_ID,
     status: state.status,
+    ready: true,
     room: state.room,
     user: state.user,
     currentFile: state.currentFile,
@@ -182,6 +207,7 @@ app.get('/status', (req, res) => {
 // POST /join { room, user, uuid }
 app.post('/join', async (req, res) => {
   try {
+    await ensureBrowserReady();
     const { room, user, uuid } = req.body;
     if (!room || !user) {
       return res.status(400).json({ error: 'room and user required' });
@@ -194,14 +220,16 @@ app.post('/join', async (req, res) => {
     state.uuid = uuid || '';
     state.error = null;
 
-    // Generate auth buffer
-    const authBuffer = generateAuthBuffer(user, room);
-    console.log(`[${BOT_ID}] Auth buffer generated (${authBuffer.length} chars base64)`);
+    // GME auth identity — prefer the UUID (matches the native GenAuthBuffer identity).
+    // openId and authBuffer must be for the SAME identity.
+    const identity = (uuid && String(uuid).length) ? String(uuid) : String(user);
+    const authBuffer = generateAuthBuffer(identity, room);
+    console.log(`[${BOT_ID}] Auth buffer generated for identity=${identity}, room=${room} (${authBuffer.length} chars base64)`);
 
     // Init GME SDK
     await page.evaluate(async (appId, openId) => {
       await window.gmeInit(appId, openId);
-    }, GME_SDK_APP_ID, user);
+    }, GME_SDK_APP_ID, identity);
 
     // Enter room
     await page.evaluate(async (roomId, auth) => {
@@ -224,6 +252,7 @@ app.post('/join', async (req, res) => {
 // POST /play { file, loop }
 app.post('/play', async (req, res) => {
   try {
+    await ensureBrowserReady();
     const { file, loop } = req.body;
     if (!file) {
       return res.status(400).json({ error: 'file required' });
@@ -264,6 +293,7 @@ app.post('/play', async (req, res) => {
 // POST /stop
 app.post('/stop', async (req, res) => {
   try {
+    await ensureBrowserReady();
     await page.evaluate(() => window.stopAudio());
     state.status = state.room ? 'joined' : 'idle';
     state.currentFile = null;
@@ -278,6 +308,7 @@ app.post('/stop', async (req, res) => {
 // POST /pause
 app.post('/pause', async (req, res) => {
   try {
+    await ensureBrowserReady();
     const result = await page.evaluate(() => window.pauseAudio());
     if (result.ok) {
       state.status = 'paused';
@@ -292,6 +323,7 @@ app.post('/pause', async (req, res) => {
 // POST /resume
 app.post('/resume', async (req, res) => {
   try {
+    await ensureBrowserReady();
     const result = await page.evaluate(() => window.resumeAudio());
     if (result.ok) {
       state.status = 'playing';
@@ -306,6 +338,7 @@ app.post('/resume', async (req, res) => {
 // POST /volume { vol }
 app.post('/volume', async (req, res) => {
   try {
+    await ensureBrowserReady();
     const vol = parseInt(req.body.vol, 10) || 100;
     const result = await page.evaluate((v) => window.setVolume(v), vol);
     state.volume = vol;
@@ -320,6 +353,7 @@ app.post('/volume', async (req, res) => {
 app.post('/leave', async (req, res) => {
   try {
     console.log(`[${BOT_ID}] Leaving room...`);
+    await ensureBrowserReady();
     stopSongPoll();
 
     // Stop audio first
@@ -350,6 +384,7 @@ app.post('/leave', async (req, res) => {
 // GET /voice-users
 app.get('/voice-users', async (req, res) => {
   try {
+    await ensureBrowserReady();
     const events = await page.evaluate(() => window.__gmeEvents);
     // Extract member events to get user list
     const memberEvents = events.filter(e => e.type === 'member');

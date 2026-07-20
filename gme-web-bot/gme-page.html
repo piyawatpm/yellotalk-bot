@@ -12,7 +12,9 @@
     // ============================================================
     // getUserMedia override — MUST run before SDK loads
     // Returns a custom MediaStream from AudioContext destination
-    // so the SDK transmits our injected audio as "voice"
+    // so the SDK transmits our injected audio as "voice".
+    // The GME SDK's EnableMic() -> initLocalStream() -> getUserMedia()
+    // path picks up this stream, so the music becomes the mic input.
     // ============================================================
 
     const audioCtx = new AudioContext({ sampleRate: 48000 });
@@ -20,7 +22,8 @@
     const destination = audioCtx.createMediaStreamDestination();
     gainNode.connect(destination);
 
-    // Keep a silent oscillator running to keep the stream active
+    // Keep a silent oscillator running so the stream always has an active
+    // audio track (WebRTC drops tracks that never produce samples).
     const silentOsc = audioCtx.createOscillator();
     const silentGain = audioCtx.createGain();
     silentGain.gain.value = 0;
@@ -30,18 +33,40 @@
 
     const fakeStream = destination.stream;
 
-    // Override getUserMedia to return our custom stream
+    // Override getUserMedia to return our custom stream for any audio request.
     const origGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getUserMedia = async function(constraints) {
       if (constraints && constraints.audio) {
-        console.log('[GME-BOT] getUserMedia intercepted — returning custom audio stream');
+        console.log('[GME-BOT] getUserMedia intercepted — returning injected audio stream');
         return fakeStream;
       }
       return origGetUserMedia(constraints);
     };
 
     // ============================================================
-    // Audio playback state
+    // ITMG event codes (from GME H5 SDK: WebGMEAPI.fn.event)
+    // ============================================================
+    const GME_EVENT = {
+      NONE: 0,
+      ENTER_ROOM: 1,
+      EXIT_ROOM: 2,
+      ROOM_DISCONNECT: 3,
+      USER_UPDATE: 4,
+      LOCALSTREAM_READY: 5,
+      REMOTESTREAM_IN: 6,
+      REMOTESTREAM_PAUSED: 7,
+      REMOTESTREAM_OUT: 8,
+      SPEAKER_ENABLE_RESULT: 9,
+      MICROPHONE_ENABLE_RESULT: 10,
+      ACCOMPANY_FINISH: 11,
+      START_ACCOMPANY: 12,
+      SET_ACCOMPANY_VOLUME: 13,
+    };
+    // GME room type — cosmetic for the web SDK (TRTC mode is fixed), 3 = high quality
+    const GME_ROOM_TYPE_HIGHQUALITY = 3;
+
+    // ============================================================
+    // State
     // ============================================================
     let currentSource = null;
     let currentBuffer = null;
@@ -54,10 +79,61 @@
     window.__gmeError = null;
     window.__gmeEvents = [];
 
+    // Promise resolvers for the async EnterRoom flow (event-driven in GME)
+    let _enterResolve = null;
+    let _enterReject = null;
+    let _enterTimer = null;
+
     function pushEvent(type, data) {
       window.__gmeEvents.push({ type, data, ts: Date.now() });
-      // Keep last 50 events
       if (window.__gmeEvents.length > 50) window.__gmeEvents.shift();
+    }
+
+    // ============================================================
+    // GME event delegate — SetTMGDelegate(cb) calls cb(eventType, result)
+    // result = { errorCode, errorMsg, ... }
+    // ============================================================
+    function onGmeEvent(eventType, result) {
+      const code = (result && (result.errorCode !== undefined ? result.errorCode : result.result));
+      console.log('[GME] event=' + eventType + ' result=' + JSON.stringify(result));
+
+      switch (eventType) {
+        case GME_EVENT.ENTER_ROOM:
+          if (code === 0) {
+            window.__gmeState = 'joined';
+            pushEvent('room_enter', result);
+            // Open uplink (music-as-mic) and mute the local speaker path.
+            try { window.__gme.EnableMic(true); } catch (e) { console.error('[GME] EnableMic error', e); }
+            try { window.__gme.EnableSpeaker(false); } catch (e) {}
+            try { window.__gme.SetMicVolume(100); } catch (e) {}
+            if (_enterTimer) { clearTimeout(_enterTimer); _enterTimer = null; }
+            if (_enterResolve) { _enterResolve({ ok: true }); _enterResolve = _enterReject = null; }
+          } else {
+            window.__gmeState = 'error';
+            window.__gmeError = result;
+            pushEvent('room_enter_failed', result);
+            if (_enterTimer) { clearTimeout(_enterTimer); _enterTimer = null; }
+            if (_enterReject) { _enterReject(new Error('EnterRoom failed: ' + JSON.stringify(result))); _enterResolve = _enterReject = null; }
+          }
+          break;
+        case GME_EVENT.EXIT_ROOM:
+          window.__gmeState = 'idle';
+          pushEvent('room_exit', result);
+          break;
+        case GME_EVENT.ROOM_DISCONNECT:
+          window.__gmeState = 'idle';
+          window.__gmeError = result;
+          pushEvent('room_disconnect', result);
+          break;
+        case GME_EVENT.USER_UPDATE:
+          pushEvent('member', result);
+          break;
+        case GME_EVENT.MICROPHONE_ENABLE_RESULT:
+          pushEvent('mic_enable', result);
+          break;
+        default:
+          pushEvent('gme_event_' + eventType, result);
+      }
     }
 
     // ============================================================
@@ -70,53 +146,22 @@
           window.__gmeState = 'idle';
           window.__gmeError = null;
 
-          if (typeof WebRTCService === 'undefined') {
-            throw new Error('WebRTCService SDK not loaded');
+          if (typeof WebGMEAPI === 'undefined') {
+            throw new Error('WebGMEAPI SDK not loaded');
           }
 
-          const gmeContext = new WebRTCService({
-            sdkAppId: appId,
-            openId: openId,
-            nativeAudio: true
-          });
+          // Bootstrap the SDK singleton: the WebGMEAPI constructor creates
+          // WebGMEAPI.Param, the event enum, and AccompanyParam. Must run before
+          // SetTMGDelegate/Init, or Init throws (WebGMEAPI.Param is undefined).
+          new WebGMEAPI();
+          window.__gme = WebGMEAPI.fn;
+          window.__gme.SetTMGDelegate(onGmeEvent);
+          // Init(document, sdkAppId, openId) — sets identity
+          window.__gme.Init(document, Number(appId), String(openId));
+          console.log('[GME] Init called appId=' + appId + ' openId=' + openId);
 
-          window.__gme = gmeContext;
-
-          gmeContext.addEventListener('N_EVENT_START_COMPLETE', function(event) {
-            console.log('[GME] Init complete:', event);
-            pushEvent('init_complete', event);
-          });
-
-          gmeContext.addEventListener('N_EVENT_ROOM_DISCONNECT', function(event) {
-            console.log('[GME] Room disconnect:', event);
-            window.__gmeState = 'idle';
-            pushEvent('room_disconnect', event);
-          });
-
-          gmeContext.addEventListener('N_EVENT_ROOM_ENTER', function(event) {
-            console.log('[GME] Room enter:', event);
-            window.__gmeState = 'joined';
-            pushEvent('room_enter', event);
-          });
-
-          gmeContext.addEventListener('N_EVENT_ROOM_EXIT', function(event) {
-            console.log('[GME] Room exit:', event);
-            window.__gmeState = 'idle';
-            pushEvent('room_exit', event);
-          });
-
-          gmeContext.addEventListener('N_EVENT_MEMBER_V2', function(event) {
-            console.log('[GME] Member event:', event);
-            pushEvent('member', event);
-          });
-
-          gmeContext.addEventListener('N_EVENT_ERROR', function(event) {
-            console.log('[GME] Error:', event);
-            window.__gmeError = event;
-            pushEvent('error', event);
-          });
-
-          resolve({ ok: true });
+          // Init sets up state synchronously; give the SDK a tick to settle.
+          setTimeout(() => resolve({ ok: true }), 300);
         } catch (e) {
           window.__gmeState = 'error';
           window.__gmeError = e.message;
@@ -130,23 +175,26 @@
         try {
           if (!window.__gme) throw new Error('GME not initialized');
           window.__gmeState = 'joining';
+          window.__gmeError = null;
 
-          window.__gme.enterRoom(roomId, authBuffer, function(res) {
-            console.log('[GME] enterRoom callback:', res);
-            if (res && res.errCode === 0) {
-              window.__gmeState = 'joined';
-              // Enable mic (sends our custom stream)
-              window.__gme.enableMic();
-              // Enable speaker (receive audio from room)
-              window.__gme.enableSpeaker();
-              resolve({ ok: true });
-            } else {
+          _enterResolve = resolve;
+          _enterReject = reject;
+          // GME EnterRoom is event-driven: success/failure arrives via the
+          // delegate (ITMG_MAIN_EVENT_TYPE_ENTER_ROOM). Guard with a timeout.
+          _enterTimer = setTimeout(() => {
+            if (_enterReject) {
               window.__gmeState = 'error';
-              window.__gmeError = res;
-              reject(new Error('enterRoom failed: ' + JSON.stringify(res)));
+              window.__gmeError = 'EnterRoom timeout';
+              _enterReject(new Error('EnterRoom timeout (no ENTER_ROOM event in 25s)'));
+              _enterResolve = _enterReject = null;
             }
-          });
+          }, 25000);
+
+          window.__gme.EnterRoom(String(roomId), GME_ROOM_TYPE_HIGHQUALITY, authBuffer);
+          console.log('[GME] EnterRoom called room=' + roomId);
         } catch (e) {
+          if (_enterTimer) { clearTimeout(_enterTimer); _enterTimer = null; }
+          _enterResolve = _enterReject = null;
           window.__gmeState = 'error';
           window.__gmeError = e.message;
           reject(e);
@@ -159,11 +207,8 @@
         try {
           if (!window.__gme) { resolve({ ok: true }); return; }
           window.__gmeState = 'leaving';
-          window.__gme.exitRoom(function(res) {
-            console.log('[GME] exitRoom callback:', res);
-            window.__gmeState = 'idle';
-            resolve({ ok: true });
-          });
+          window.__gme.ExitRoom();
+          setTimeout(() => { window.__gmeState = 'idle'; resolve({ ok: true }); }, 300);
         } catch (e) {
           window.__gmeState = 'idle';
           resolve({ ok: true, warn: e.message });
@@ -172,17 +217,16 @@
     };
 
     // ============================================================
-    // Audio playback — decode MP3 and inject into getUserMedia stream
+    // Audio playback — decode MP3 and inject into the getUserMedia stream
+    // (unchanged from the working WebAudio approach)
     // ============================================================
 
     window.playAudio = async function(base64Data, loop) {
-      // Stop current playback
       window.stopAudio();
 
       isLooping = !!loop;
       window.__songFinished = false;
 
-      // Decode base64 → ArrayBuffer → AudioBuffer
       const binaryStr = atob(base64Data);
       const bytes = new Uint8Array(binaryStr.length);
       for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
@@ -194,8 +238,6 @@
 
     function _startPlayback(offset) {
       if (!currentBuffer) return;
-
-      // Resume context if suspended
       if (audioCtx.state === 'suspended') audioCtx.resume();
 
       currentSource = audioCtx.createBufferSource();
@@ -266,15 +308,15 @@
     console.log('[GME-BOT] Page loaded, getUserMedia overridden, audio context ready');
   </script>
 
-  <!-- GME H5 SDK — loaded after getUserMedia override -->
+  <!-- GME H5 SDK — loaded after getUserMedia override. Exposes window.WebGMEAPI -->
   <script src="sdk/WebRTCService.min.js"></script>
 
   <script>
-    if (typeof WebRTCService !== 'undefined') {
-      console.log('[GME-BOT] WebRTCService SDK loaded successfully');
+    if (typeof WebGMEAPI !== 'undefined') {
+      console.log('[GME-BOT] WebGMEAPI SDK loaded successfully');
       window.__sdkLoaded = true;
     } else {
-      console.error('[GME-BOT] WebRTCService SDK failed to load');
+      console.error('[GME-BOT] WebGMEAPI SDK failed to load');
       window.__sdkLoaded = false;
     }
   </script>
