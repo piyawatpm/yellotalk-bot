@@ -2030,7 +2030,7 @@ app.post('/api/music/join', async (req, res) => {
       room: gmeRoomId,
       user: gmeUserId,       // numeric gme_user_id → Init()
       uuid: botRealUuid      // real UUID → GenAuthBuffer()
-    }, { timeout: 20000 });
+    }, { timeout: 55000 });
     console.log(`🎵 [Music Bot] Join response:`, resp.data);
     res.json({
       success: resp.data.success !== false,
@@ -2385,7 +2385,7 @@ app.post('/api/music/youtube', async (req, res) => {
           io.emit('music-log', { type: 'info', message: `Joining GME room ${gmeRoomId}...` });
           const joinResp = await axios.post(`${gmeUrl}/join`, {
             room: gmeRoomId, user: gmeUserId, uuid: botRealUuid
-          }, { timeout: 20000 });
+          }, { timeout: 55000 });
           io.emit('music-log', { type: 'info', message: `GME join: ${joinResp.data.success ? 'OK' : joinResp.data.lastError || 'failed'}` });
 
           if (!joinResp.data.inRoom) {
@@ -2571,7 +2571,7 @@ app.post('/api/music/auto-play', async (req, res) => {
       room: gmeRoomId,
       user: gmeUserId,       // numeric gme_user_id → Init()
       uuid: botRealUuid      // real UUID → GenAuthBuffer()
-    }, { timeout: 20000 }); // 20s timeout since GME /join now waits internally
+    }, { timeout: 55000 }); // web SDK signaling can take ~30-45s to establish
     const joinData = joinResp.data;
     steps.push({ step: 'gme_join', success: joinData.success !== false, data: joinData });
     console.log(`🎵 [Auto-Play] Step 2: GME join response:`, joinData);
@@ -4233,7 +4233,7 @@ app.post('/api/bot/start', async (req, res) => {
                     room: gmeRoomId,
                     user: gmeUserId,
                     uuid: botRealUuid
-                  }, { timeout: 20000 });
+                  }, { timeout: 55000 });
 
                   console.log(`🎵 [${botConfig.name}] Auto-connect GME result:`, joinResp.data);
                   io.emit('music-log', { type: 'info', message: `[${targetBotId}] GME voice room: ${joinResp.data.success ? 'CONNECTED' : 'FAILED'} ${joinResp.data.lastError || ''}` });

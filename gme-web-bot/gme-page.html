@@ -170,36 +170,47 @@
       });
     };
 
+    // EnterRoom with "re-roll" retries. The web SDK's signaling WebSocket to the
+    // GME H5 server connects fast (~1-2s) most of the time but stalls 20-40s on a
+    // minority of attempts (lossy route). Instead of waiting out a stall, abort it
+    // (ExitRoom) and retry a fresh connection — usually the next roll is fast.
+    const ENTER_MAX_ATTEMPTS = 3;
+    const ENTER_ATTEMPT_MS = 15000;
+
     window.gmeEnterRoom = function(roomId, authBuffer) {
-      return new Promise((resolve, reject) => {
-        try {
-          if (!window.__gme) throw new Error('GME not initialized');
+      return (async () => {
+        if (!window.__gme) throw new Error('GME not initialized');
+        window.__gmeError = null;
+        let lastErr = 'unknown';
+
+        for (let attempt = 1; attempt <= ENTER_MAX_ATTEMPTS; attempt++) {
           window.__gmeState = 'joining';
-          window.__gmeError = null;
-
-          _enterResolve = resolve;
-          _enterReject = reject;
-          // GME EnterRoom is event-driven: success/failure arrives via the
-          // delegate (ITMG_MAIN_EVENT_TYPE_ENTER_ROOM). Guard with a timeout.
-          _enterTimer = setTimeout(() => {
-            if (_enterReject) {
-              window.__gmeState = 'error';
-              window.__gmeError = 'EnterRoom timeout';
-              _enterReject(new Error('EnterRoom timeout (no ENTER_ROOM event in 25s)'));
-              _enterResolve = _enterReject = null;
-            }
-          }, 25000);
-
-          window.__gme.EnterRoom(String(roomId), GME_ROOM_TYPE_HIGHQUALITY, authBuffer);
-          console.log('[GME] EnterRoom called room=' + roomId);
-        } catch (e) {
-          if (_enterTimer) { clearTimeout(_enterTimer); _enterTimer = null; }
-          _enterResolve = _enterReject = null;
-          window.__gmeState = 'error';
-          window.__gmeError = e.message;
-          reject(e);
+          try {
+            await new Promise((resolve, reject) => {
+              _enterResolve = resolve;
+              _enterReject = reject;
+              _enterTimer = setTimeout(() => {
+                if (_enterReject) {
+                  _enterReject(new Error('attempt timeout'));
+                  _enterResolve = _enterReject = null;
+                }
+              }, ENTER_ATTEMPT_MS);
+              console.log('[GME] EnterRoom attempt ' + attempt + '/' + ENTER_MAX_ATTEMPTS + ' room=' + roomId);
+              window.__gme.EnterRoom(String(roomId), GME_ROOM_TYPE_HIGHQUALITY, authBuffer);
+            });
+            console.log('[GME] joined on attempt ' + attempt);
+            return { ok: true, attempt };
+          } catch (e) {
+            lastErr = e.message;
+            console.log('[GME] attempt ' + attempt + ' failed (' + e.message + ') — re-rolling connection');
+            try { window.__gme.ExitRoom(); } catch (_) {}
+            await new Promise(r => setTimeout(r, 700));
+          }
         }
-      });
+        window.__gmeState = 'error';
+        window.__gmeError = 'EnterRoom failed after ' + ENTER_MAX_ATTEMPTS + ' attempts: ' + lastErr;
+        throw new Error(window.__gmeError);
+      })();
     };
 
     window.gmeExitRoom = function() {

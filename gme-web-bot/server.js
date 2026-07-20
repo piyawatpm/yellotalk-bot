@@ -213,6 +213,14 @@ app.post('/join', async (req, res) => {
       return res.status(400).json({ error: 'room and user required' });
     }
 
+    // Dedup: if we're already in (or joining) this exact room, don't re-init the
+    // SDK — a concurrent second join tears down the first mid-handshake and
+    // triggers "Promise was collected".
+    if ((state.status === 'joining' || state.status === 'joined') && String(state.room) === String(room)) {
+      console.log(`[${BOT_ID}] Already ${state.status} room ${room} — skipping duplicate join`);
+      return res.json({ ok: true, status: state.status, room, user, note: 'already ' + state.status });
+    }
+
     console.log(`[${BOT_ID}] Joining room ${room} as user ${user}`);
     state.status = 'joining';
     state.room = room;
