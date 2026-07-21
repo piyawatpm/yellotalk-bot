@@ -35,15 +35,17 @@ for i in $(seq 1 40); do
 done
 echo "      Android up."
 
-echo -e "${GREEN}[4/6] GME bot app (install + forward)...${NC}"
+echo -e "${GREEN}[4/6] GME bot app (install + clear stale forwards)...${NC}"
 [ -f "$APK" ] || { echo "      building APK..."; bash /root/gmebuild/build.sh >/dev/null 2>&1; }
 if ! adb -s "$SERIAL" shell pm list packages 2>/dev/null | grep -q com.gmebot.test; then
   adb -s "$SERIAL" install -r "$APK" >/dev/null 2>&1
 fi
 adb -s "$SERIAL" shell pm grant com.gmebot.test android.permission.RECORD_AUDIO >/dev/null 2>&1 || true
-adb -s "$SERIAL" shell am start -n com.gmebot.test/.MainActivity >/dev/null 2>&1
-adb -s "$SERIAL" forward tcp:9877 tcp:9099 >/dev/null 2>&1
-echo "      app running, port 9877 -> 9099 forwarded."
+# The adapter (spawned per bot by bot-server) manages the app lifecycle + its own
+# adb forward on PORT+10000. Clear any stale forwards so they can't shadow a
+# bot-server-facing listen port (this collision once broke /play -> no audio).
+adb -s "$SERIAL" forward --remove-all >/dev/null 2>&1
+echo "      app installed; stale adb forwards cleared (adapter manages its own)."
 
 echo -e "${GREEN}[5/6] npm deps...${NC}"
 [ -d "$SCRIPT_DIR/node_modules" ] || (cd "$SCRIPT_DIR" && npm install >/dev/null 2>&1)

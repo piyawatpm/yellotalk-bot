@@ -30,7 +30,10 @@ const PORT = parseInt(arg('--port', '9876'), 10);
 const BOT_ID = arg('--bot-id', 'redroid-1');
 const CALLBACK_URL = arg('--callback-url', '');
 const SERIAL = process.env.REDROID_SERIAL || 'localhost:5555';
-const APP_HOST_PORT = parseInt(process.env.REDROID_APP_PORT || '9877', 10);
+// Host port for `adb forward` -> app. MUST NOT collide with this adapter's own
+// bot-server-facing PORT (bot-server allocates 9876, 9877, ...). Derive it as
+// PORT+10000 so they can never clash.
+const APP_HOST_PORT = parseInt(process.env.REDROID_APP_PORT || String(PORT + 10000), 10);
 const APP_DEVICE_PORT = 9099;
 const APP = `http://127.0.0.1:${APP_HOST_PORT}`;
 const DEVICE_MP3 = '/data/local/tmp/gmesong.mp3';
@@ -60,13 +63,17 @@ function appCall(method, path, body) {
   });
 }
 
-// Make sure the container is reachable, the app is running, and the port is forwarded.
-async function ensureApp() {
+// Make sure the container is reachable, the app is running, and the port is
+// forwarded. `fresh` force-restarts the app so it never carries a stale room.
+async function ensureApp(fresh) {
   await new Promise(r => execFile('adb', ['connect', SERIAL], () => r()));
-  await adb(['shell', 'am', 'start', '-n', 'com.gmebot.test/.MainActivity']);
   await adb(['forward', `tcp:${APP_HOST_PORT}`, `tcp:${APP_DEVICE_PORT}`]);
-  // give the in-app HTTP server a moment on a cold start
-  await new Promise(r => setTimeout(r, 800));
+  if (fresh) { await adb(['shell', 'am', 'force-stop', 'com.gmebot.test']); await new Promise(r => setTimeout(r, 500)); }
+  await adb(['shell', 'am', 'start', '-n', 'com.gmebot.test/.MainActivity']);
+  // wait for the in-app HTTP control server to respond
+  for (let i = 0; i < 30; i++) {
+    try { await appCall('GET', '/status'); return; } catch (e) { await new Promise(r => setTimeout(r, 400)); }
+  }
 }
 
 let state = { currentFile: null, loop: false };
@@ -144,8 +151,10 @@ const server = http.createServer((req, res) => {
   });
 });
 
+server.on('error', (e) => { log('HTTP server error: ' + e.message); });
+
 ensureApp()
-  .then(() => server.listen(PORT, () => log(`redroid adapter listening on ${PORT}, driving app at ${APP}`)))
+  .then(() => server.listen(PORT, () => log(`redroid adapter listening on ${PORT}, app via adb :${APP_HOST_PORT} -> :${APP_DEVICE_PORT}`)))
   .catch((e) => { log('ensureApp failed: ' + e.message); server.listen(PORT, () => log(`redroid adapter listening on ${PORT} (app not ready yet)`)); });
 
 process.on('SIGTERM', () => process.exit(0));
