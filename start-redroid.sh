@@ -63,7 +63,8 @@ echo -e "${GREEN}[5/6] npm deps...${NC}"
 echo -e "${GREEN}[6/6] build portal (production) + start services via pm2...${NC}"
 pm2 delete yt-bot yt-portal >/dev/null 2>&1 || true
 # GROQ_BASE_URL routes groq through the US Vercel relay (groq 403s the HK IP).
-GME_MODE=redroid GROQ_BASE_URL="${GROQ_BASE_URL:-https://groq-relay-fawn.vercel.app/api/openai/v1}" \
+# NOTE: no /openai/v1 suffix — groq-sdk appends /openai/v1/chat/completions itself.
+GME_MODE=redroid GROQ_BASE_URL="${GROQ_BASE_URL:-https://groq-relay-fawn.vercel.app/api}" \
   pm2 start bot-server.js --name yt-bot --cwd "$SCRIPT_DIR" --time >/dev/null
 # Production build: pre-compiled + minified routes. `next dev` compiles each
 # route on-demand (20-30s page loads over the HK link) and Fast Refresh reloads
