@@ -2260,8 +2260,8 @@ async function downloadYouTubeAudio(url, botId) {
     const args = [
       '-x',                          // Extract audio
       '--audio-format', 'mp3',       // Convert to mp3
-      '--audio-quality', '0',        // Best quality (VBR ~245kbps)
-      '--postprocessor-args', 'ffmpeg:-b:a 320k',  // Force 320kbps CBR
+      '--audio-quality', '5',        // GME re-encodes to ~48kbps anyway, so best is wasted
+      '--postprocessor-args', `ffmpeg:-b:a ${process.env.MUSIC_MP3_BITRATE || '128k'}`,  // 128k mp3: smaller file, faster download+convert, no audible loss in the room
       '-o', path.join(MUSIC_CACHE_DIR, '%(id)s.%(ext)s'),  // Output template
       '--no-playlist',               // Single video only
       '--match-filter', `!is_live & duration<=${MAX_SONG_SECONDS}`, // hard cap: no live / over-long
