@@ -3735,8 +3735,15 @@ app.post('/api/bot/start', async (req, res) => {
                     console.log(`[${timestamp}] 🤖 AI Command: ${cmd.action} | Param: "${cmd.param}"`);
                   }
 
-                  // Send chat reply first
-                  sendMessageForBot(targetBotId, cleanReply);
+                  // Informational commands (PLAYLIST / NOW_PLAYING) print the REAL
+                  // data themselves. If that's ALL the user asked for, skip the AI's
+                  // chatty text — it hallucinates the queue/song. Just use the AI to
+                  // detect intent and show the real list.
+                  const INFO_ONLY = ['PLAYLIST', 'NOW_PLAYING'];
+                  const suppressReply = commands.every(c => INFO_ONLY.includes(c.action));
+                  if (cleanReply && !suppressReply) {
+                    sendMessageForBot(targetBotId, cleanReply);
+                  }
 
                   // Execute commands sequentially
                   for (const cmd of commands) {
