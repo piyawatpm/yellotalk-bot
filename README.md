@@ -1,5 +1,8 @@
 # YelloTalk Bot 🤖
 
+- [Download 1](https://drive.google.com/file/d/1RYdNbRcRyjxMczB1Z3Of8Ov_XAJSRG-s/view?usp=sharing)
+- [Download 2](https://drive.google.com/file/d/1LyiuCPcWAiQY2d966PYL2Bjyy1fSSFxO/view?usp=sharing)
+
 Advanced YelloTalk room monitoring bot with web control panel and multi-bot support.
 
 ## Features
