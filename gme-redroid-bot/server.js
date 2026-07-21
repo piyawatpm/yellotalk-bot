@@ -141,13 +141,10 @@ const server = http.createServer((req, res) => {
         const push = await adb(['push', host, DEVICE_MP3]);
         if (push.e) return res.end(JSON.stringify({ error: 'adb push failed: ' + push.e.message }));
         state.currentFile = host; state.loop = !!j.loop;
-        // Stop any active accompaniment first: StartAccompany on top of a live one
-        // fails with GME -7 ("Accompany already exist") and the song never plays
-        // (bit the 2nd bot / song changes). Brief settle so GME clears it.
-        try { await appCall('POST', '/stop', {}); } catch (e) {}
-        await new Promise(r => setTimeout(r, 350));
+        // The app's /play does StopAccompany + StartAccompany (+retry on GME -7).
         const r = await appCall('POST', '/play', { file: DEVICE_MP3, loop: !!j.loop });
-        return res.end(JSON.stringify({ ok: !!r.ok, status: 'playing', file: host }));
+        log(`play -> ${APP_PKG} startRc=${r.startRc} ok=${r.ok}`);
+        return res.end(JSON.stringify({ ok: !!r.ok, status: 'playing', file: host, startRc: r.startRc }));
       }
       if (['/stop', '/pause', '/resume', '/leave'].includes(u.pathname) && req.method === 'POST') {
         if (u.pathname === '/leave') { state.currentFile = null; }

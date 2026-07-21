@@ -96,12 +96,17 @@ public class MainActivity extends Activity {
     if(path.startsWith("/play")){
       final String file=req.optString("file",""); final boolean loop=req.optBoolean("loop",false);
       curFile=file;songFinished=false;
+      final int[] rc={-999};
       onMain(new Op(){public void run(){
         ctx.GetAudioCtrl().EnableAudioCaptureDevice(true); ctx.GetAudioCtrl().EnableAudioSend(true);
         ctx.GetAudioCtrl().SetMicVolume(0); ctx.GetAudioCtrl().EnableSpeaker(false);
-        ctx.GetAudioEffectCtrl().StartAccompany(file,true,loop?-1:1); ctx.GetAudioEffectCtrl().SetAccompanyVolume(volume);
+        int stopRc=ctx.GetAudioEffectCtrl().StopAccompany(0);
+        rc[0]=ctx.GetAudioEffectCtrl().StartAccompany(file,true,loop?-1:1);
+        if(rc[0]!=0){ int s2=ctx.GetAudioEffectCtrl().StopAccompany(0); rc[0]=ctx.GetAudioEffectCtrl().StartAccompany(file,true,loop?-1:1); Log.i(TAG,"PLAY-RETRY stop2="+s2+" start2="+rc[0]); }
+        ctx.GetAudioEffectCtrl().SetAccompanyVolume(volume);
+        Log.i(TAG,"PLAY pkg="+getPackageName()+" room="+room+" file="+file+" stopRc="+stopRc+" startRc="+rc[0]);
       }});
-      status="playing"; j.put("ok",true);j.put("file",file);return j.toString();
+      status="playing"; j.put("ok",rc[0]==0);j.put("startRc",rc[0]);j.put("file",file);return j.toString();
     }
     if(path.startsWith("/stop")){ onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().StopAccompany(0);} }); status=inRoom?"joined":"idle";curFile=null; j.put("ok",true);return j.toString(); }
     if(path.startsWith("/pause")){ onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().PauseAccompany();} }); status="paused"; j.put("ok",true);return j.toString(); }

@@ -520,6 +520,12 @@ export default function ControlPage() {
 
       if (data.success) {
         setSelectedBotId(botId)
+        // BUG A fix: the music/voice panel state is global, not per-bot. Clear it
+        // and refetch THIS bot's own state, so switching bots doesn't keep showing
+        // the previous bot's In-Room / Playing / voice-user list.
+        setMusicStatus({ online: false }); setVoiceUsers([])
+        fetch(`${getApiUrl()}/api/music/status?botId=${botId}`).then(r => r.json()).then(d => setMusicStatus(d)).catch(() => {})
+        fetch(`${getApiUrl()}/api/music/voice-users?botId=${botId}`).then(r => r.json()).then(d => setVoiceUsers(d.users || [])).catch(() => {})
         setSelectedRoom('') // Reset room selection when changing bots
         setSelectedUser('')
         // Update botState to show selected bot's state

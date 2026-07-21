@@ -1561,7 +1561,7 @@ function hasProfile(instance, uuid) {
 app.get('/api/bot/room-users', async (req, res) => {
   try {
     const { botId } = req.query;
-    const targetBotId = botId || selectedBotId || 'bot-1';
+    const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
     const instance = botInstances.get(targetBotId);
 
     if (!instance || !instance.state.participants || instance.state.participants.length === 0) {
@@ -1589,7 +1589,7 @@ app.get('/api/bot/room-users', async (req, res) => {
 // Get GME room info for the music bot companion
 app.get('/api/bot/gme-info', (req, res) => {
   const { botId } = req.query;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const instance = botInstances.get(targetBotId);
 
   if (!instance || !instance.state.currentRoom) {
@@ -1672,6 +1672,18 @@ function getGmeUrl(botId) {
   const port = gmePortMap.get(botId);
   if (!port) return null;
   return `http://localhost:${port}`;
+}
+
+// DEBUG: trace which YelloTalk bot a voice/music command actually targets, plus
+// its GME app instance/port — so multi-bot mis-routing is visible in the logs.
+function logRoute(action, reqBotId, targetBotId) {
+  try {
+    const b = (config.bots || []).find(x => x.id === targetBotId);
+    const name = b ? (b.pin_name || b.name || '?') : '?';
+    const inst = gmeInstanceMap.has(targetBotId) ? gmeInstanceMap.get(targetBotId) : '-';
+    const port = gmePortMap.has(targetBotId) ? gmePortMap.get(targetBotId) : '-';
+    console.log(`🔀 [ROUTE] ${action} req=${reqBotId || '(none→selected)'} selected=${selectedBotId || '-'} => ${targetBotId} (${name}) gmeInstance=${inst} port=${port}`);
+  } catch (e) {}
 }
 
 function spawnGmeProcess(botId) {
@@ -1830,6 +1842,7 @@ process.on('SIGTERM', () => {
 // Leave GME voice room (call when bot's room ends/closes)
 async function leaveGMEVoiceRoom(botId, reason) {
   const timestamp = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+  logRoute(`LEAVE-VC(${reason || ''})`, botId, botId);
   const gmeUrl = getGmeUrl(botId);
   if (!gmeUrl) {
     console.log(`[${timestamp}] ℹ️ GME leave skipped for ${botId}: no GME process`);
@@ -1854,7 +1867,7 @@ async function leaveGMEVoiceRoom(botId, reason) {
 // Get GME music bot status
 app.get('/api/music/status', async (req, res) => {
   const { botId } = req.query;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const gmeUrl = getGmeUrl(targetBotId);
   if (!gmeUrl) {
     return res.json({ online: false, error: 'No GME process for this bot' });
@@ -1873,7 +1886,7 @@ app.get('/api/music/voice-users', async (req, res) => {
     // GOAL: Detect "hidden listeners" — users who left the participant list
     // but are still connected to GME voice channel (can still hear everything)
     const { botId } = req.query;
-    const targetBotId = botId || selectedBotId || 'bot-1';
+    const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
     const instance = botInstances.get(targetBotId);
 
     if (!instance || !instance.state.currentRoom) {
@@ -2021,7 +2034,7 @@ app.get('/api/music/voice-users', async (req, res) => {
 // Join GME voice room (auto-uses current bot's room info)
 app.post('/api/music/join', async (req, res) => {
   const { botId } = req.body;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const instance = botInstances.get(targetBotId);
 
   if (!instance || !instance.state.currentRoom) {
@@ -2102,7 +2115,7 @@ app.post('/api/music/join', async (req, res) => {
 // Leave GME voice room
 app.post('/api/music/leave', async (req, res) => {
   const { botId } = req.body;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const gmeUrl = getGmeUrl(targetBotId);
   if (!gmeUrl) {
     return res.json({ success: true, message: 'No GME process running' });
@@ -2120,7 +2133,7 @@ app.post('/api/music/leave', async (req, res) => {
 // Play music file
 app.post('/api/music/play', async (req, res) => {
   const { file, loop, botId } = req.body;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
 
   if (!file) {
     return res.status(400).json({ error: 'file path required' });
@@ -2152,7 +2165,7 @@ app.post('/api/music/play', async (req, res) => {
 // Stop music
 app.post('/api/music/stop', async (req, res) => {
   const { botId } = req.body;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const gmeUrl = getGmeUrl(targetBotId);
   if (!gmeUrl) return res.json({ success: true, message: 'No GME process' });
   try {
@@ -2166,7 +2179,7 @@ app.post('/api/music/stop', async (req, res) => {
 // Pause music
 app.post('/api/music/pause', async (req, res) => {
   const { botId } = req.body;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const gmeUrl = getGmeUrl(targetBotId);
   if (!gmeUrl) return res.status(500).json({ error: 'No GME process' });
   try {
@@ -2180,7 +2193,7 @@ app.post('/api/music/pause', async (req, res) => {
 // Resume music
 app.post('/api/music/resume', async (req, res) => {
   const { botId } = req.body;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const gmeUrl = getGmeUrl(targetBotId);
   if (!gmeUrl) return res.status(500).json({ error: 'No GME process' });
   try {
@@ -2194,7 +2207,7 @@ app.post('/api/music/resume', async (req, res) => {
 // Set volume
 app.post('/api/music/volume', async (req, res) => {
   const { vol, botId } = req.body;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const gmeUrl = getGmeUrl(targetBotId);
   if (!gmeUrl) return res.status(500).json({ error: 'No GME process' });
   try {
@@ -2361,7 +2374,7 @@ app.post('/api/music/youtube', async (req, res) => {
     return res.status(400).json({ error: 'URL required' });
   }
 
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const instance = botInstances.get(targetBotId);
 
   if (!instance || !instance.state.currentRoom) {
@@ -2583,7 +2596,7 @@ app.get('/api/music/cache', (req, res) => {
 // Full auto flow: join speaker slot + join GME room + play music
 app.post('/api/music/auto-play', async (req, res) => {
   const { file, loop, botId } = req.body;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const instance = botInstances.get(targetBotId);
   const steps = [];
 
@@ -2868,7 +2881,7 @@ app.post('/api/music/song-ended', async (req, res) => {
 // Toggle auto-play
 app.post('/api/music/auto-play-toggle', (req, res) => {
   const { enabled, botId } = req.body;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const autoPlay = getAutoPlayState(targetBotId);
   if (!autoPlay) return res.status(400).json({ error: 'Bot not found' });
   autoPlay.enabled = enabled !== undefined ? enabled : !autoPlay.enabled;
@@ -2880,7 +2893,7 @@ app.post('/api/music/auto-play-toggle', (req, res) => {
 // Get auto-play state
 app.get('/api/music/auto-play-state', (req, res) => {
   const { botId } = req.query;
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const autoPlay = getAutoPlayState(targetBotId);
   if (!autoPlay) return res.json({ enabled: false, history: [], historyCount: 0 });
   res.json({
@@ -5157,7 +5170,7 @@ app.post('/api/bot/speaker/kick', async (req, res) => {
 app.post('/api/bot/speaker/join', async (req, res) => {
   const { position, botId } = req.body;
 
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const instance = botInstances.get(targetBotId);
 
   if (!instance || !instance.socket || !instance.socket.connected) {
@@ -5225,7 +5238,7 @@ app.post('/api/bot/speaker/join', async (req, res) => {
 app.post('/api/bot/speaker/leave', async (req, res) => {
   const { position, botId } = req.body;
 
-  const targetBotId = botId || selectedBotId || 'bot-1';
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
   const instance = botInstances.get(targetBotId);
 
   if (!instance || !instance.socket || !instance.socket.connected) {
