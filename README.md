@@ -2,6 +2,9 @@
 
 Advanced YelloTalk room monitoring bot with web control panel and multi-bot support.
 
+> **🐧 Ubuntu server version** — runs the music bot on a Linux/Ubuntu server using the native GME **Android** SDK inside **Redroid** (Android-in-Docker), since no native Linux GME SDK exists. Includes Cloudflare **WARP** (beats YouTube's datacenter bot-check), a **groq US relay** in `groq-relay/` (bypasses groq's Hong-Kong geo-block), up to **5 concurrent bots** (one Android app copy each), storage caps, and a one-command launcher `start-redroid.sh`.
+> For the native **macOS** version, switch to the **`main`** branch.
+
 ## Features
 
 - 🌐 **Web Control Panel** - Modern Next.js UI to control multiple bots
