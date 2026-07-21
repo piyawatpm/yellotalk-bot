@@ -559,6 +559,9 @@ let currentApiKeyIndex = 0;
 const groqClients = GROQ_API_KEYS.map(key => {
   return new Groq({ apiKey: key });
 });
+// groq-sdk reads GROQ_BASE_URL from env; set it to the Vercel US relay so the
+// HK box isn't 403'd by groq's geo-block. Log the effective URL to confirm.
+if (groqClients[0]) console.log(`🌐 Groq baseURL: ${groqClients[0].baseURL}`);
 
 // Round-robin API key selection
 function getNextClient() {
