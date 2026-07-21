@@ -125,9 +125,12 @@ const server = http.createServer((req, res) => {
       if (u.pathname === '/join' && req.method === 'POST') {
         const { room, user, uuid } = j;
         if (!room || !user) return res.end(JSON.stringify({ error: 'room and user required' }));
-        await ensureApp();
+        await ensureApp(true);
         log(`join room=${room} user=${user}`);
-        const r = await appCall('POST', '/join', { room: String(room), user: String(user), uuid: uuid ? String(uuid) : String(user) });
+        // GME's auth identifier MUST equal the Init openId (= user). bot-server
+        // sometimes passes the YelloTalk uuid (a GUID) which is NOT a valid GME
+        // identifier and makes EnterRoom fail auth. Always auth as `user`.
+        const r = await appCall('POST', '/join', { room: String(room), user: String(user), uuid: String(user) });
         if (r.inRoom) startSongPoll();
         return res.end(JSON.stringify({ ok: !!r.inRoom, inRoom: !!r.inRoom, status: r.status, room, user, error: r.error }));
       }
