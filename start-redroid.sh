@@ -94,6 +94,11 @@ if [ ! -d "$SCRIPT_DIR/web-portal/.next" ] || [ "$1" = "--rebuild" ]; then
     && echo "      portal built." || echo "      ⚠️  build failed — see /tmp/portal-build.log"
 fi
 pm2 start npm --name yt-portal --cwd "$SCRIPT_DIR/web-portal" --time -- run start >/dev/null
+# Cap pm2 logs so the verbose bot-server can't fill the disk (20MB x5 compressed).
+pm2 install pm2-logrotate >/dev/null 2>&1 || true
+pm2 set pm2-logrotate:max_size 20M >/dev/null 2>&1 || true
+pm2 set pm2-logrotate:retain 5 >/dev/null 2>&1 || true
+pm2 set pm2-logrotate:compress true >/dev/null 2>&1 || true
 pm2 save >/dev/null 2>&1
 
 IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "<server-ip>")
