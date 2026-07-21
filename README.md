@@ -5,6 +5,9 @@
 
 Advanced YelloTalk room monitoring bot with web control panel and multi-bot support.
 
+> **🍎 macOS version** — this branch runs the music bot natively on macOS (`gme-music-bot/main.mm`, Tencent GME framework).
+> For the **Ubuntu server** version (native GME Android SDK inside Redroid/Docker, WARP for YouTube, a groq US relay, up to 5 concurrent bots), switch to the **`ubuntu-version`** branch.
+
 ## Features
 
 - 🌐 **Web Control Panel** - Modern Next.js UI to control multiple bots
