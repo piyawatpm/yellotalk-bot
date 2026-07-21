@@ -56,11 +56,29 @@ done
 adb -s "$SERIAL" forward --remove-all >/dev/null 2>&1
 echo "      $INSTANCES app copies installed; stale adb forwards cleared."
 
-echo -e "${GREEN}[5/6] npm deps...${NC}"
+echo -e "${GREEN}[5/7] Cloudflare WARP proxy (free YouTube bot-check bypass; yt-dlp only)...${NC}"
+# Gives yt-dlp a clean Cloudflare egress IP via a local SOCKS proxy on :40000,
+# WITHOUT changing the box default route (GME/China path stays intact). This is
+# what beats YouTube's "confirm you're not a bot" on the datacenter IP — no
+# cookies to babysit.
+if ! command -v warp-cli >/dev/null 2>&1; then
+  curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg 2>/dev/null
+  . /etc/os-release
+  echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/cloudflare-client.list
+  apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq cloudflare-warp >/dev/null 2>&1
+fi
+systemctl enable --now warp-svc >/dev/null 2>&1; sleep 2
+warp-cli --accept-tos registration new >/dev/null 2>&1 || warp-cli --accept-tos register >/dev/null 2>&1 || true
+warp-cli --accept-tos mode proxy >/dev/null 2>&1 || warp-cli --accept-tos set-mode proxy >/dev/null 2>&1 || true
+warp-cli --accept-tos connect >/dev/null 2>&1 || true
+grep -q "socks5://127.0.0.1:40000" /etc/yt-dlp.conf 2>/dev/null || echo "--proxy socks5://127.0.0.1:40000" >> /etc/yt-dlp.conf
+echo "      WARP proxy on :40000; yt-dlp routed through it (box default route unchanged)."
+
+echo -e "${GREEN}[6/7] npm deps...${NC}"
 [ -d "$SCRIPT_DIR/node_modules" ] || (cd "$SCRIPT_DIR" && npm install >/dev/null 2>&1)
 [ -d "$SCRIPT_DIR/web-portal/node_modules" ] || (cd "$SCRIPT_DIR/web-portal" && npm install >/dev/null 2>&1)
 
-echo -e "${GREEN}[6/6] build portal (production) + start services via pm2...${NC}"
+echo -e "${GREEN}[7/7] build portal (production) + start services via pm2...${NC}"
 pm2 delete yt-bot yt-portal >/dev/null 2>&1 || true
 # GROQ_BASE_URL routes groq through the US Vercel relay (groq 403s the HK IP).
 # NOTE: no /openai/v1 suffix — groq-sdk appends /openai/v1/chat/completions itself.
