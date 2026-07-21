@@ -2191,6 +2191,31 @@ if (!fs.existsSync(MUSIC_CACHE_DIR)) {
   fs.mkdirSync(MUSIC_CACHE_DIR, { recursive: true });
 }
 
+// --- Storage guards -------------------------------------------------------
+// Reject over-long / live videos before downloading, and keep the download
+// cache under a size cap so disk can't fill up as songs accumulate.
+const MAX_SONG_SECONDS = parseInt(process.env.MAX_SONG_SECONDS || '3600', 10); // reject > 1h
+const MAX_CACHE_MB = parseInt(process.env.MAX_CACHE_MB || '1500', 10);          // trim music-cache to < 1.5GB (box has ~5GB free)
+
+// Delete least-recently-used cached mp3s until the cache is back under the cap.
+function evictMusicCache() {
+  try {
+    const cap = MAX_CACHE_MB * 1024 * 1024;
+    const files = fs.readdirSync(MUSIC_CACHE_DIR)
+      .filter(f => f.endsWith('.mp3'))
+      .map(f => { const p = path.join(MUSIC_CACHE_DIR, f); const s = fs.statSync(p); return { p, size: s.size, mtime: s.mtimeMs }; });
+    let total = files.reduce((a, f) => a + f.size, 0);
+    if (total <= cap) return;
+    files.sort((a, b) => a.mtime - b.mtime); // oldest (least-recently-used) first
+    for (const f of files) {
+      if (total <= cap) break;
+      try { fs.unlinkSync(f.p); total -= f.size; console.log(`🧹 [cache] evicted ${path.basename(f.p)}`); } catch (e) {}
+    }
+    try { io.emit('music-log', { type: 'info', message: `Cache trimmed to ${Math.round(total / 1048576)}MB (cap ${MAX_CACHE_MB}MB)` }); } catch (e) {}
+  } catch (e) { console.log(`⚠️ [cache] evict error: ${e.message}`); }
+}
+evictMusicCache(); // trim on boot in case the cache is already oversized
+
 // Download YouTube audio and return file path
 async function downloadYouTubeAudio(url, botId) {
   return new Promise((resolve, reject) => {
@@ -2202,6 +2227,7 @@ async function downloadYouTubeAudio(url, botId) {
       '--postprocessor-args', 'ffmpeg:-b:a 320k',  // Force 320kbps CBR
       '-o', path.join(MUSIC_CACHE_DIR, '%(id)s.%(ext)s'),  // Output template
       '--no-playlist',               // Single video only
+      '--match-filter', `!is_live & duration<=${MAX_SONG_SECONDS}`, // hard cap: no live / over-long
       '--newline',                   // Force progress on new lines
       '--print', 'after_move:filepath', // Print final file path
       url
@@ -2277,11 +2303,16 @@ async function downloadYouTubeAudio(url, botId) {
       // The last line of stdout is the file path
       const filePath = stdout.trim().split('\n').pop().trim();
       if (!filePath || !fs.existsSync(filePath)) {
+        // yt-dlp exits 0 without downloading when --match-filter rejects the video
+        if (/does not pass|Skipping|match.?filter/i.test(stdout + stderr)) {
+          return reject(new Error(`TOO_LONG: exceeds ${Math.round(MAX_SONG_SECONDS / 60)}min limit or is a live stream`));
+        }
         return reject(new Error(`Downloaded file not found: ${filePath}`));
       }
 
       console.log(`✅ [YouTube] Downloaded: ${filePath}`);
       io.emit('music-log', { type: 'info', message: `Downloaded: ${path.basename(filePath)}` });
+      evictMusicCache(); // keep the cache under the size cap
       resolve(filePath);
     });
   });
@@ -2290,10 +2321,10 @@ async function downloadYouTubeAudio(url, botId) {
 // Get YouTube video info (title, duration)
 async function getYouTubeInfo(url) {
   return new Promise((resolve, reject) => {
-    execFile('yt-dlp', ['--print', '%(title)s\n%(duration)s\n%(id)s', '--no-playlist', url], { timeout: 15000 }, (err, stdout) => {
+    execFile('yt-dlp', ['--print', '%(title)s\n%(duration)s\n%(id)s\n%(is_live)s', '--no-playlist', url], { timeout: 15000 }, (err, stdout) => {
       if (err) return reject(err);
       const lines = stdout.trim().split('\n');
-      resolve({ title: lines[0] || 'Unknown', duration: parseInt(lines[1]) || 0, id: lines[2] || '' });
+      resolve({ title: lines[0] || 'Unknown', duration: parseInt(lines[1]) || 0, id: lines[2] || '', isLive: lines[3] === 'True' });
     });
   });
 }
@@ -2328,7 +2359,18 @@ app.post('/api/music/youtube', async (req, res) => {
       info = await getYouTubeInfo(url);
       io.emit('music-log', { type: 'info', message: `Title: ${info.title} (${Math.floor(info.duration / 60)}:${String(info.duration % 60).padStart(2, '0')})` });
     } catch (e) {
-      info = { title: 'Unknown', duration: 0, id: '' };
+      info = { title: 'Unknown', duration: 0, id: '', isLive: false };
+    }
+
+    // Guard: reject live streams / over-long videos before downloading (storage + sanity).
+    if (info.isLive || (info.duration && info.duration > MAX_SONG_SECONDS)) {
+      const maxMin = Math.round(MAX_SONG_SECONDS / 60);
+      const msg = info.isLive
+        ? 'ขออภัยค่ะ ไม่รองรับไลฟ์สตรีม กรุณาเลือกวิดีโอปกตินะคะ 🙏'
+        : `ขออภัยค่ะ เพลงนี้ยาวเกินไป (${Math.round(info.duration / 60)} นาที) เล่นได้ไม่เกิน ${maxMin} นาที กรุณาเลือกเพลงที่สั้นกว่านี้นะคะ 🙏`;
+      if (targetBotId) sendMessageForBot(targetBotId, '🚫 ' + msg);
+      io.emit('music-log', { type: 'warn', message: `Rejected (${info.isLive ? 'live' : info.duration + 's > ' + MAX_SONG_SECONDS + 's'}): ${info.title}` });
+      return res.status(400).json({ error: msg, tooLong: true, duration: info.duration, title: info.title });
     }
 
     // Step 2: Check cache
@@ -2337,6 +2379,7 @@ app.post('/api/music/youtube', async (req, res) => {
 
     if (cachedFile && fs.existsSync(cachedFile)) {
       filePath = cachedFile;
+      try { const now = new Date(); fs.utimesSync(cachedFile, now, now); } catch (e) {} // mark recently-used (LRU)
       console.log(`🎵 [YouTube] Cache hit: ${filePath}`);
       io.emit('music-log', { type: 'info', message: `Cache hit! Skipping download.` });
     } else {
