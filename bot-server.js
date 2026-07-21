@@ -1627,6 +1627,11 @@ const GME_BINARY_NAME = process.platform === 'darwin' ? 'gme-music-bot' : 'gme-m
 const GME_BINARY_PATH = pathModule.join(__dirname, 'gme-music-bot', GME_BINARY_NAME);
 const GME_WEB_BOT_PATH = pathModule.join(__dirname, 'gme-web-bot', 'server.js');
 const GME_SDK_LIB_PATH = pathModule.join(__dirname, 'gme-linux-sdk', 'lib');
+// Redroid mode (GME_MODE=redroid): drive the native GME Android SDK inside an
+// Android-in-Docker container via the gme-redroid-bot adapter. Uses the native
+// platform (enabled for this app), unlike the web/H5 SDK which is not.
+const GME_REDROID = process.env.GME_MODE === 'redroid';
+const GME_REDROID_PATH = pathModule.join(__dirname, 'gme-redroid-bot', 'server.js');
 const gmePortMap = new Map();     // botId → port
 const gmeProcessMap = new Map();  // botId → { process, port }
 
@@ -1654,7 +1659,13 @@ function spawnGmeProcess(botId) {
 
   // On Linux: use Puppeteer-based web bot; on macOS: use native C++ binary
   let spawnCmd, spawnArgs, gmeEnv;
-  if (GME_USE_WEB_BOT) {
+  if (GME_REDROID) {
+    spawnCmd = process.execPath; // node
+    spawnArgs = [GME_REDROID_PATH, ...args];
+    gmeEnv = { ...process.env };
+    console.log(`🎵 [GME] Spawning Redroid adapter for ${botId} on port ${port}`);
+    console.log(`🎵 [GME]   Command: node ${GME_REDROID_PATH} ${args.join(' ')}`);
+  } else if (GME_USE_WEB_BOT) {
     spawnCmd = process.execPath; // node
     spawnArgs = [GME_WEB_BOT_PATH, ...args];
     gmeEnv = { ...process.env };
