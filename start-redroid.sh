@@ -11,7 +11,7 @@
 GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERIAL="localhost:5555"
-APK="/root/gmebuild/out/gmebot.apk"
+INSTANCES="${INSTANCES:-5}"   # independent bot app copies (com.gmebot.bot0..botN-1)
 export PATH="$PATH:/usr/local/bin:/usr/bin"
 
 echo -e "${GREEN}[1/6] binder kernel module + binderfs...${NC}"
@@ -35,26 +35,44 @@ for i in $(seq 1 40); do
 done
 echo "      Android up."
 
-echo -e "${GREEN}[4/6] GME bot app (install + clear stale forwards)...${NC}"
-[ -f "$APK" ] || { echo "      building APK..."; bash /root/gmebuild/build.sh >/dev/null 2>&1; }
-if ! adb -s "$SERIAL" shell pm list packages 2>/dev/null | grep -q com.gmebot.test; then
-  adb -s "$SERIAL" install -r "$APK" >/dev/null 2>&1
+echo -e "${GREEN}[4/6] GME bot apps x${INSTANCES} (build/install + clear stale forwards)...${NC}"
+# Build all N instance APKs if missing (or on --rebuild). Each is an independent
+# app copy (com.gmebot.botN) = independent GME client, so N bots play at once.
+if [ ! -f "/root/gmebuild/out/gmebot0.apk" ] || [ "$1" = "--rebuild" ]; then
+  echo "      building $INSTANCES app copies..."
+  INSTANCES=$INSTANCES bash /root/gmebuild/build.sh >/tmp/gmebuild.log 2>&1 || echo "      ⚠️  build failed — see /tmp/gmebuild.log"
 fi
-adb -s "$SERIAL" shell pm grant com.gmebot.test android.permission.RECORD_AUDIO >/dev/null 2>&1 || true
-# The adapter (spawned per bot by bot-server) manages the app lifecycle + its own
-# adb forward on PORT+10000. Clear any stale forwards so they can't shadow a
+# Legacy single-instance app binds device port 9099 and collides with bot0 — remove it.
+adb -s "$SERIAL" uninstall com.gmebot.test >/dev/null 2>&1 || true
+for i in $(seq 0 $((INSTANCES-1))); do
+  PKG="com.gmebot.bot$i"
+  adb -s "$SERIAL" shell pm list packages 2>/dev/null | grep -q "$PKG" || \
+    adb -s "$SERIAL" install -r "/root/gmebuild/out/gmebot$i.apk" >/dev/null 2>&1
+  adb -s "$SERIAL" shell pm grant "$PKG" android.permission.RECORD_AUDIO >/dev/null 2>&1 || true
+done
+# The adapter (spawned per bot by bot-server) manages each app's lifecycle + its
+# own adb forward on PORT+10000. Clear stale forwards so they can't shadow a
 # bot-server-facing listen port (this collision once broke /play -> no audio).
 adb -s "$SERIAL" forward --remove-all >/dev/null 2>&1
-echo "      app installed; stale adb forwards cleared (adapter manages its own)."
+echo "      $INSTANCES app copies installed; stale adb forwards cleared."
 
 echo -e "${GREEN}[5/6] npm deps...${NC}"
 [ -d "$SCRIPT_DIR/node_modules" ] || (cd "$SCRIPT_DIR" && npm install >/dev/null 2>&1)
 [ -d "$SCRIPT_DIR/web-portal/node_modules" ] || (cd "$SCRIPT_DIR/web-portal" && npm install >/dev/null 2>&1)
 
-echo -e "${GREEN}[6/6] bot-server (GME_MODE=redroid) + portal via pm2...${NC}"
+echo -e "${GREEN}[6/6] build portal (production) + start services via pm2...${NC}"
 pm2 delete yt-bot yt-portal >/dev/null 2>&1 || true
 GME_MODE=redroid pm2 start bot-server.js --name yt-bot --cwd "$SCRIPT_DIR" --time >/dev/null
-pm2 start npm --name yt-portal --cwd "$SCRIPT_DIR/web-portal" --time -- run dev >/dev/null
+# Production build: pre-compiled + minified routes. `next dev` compiles each
+# route on-demand (20-30s page loads over the HK link) and Fast Refresh reloads
+# the page — unusable as a control panel. Rebuild when portal code changes:
+#   bash start-redroid.sh --rebuild
+if [ ! -d "$SCRIPT_DIR/web-portal/.next" ] || [ "$1" = "--rebuild" ]; then
+  echo "      building portal (next build)..."
+  (cd "$SCRIPT_DIR/web-portal" && NODE_OPTIONS=--max-old-space-size=1536 npm run build >/tmp/portal-build.log 2>&1) \
+    && echo "      portal built." || echo "      ⚠️  build failed — see /tmp/portal-build.log"
+fi
+pm2 start npm --name yt-portal --cwd "$SCRIPT_DIR/web-portal" --time -- run start >/dev/null
 pm2 save >/dev/null 2>&1
 
 IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "<server-ip>")

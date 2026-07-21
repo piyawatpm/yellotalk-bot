@@ -1662,8 +1662,11 @@ function spawnGmeProcess(botId) {
   if (GME_REDROID) {
     spawnCmd = process.execPath; // node
     spawnArgs = [GME_REDROID_PATH, ...args];
-    gmeEnv = { ...process.env };
-    console.log(`🎵 [GME] Spawning Redroid adapter for ${botId} on port ${port}`);
+    // Each bot drives its own app copy (com.gmebot.botN). Index from the port
+    // offset so a given botId maps to a stable instance: 9876->0, 9877->1, ...
+    const instanceIndex = port - GME_BASE_PORT;
+    gmeEnv = { ...process.env, REDROID_APP_INDEX: String(instanceIndex) };
+    console.log(`🎵 [GME] Spawning Redroid adapter for ${botId} on port ${port} (app instance ${instanceIndex})`);
     console.log(`🎵 [GME]   Command: node ${GME_REDROID_PATH} ${args.join(' ')}`);
   } else if (GME_USE_WEB_BOT) {
     spawnCmd = process.execPath; // node

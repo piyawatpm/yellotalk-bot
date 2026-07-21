@@ -18,7 +18,7 @@ public class MainActivity extends Activity {
   static final String TAG = "GMEBOT";
   static final int APPID = 1400113874;
   static final String KEY = "IWajGHr5VTo3fd63";
-  static final int HTTP_PORT = 9099;
+  int httpPort = 9099;   // derived per-instance in onCreate (see below)
 
   ITMGContext ctx; Handler main; PowerManager.WakeLock wake;
   volatile String status="idle", room=null, curFile=null, lastError=null;
@@ -27,6 +27,13 @@ public class MainActivity extends Activity {
 
   @Override protected void onCreate(Bundle b){
     super.onCreate(b);
+    // Each app copy (com.gmebot.botN, produced via aapt --rename-manifest-package)
+    // derives a unique control port from the trailing digits of its package name,
+    // so N independent GME clients run side by side. Base package -> 9099.
+    try{
+      java.util.regex.Matcher pkm=java.util.regex.Pattern.compile("(\\d+)$").matcher(getPackageName());
+      if(pkm.find()) httpPort=9099+Integer.parseInt(pkm.group(1));
+    }catch(Throwable t){ Log.e(TAG,"port",t); }
     PowerManager pm=(PowerManager)getSystemService(Context.POWER_SERVICE);
     wake=pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"gmebot:wl"); wake.acquire();
     main=new Handler(Looper.getMainLooper());
@@ -43,7 +50,7 @@ public class MainActivity extends Activity {
     });
     main.post(new Runnable(){public void run(){ if(ctx!=null) ctx.Poll(); main.postDelayed(this,100);} });
     new Thread(new Runnable(){public void run(){ httpServer(); }},"http").start();
-    Log.i(TAG,"GmeBot ready http="+HTTP_PORT+" sdk="+ctx.GetSDKVersion());
+    Log.i(TAG,"GmeBot ready pkg="+getPackageName()+" http="+httpPort+" sdk="+ctx.GetSDKVersion());
   }
 
   interface Op{ void run(); }
@@ -54,7 +61,7 @@ public class MainActivity extends Activity {
   }
 
   void httpServer(){
-    try{ ServerSocket ss=new ServerSocket(HTTP_PORT);
+    try{ ServerSocket ss=new ServerSocket(httpPort);
       while(true){ final Socket s=ss.accept(); new Thread(new Runnable(){public void run(){ handle(s);} }).start(); }
     }catch(Exception e){ Log.e(TAG,"httpsrv",e); }
   }
