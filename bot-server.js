@@ -1640,6 +1640,27 @@ const gmeProcessMap = new Map();  // botId → { process, port }
 
 let gmeNextPort = GME_BASE_PORT;
 
+// Stable per-bot app-instance index (com.gmebot.botN). Unlike the port (which is
+// freed on process churn — line ~1739), this is assigned ONCE per botId and never
+// released, so each bot always drives its OWN Android app copy. Without this the
+// index climbed on every rejoin and overflowed to non-existent bot5/bot6 (a bot
+// then couldn't join its room).
+const GME_MAX_INSTANCES = parseInt(process.env.REDROID_INSTANCES || '5', 10);
+const gmeInstanceMap = new Map(); // botId → stable instance index (never deleted)
+let gmeNextInstance = 0;
+function allocateGmeInstance(botId) {
+  if (gmeInstanceMap.has(botId)) return gmeInstanceMap.get(botId);
+  let idx = gmeNextInstance;
+  if (idx >= GME_MAX_INSTANCES) {
+    idx = GME_MAX_INSTANCES - 1;
+    console.log(`⚠️ [GME] ${botId}: all ${GME_MAX_INSTANCES} app instances in use; rebuild with INSTANCES=${gmeNextInstance + 1}. Reusing ${idx}.`);
+  } else {
+    gmeNextInstance++;
+  }
+  gmeInstanceMap.set(botId, idx);
+  return idx;
+}
+
 function allocateGmePort(botId) {
   if (gmePortMap.has(botId)) return gmePortMap.get(botId);
   const port = gmeNextPort++;
@@ -1665,9 +1686,9 @@ function spawnGmeProcess(botId) {
   if (GME_REDROID) {
     spawnCmd = process.execPath; // node
     spawnArgs = [GME_REDROID_PATH, ...args];
-    // Each bot drives its own app copy (com.gmebot.botN). Index from the port
-    // offset so a given botId maps to a stable instance: 9876->0, 9877->1, ...
-    const instanceIndex = port - GME_BASE_PORT;
+    // Each bot drives its own app copy (com.gmebot.botN) via a STABLE index that
+    // survives adapter respawns (the port is freed on churn; the instance is not).
+    const instanceIndex = allocateGmeInstance(botId);
     gmeEnv = { ...process.env, REDROID_APP_INDEX: String(instanceIndex) };
     console.log(`🎵 [GME] Spawning Redroid adapter for ${botId} on port ${port} (app instance ${instanceIndex})`);
     console.log(`🎵 [GME]   Command: node ${GME_REDROID_PATH} ${args.join(' ')}`);
@@ -2446,7 +2467,7 @@ app.post('/api/music/youtube', async (req, res) => {
           const joinResp = await axios.post(`${gmeUrl}/join`, {
             room: gmeRoomId, user: gmeUserId, uuid: botRealUuid
           }, { timeout: 55000 });
-          io.emit('music-log', { type: 'info', message: `GME join: ${joinResp.data.success ? 'OK' : joinResp.data.lastError || 'failed'}` });
+          io.emit('music-log', { type: 'info', message: `GME join: ${joinResp.data.inRoom ? 'OK' : (joinResp.data.error || 'failed')}` });
 
           if (!joinResp.data.inRoom) {
             return res.status(500).json({ error: `GME room join failed: ${joinResp.data.lastError || 'unknown'}`, title: info.title });
@@ -4296,7 +4317,7 @@ app.post('/api/bot/start', async (req, res) => {
                   }, { timeout: 55000 });
 
                   console.log(`🎵 [${botConfig.name}] Auto-connect GME result:`, joinResp.data);
-                  io.emit('music-log', { type: 'info', message: `[${targetBotId}] GME voice room: ${joinResp.data.success ? 'CONNECTED' : 'FAILED'} ${joinResp.data.lastError || ''}` });
+                  io.emit('music-log', { type: 'info', message: `[${targetBotId}] GME voice room: ${joinResp.data.inRoom ? 'CONNECTED' : 'FAILED'} ${joinResp.data.error || ''}` });
                   instance.state._gmeAutoConnecting = false;
                 } else {
                   console.log(`🎵 [${botConfig.name}] GME already in room ${gmeStatus.room}, skipping`);
