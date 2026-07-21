@@ -45,18 +45,14 @@ if ! command -v cloudflared &>/dev/null; then
     fi
 fi
 
-# Check for tailscale (preferred tunnel — gives a PERMANENT public URL that
-# never changes across restarts, reboots, or different networks)
-if ! command -v tailscale &>/dev/null && [ ! -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]; then
+# Check for tailscale (macOS only — used for a permanent public URL on the Mac).
+# Linux servers use their public IP directly, so we don't install Tailscale there.
+if [ "$(uname)" = "Darwin" ] && ! command -v tailscale &>/dev/null && [ ! -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]; then
     echo -e "${YELLOW}tailscale not found. Installing (permanent public URL)...${NC}"
-    if [ "$(uname)" = "Darwin" ]; then
-        if command -v brew &>/dev/null; then
-            brew install tailscale 2>/dev/null || echo -e "${YELLOW}Could not install tailscale via brew — will use cloudflared fallback.${NC}"
-        else
-            echo -e "${YELLOW}Homebrew not found — install Tailscale from https://tailscale.com/download/macos (falls back to cloudflared meanwhile).${NC}"
-        fi
+    if command -v brew &>/dev/null; then
+        brew install tailscale 2>/dev/null || echo -e "${YELLOW}Could not install tailscale via brew — will use cloudflared fallback.${NC}"
     else
-        curl -fsSL https://tailscale.com/install.sh | sh 2>/dev/null || echo -e "${YELLOW}Could not install tailscale automatically — will use cloudflared fallback.${NC}"
+        echo -e "${YELLOW}Homebrew not found — install Tailscale from https://tailscale.com/download/macos (falls back to cloudflared meanwhile).${NC}"
     fi
 fi
 
