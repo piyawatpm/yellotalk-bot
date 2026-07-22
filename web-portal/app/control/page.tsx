@@ -169,7 +169,7 @@ export default function ControlPage() {
   const [musicStatus, setMusicStatus] = useState<any>({ online: false })
   const [musicFile, setMusicFile] = useState('gme-music-bot/test-audio.mp3')
   const [musicLoop, setMusicLoop] = useState(true)
-  const [musicVolume, setMusicVolume] = useState(50)
+  const [musicVolume, setMusicVolume] = useState(25) // GME native scale 0-200, default 25
   const [musicLogs, setMusicLogs] = useState<string[]>([])
   const [musicLoading, setMusicLoading] = useState(false)
   const [youtubeUrl, setYoutubeUrl] = useState('')
@@ -975,15 +975,16 @@ export default function ControlPage() {
 
   const musicSetVolume = async (vol: number) => {
     setMusicVolume(vol)
-    // Slider 0-100% maps to GME 0-50
-    const gmeVol = Math.round(vol * 0.5)
+    // GME accompaniment volume is native 0-200 linear (100 = original, 200 = max
+    // boost, 0 = mute). Send it straight through — no remapping.
+    const gmeVol = Math.max(0, Math.min(200, Math.round(vol)))
     try {
       await fetch(`${getApiUrl()}/api/music/volume`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vol: gmeVol, botId: selectedBotId })
       })
-      addMusicLog(`Volume: ${vol}% (GME: ${gmeVol})`)
+      addMusicLog(`Volume: ${gmeVol}/200`)
     } catch (error: any) {
       addMusicLog(`Volume error: ${error.message}`)
     }
@@ -1221,7 +1222,73 @@ export default function ControlPage() {
   })
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24">
+      {/* ===== FIXED CONTROL DOCK — always shows the active bot + switcher ===== */}
+      {bots.length > 0 &&
+        (() => {
+          const activeBot = bots.find((b) => b.id === selectedBotId) || bots[0]
+          const aState = botStates[activeBot?.id] || {}
+          const aRunning = aState.status === 'running'
+          const aWaiting = aState.status === 'waiting'
+          return (
+            <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-raised/90 backdrop-blur-md lg:left-60">
+              <div className="mx-auto flex max-w-[1440px] items-center gap-3 px-4 py-2 sm:px-6 lg:px-10">
+                {/* active bot */}
+                <div className="flex min-w-0 shrink items-center gap-2.5">
+                  <div
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
+                    style={{
+                      background: aRunning ? 'rgb(var(--color-brand))' : aWaiting ? 'rgb(var(--color-warn))' : 'rgb(var(--color-faint))',
+                      color: aRunning ? 'rgb(var(--color-onaccent))' : '#fff',
+                    }}
+                  >
+                    {(activeBot?.name || 'B').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-semibold text-ink">{activeBot?.name || 'Bot'}</span>
+                      <StatusPill state={aRunning ? 'live' : aWaiting ? 'wait' : 'idle'}>
+                        {aRunning ? 'On air' : aWaiting ? 'Waiting' : 'Idle'}
+                      </StatusPill>
+                    </div>
+                    <div className="truncate text-[11px] text-dim">
+                      {aState.currentRoom ? aState.currentRoom.topic : 'Not in a room — pick one below to start'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* bot switcher (scrolls if many) */}
+                <div className="flex flex-1 items-center gap-1 overflow-x-auto px-1 py-0.5">
+                  {bots.map((b) => {
+                    const st = botStates[b.id] || {}
+                    const active = b.id === activeBot?.id
+                    const dot = st.status === 'running' ? 'dot-live' : st.status === 'waiting' ? 'dot-wait' : 'dot-idle'
+                    return (
+                      <button
+                        key={b.id}
+                        onClick={() => selectBot(b.id)}
+                        title={b.name}
+                        className={`inline-flex h-8 max-w-[150px] shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
+                          active ? 'border-gold bg-gold/10 text-gold' : 'border-line text-dim hover:border-linehi hover:text-ink'
+                        }`}
+                      >
+                        <span className={`dot ${dot}`} style={{ width: 6, height: 6 }} />
+                        <span className="truncate">{b.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {(aRunning || aWaiting) && (
+                  <Button size="sm" variant="destructive" className="shrink-0" onClick={() => stopBot(activeBot?.id)}>
+                    <Square className="h-3.5 w-3.5" /> Stop
+                  </Button>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
       {/* ===== MULTI-BOT OVERVIEW HEADER ===== */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -1487,29 +1554,6 @@ export default function ControlPage() {
         </div>
       </motion.div>
 
-      {/* ===== CONTEXT INDICATOR ===== */}
-      {selectedBotId && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800"
-        >
-          <Bot className="h-4 w-4 text-blue-500" />
-          <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
-            Currently controlling: <strong>{bots.find(b => b.id === selectedBotId)?.name || 'Unknown'}</strong>
-          </span>
-          {(isRunning || isWaiting) && (
-            <Badge className={isRunning ? 'bg-emerald-500' : 'bg-amber-500'}>
-              {isRunning ? 'Running' : 'Waiting'}
-            </Badge>
-          )}
-          {currentBotState?.currentRoom && (
-            <span className="text-xs text-gray-500 ml-2">
-              in "{currentBotState.currentRoom.topic}"
-            </span>
-          )}
-        </motion.div>
-      )}
 
       {/* ===== CAPABILITIES + BOT AVATAR ===== */}
       <Card className="overflow-hidden">
@@ -2354,12 +2398,14 @@ export default function ControlPage() {
                     <input
                       type="range"
                       min={0}
-                      max={100}
+                      max={200}
+                      step={5}
                       value={musicVolume}
                       onChange={(e) => musicSetVolume(Number(e.target.value))}
                       className="flex-1 accent-purple-500"
+                      title="GME volume 0-200 (100 = original)"
                     />
-                    <span className="text-xs font-mono w-10 text-right">{musicVolume}%</span>
+                    <span className="text-xs font-mono w-14 text-right">{musicVolume}/200</span>
                   </div>
 
                   {/* Debug Logs */}
