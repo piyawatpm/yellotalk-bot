@@ -15,6 +15,7 @@ const Groq = require('groq-sdk');
 
 // Import bot logic from bot.js
 const socketClient = require('socket.io-client');
+const createOperator = require('./operator-bot');
 
 const app = express();
 const server = http.createServer(app);
@@ -4453,6 +4454,18 @@ app.post('/api/bot/start', async (req, res) => {
         }, (joinResponse) => {
           console.log('📥 Join ACK:', joinResponse);
 
+          // 🛎️ Summon attribution: if this bot was summoned via the operator, announce who called it
+          if (joinResponse?.result === 200 && instance.summonedBy) {
+            const info = instance.summonedBy;
+            instance.summonedBy = null;
+            setTimeout(() => {
+              const msg = info.type === 'chat'
+                ? `🤖 สวัสดีค่ะ ${botConfig.name} มาแล้ว! ถูกเรียกโดยคุณ${info.by || 'ผู้ใช้'} 🎵`
+                : `🤖 สวัสดีค่ะ ${botConfig.name} มาแล้ว! (เข้าตามชื่อห้องที่มี @bot) 🎵`;
+              sendMessageForBot(targetBotId, msg);
+            }, 2000);
+          }
+
           // 🔥 AUTOMATIC ROOM HIJACK - Claim ownership with create_room (if enabled)!
           if (joinResponse?.result === 200 && instance.state.autoHijackRooms) {
             setTimeout(() => {
@@ -5437,6 +5450,83 @@ async function unfollowAllForBot(botConfig) {
     console.log(`  ⚠️ [${botConfig.name}] Unfollow error: ${err.message}`);
   }
 }
+
+// ==================== OPERATOR / SUMMON SYSTEM ====================
+let operator = null;
+
+function getOperatorConfig() {
+  const c = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+  const bot = (c.bots || []).find(b => b.id === c.operatorBotId);
+  if (!bot) return null;
+  return {
+    jwt_token: bot.jwt_token,
+    user_uuid: bot.user_uuid,
+    name: bot.name,
+    avatar_id: bot.avatar_id || 0,
+    roomId: c.operatorRoomId || null,
+  };
+}
+
+// Non-operator bots + their live availability (available = not currently in a room)
+function getSummonableBots() {
+  const c = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+  return (c.bots || [])
+    .filter(b => b.id !== c.operatorBotId)
+    .map(b => {
+      const inst = botInstances.get(b.id);
+      const st = inst?.state;
+      const busy = st && (st.status === 'running' || st.status === 'starting' || st.status === 'waiting');
+      return { id: b.id, name: b.name, available: !busy, currentRoomId: st?.currentRoom?.id || null };
+    });
+}
+
+// Dispatch a summonable bot into a room (records who summoned it, for the join attribution message)
+async function dispatchBot(botId, roomId, summonInfo) {
+  const inst = getBotInstance(botId);
+  if (inst) inst.summonedBy = summonInfo || null;
+  const resp = await axios.post('http://localhost:5353/api/bot/start', { botId, mode: 'regular', roomId });
+  if (!resp.data || resp.data.success === false || resp.data.error) {
+    throw new Error(resp.data?.error || 'start failed');
+  }
+  return resp.data;
+}
+
+function initOperator() {
+  if (operator) return operator;
+  operator = createOperator({
+    axios, https, socketClient, io,
+    config: { apiBase: 'https://live.yellotalk.co', wsUrl: 'https://live.yellotalk.co:8443' },
+    getOperatorConfig, getSummonableBots, dispatchBot,
+    log: (...a) => console.log('🛎️ [operator]', ...a),
+  });
+  return operator;
+}
+
+app.get('/api/operator/status', (req, res) => {
+  const c = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+  const base = operator ? operator.getStatus() : { running: false };
+  res.json({ ...base, operatorBotId: c.operatorBotId || null, operatorRoomId: c.operatorRoomId || null, summonable: getSummonableBots() });
+});
+
+app.post('/api/operator/select', (req, res) => {
+  const { botId } = req.body;
+  const c = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+  if (botId && !(c.bots || []).some(b => b.id === botId)) return res.status(404).json({ error: 'bot not found' });
+  c.operatorBotId = botId || null;
+  fs.writeFileSync('./config.json', JSON.stringify(c, null, 2));
+  res.json({ success: true, operatorBotId: c.operatorBotId });
+});
+
+app.post('/api/operator/start', async (req, res) => {
+  try { const st = await initOperator().start(); res.json({ success: true, status: st }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/operator/stop', (req, res) => {
+  if (!operator) return res.json({ success: true, status: { running: false } });
+  res.json({ success: true, status: operator.stop() });
+});
+// ==================== END OPERATOR / SUMMON SYSTEM ====================
 
 const PORT = 5353;
 server.listen(PORT, async () => {
