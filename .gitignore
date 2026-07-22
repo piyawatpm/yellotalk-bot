@@ -76,3 +76,5 @@ start-services.sh
 
 # Yarn
 yarn.lock
+# local config backups (contain tokens — never commit)
+config.backup*.json

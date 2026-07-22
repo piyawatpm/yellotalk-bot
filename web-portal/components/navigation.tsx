@@ -12,7 +12,8 @@ import {
   Menu,
   X,
   Bot,
-  Sparkles
+  Sparkles,
+  Megaphone
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -21,6 +22,7 @@ const navItems = [
   { href: '/control', label: 'Control', icon: Settings2 },
   { href: '/greetings', label: 'Greetings', icon: MessageCircle },
   { href: '/keywords', label: 'Keywords', icon: Zap },
+  { href: '/operator', label: 'Operator', icon: Megaphone },
 ]
 
 export function Navigation() {
