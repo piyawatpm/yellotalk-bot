@@ -169,8 +169,10 @@ module.exports = function createOperator(rawDeps) {
     return allRooms.filter((r) =>
       r.id !== room?.id &&               // not the operator room
       !r.is_private &&                    // not private
-      !takenRoomIds.has(r.id) &&          // no bot of ours already inside
-      !(deps.isRoomKicked && deps.isRoomKicked(r.id))  // not a room we were kicked from
+      !takenRoomIds.has(r.id)             // no bot of ours already inside
+      // NOTE: kicked rooms are NOT filtered here — the manual picker may re-summon
+      // to a room the bot was kicked from (explicit user choice). Only AUTO topic-
+      // summon skips kicked rooms (see topicPoll).
     );
   }
 
