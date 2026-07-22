@@ -183,6 +183,11 @@ module.exports = function createOperator(rawDeps) {
     const text = (d.message || '').trim();
     if (!uuid || uuid.toUpperCase() === (op.user_uuid || '').toUpperCase()) return; // ignore self
     if ((d.pin_name || '').includes(op.name)) return;
+    // Blocked users (e.g. botyoi/bottom) are ignored ENTIRELY in the operator room:
+    // never summon for them, never react, don't even log them. The operator only
+    // leaves its room via stop(), so it can't be baited into a leave -> live_end ->
+    // re-create loop — but we still refuse to act on their messages.
+    if (deps.isBlockedUser && deps.isBlockedUser(sender)) return;
 
     const inMsg = { from: sender, text, self: false, ts: Date.now() };
     pushFeed(inMsg); emitEvent('operator-message', inMsg);
