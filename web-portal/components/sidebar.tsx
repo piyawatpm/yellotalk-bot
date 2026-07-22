@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, SlidersHorizontal, MessageSquare, Zap, Menu, X, Sun, Moon } from 'lucide-react'
+import { LayoutDashboard, SlidersHorizontal, MessageSquare, Zap, Megaphone, Menu, X, Sun, Moon } from 'lucide-react'
 import io from 'socket.io-client'
 import { cn } from '@/lib/utils'
 import { resolveApiUrl } from '@/lib/api'
@@ -14,6 +14,7 @@ const NAV = [
   { href: '/control', label: 'Control', code: 'CTL', icon: SlidersHorizontal },
   { href: '/greetings', label: 'Greetings', code: 'GRT', icon: MessageSquare },
   { href: '/keywords', label: 'Keywords', code: 'KEY', icon: Zap },
+  { href: '/operator', label: 'Operator', code: 'OPR', icon: Megaphone },
 ] as const
 
 function ThemeToggle() {
