@@ -28,6 +28,7 @@ const INSTRUCTIONS = [
   '🤖 สวัสดีค่ะ! ห้องนี้คือห้องเรียกบอท',
   '① ตั้งชื่อห้องของคุณให้มี "@bot" แล้วบอทจะเข้าห้องให้อัตโนมัติ (ถ้ามีบอทว่าง)',
   '② หรือพิมพ์ "@bot" ที่นี่ แล้วเลือกห้องที่อยากให้บอทเข้าได้เลยค่ะ',
+  '③ พิมพ์ "@status" เพื่อเช็คว่ามีบอทว่างกี่ตัวค่ะ',
 ].join('\n');
 
 module.exports = function createOperator(rawDeps) {
@@ -47,6 +48,7 @@ module.exports = function createOperator(rawDeps) {
   let socket = null;
   let room = null;             // { id, gme_id, topic } current operator room
   let topicTimer = null;
+  let wasAllBusy = false;      // announce once when all bots get busy / once when one frees up
   let reopening = false;
   let reopenAttempts = 0;
   const sessions = new Map();  // userUuid -> { step, rooms, name, ts }
@@ -167,7 +169,8 @@ module.exports = function createOperator(rawDeps) {
     return allRooms.filter((r) =>
       r.id !== room?.id &&               // not the operator room
       !r.is_private &&                    // not private
-      !takenRoomIds.has(r.id)             // no bot of ours already inside
+      !takenRoomIds.has(r.id) &&          // no bot of ours already inside
+      !(deps.isRoomKicked && deps.isRoomKicked(r.id))  // not a room we were kicked from
     );
   }
 
@@ -183,6 +186,15 @@ module.exports = function createOperator(rawDeps) {
     pushFeed(inMsg); emitEvent('operator-message', inMsg);
     sweepSessions();
     const session = sessions.get(uuid);
+
+    // @status — report bot availability on demand
+    if (text.toLowerCase().includes('@status') || /^สถานะ$/i.test(text)) {
+      const statusBots = (deps.getSummonableBots && deps.getSummonableBots()) || [];
+      const freeNow = statusBots.filter((b) => b.available);
+      const lines = statusBots.map((b) => `${b.available ? '🟢' : '🔴'} ${b.name} — ${b.available ? 'ว่าง' : 'ไม่ว่าง'}`).join('\n') || '(ไม่มีบอท)';
+      post(`📊 สถานะบอท (ว่าง ${freeNow.length}/${statusBots.length} ตัว):\n${lines}`);
+      return;
+    }
 
     // Cancel
     if (/^(ยกเลิก|cancel|เลิก)$/i.test(text)) {
@@ -242,6 +254,10 @@ module.exports = function createOperator(rawDeps) {
     try {
       const bots = (deps.getSummonableBots && deps.getSummonableBots()) || [];
       const free = bots.filter((b) => b.available);
+      // Announce once when EVERY bot becomes busy, and once when one frees up.
+      const allBusy = bots.length > 0 && free.length === 0;
+      if (allBusy && !wasAllBusy) { wasAllBusy = true; post('🔴 ตอนนี้บอทไม่ว่างทุกตัวแล้วค่ะ เดี๋ยวมีบอทว่างจะแจ้งให้นะคะ 🙏'); }
+      else if (!allBusy && wasAllBusy) { wasAllBusy = false; post(`🟢 มีบอทว่างแล้วค่ะ (ว่าง ${free.length} ตัว) พิมพ์ @bot เพื่อเรียกได้เลย`); }
       if (free.length === 0) return;
       const takenRoomIds = new Set(bots.map((b) => b.currentRoomId).filter(Boolean));
       const now = Date.now();
@@ -252,6 +268,7 @@ module.exports = function createOperator(rawDeps) {
         if ((room && r.id === room.id) || r.is_private) continue;
         if (!(r.topic || '').toLowerCase().includes(marker)) continue;
         if (takenRoomIds.has(r.id)) continue;         // already has a bot
+        if (deps.isRoomKicked && deps.isRoomKicked(r.id)) continue; // kicked out — never rejoin
         if (recentTopicDispatch.has(r.id)) continue;  // cooldown
         recentTopicDispatch.set(r.id, now);
         await doSummon(r, { type: 'topic' });

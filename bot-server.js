@@ -58,6 +58,9 @@ function botIdForState(state) {
 
 // Track unavailable rooms: roomId -> { reason, timestamp, roomTopic, blockedBy }
 const unavailableRooms = new Map();
+// Rooms a bot was kicked out of — never auto-resummon a bot back to them this
+// session (topic-summon + chat picker both skip these). Cleared only on restart.
+const kickedRoomIds = new Set();
 
 // Blocked usernames - if these users are in a room, bot will leave
 const BLOCKED_USERNAMES = ['bottom', 'botyoi'];
@@ -3871,6 +3874,11 @@ app.post('/api/bot/start', async (req, res) => {
           if (isKickCommand) {
             console.log(`[${timestamp}] 🚪 Kick command detected from ${sender}: "${message}"`);
 
+            // Remember this room so the operator never auto-resummons a bot back
+            // here — the user kicked the bot out, respect that for the session.
+            const kickedRoomId = instance.state.currentRoom?.id;
+            if (kickedRoomId) { kickedRoomIds.add(kickedRoomId); console.log(`[${timestamp}] 🚫 room ${kickedRoomId} banned from auto-resummon (kicked)`); }
+
             // Send goodbye message
             setTimeout(() => {
               sendMessageForBot(targetBotId, `ไปแล้วนะคะ บ๊ายบาย~ 👋`);
@@ -5822,6 +5830,7 @@ function initOperator() {
     axios, https, socketClient, io,
     config: { apiBase: 'https://live.yellotalk.co', wsUrl: 'https://live.yellotalk.co:8443' },
     getOperatorConfig, getSummonableBots, dispatchBot,
+    isRoomKicked: (rid) => kickedRoomIds.has(rid),
     log: (...a) => console.log('🛎️ [operator]', ...a),
   });
   return operator;
