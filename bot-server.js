@@ -156,26 +156,32 @@ function preDownloadNext(botId) {
   const toDownload = pending.slice(0, 2);
 
   for (const item of toDownload) {
-    // Check cache first
-    const cachedFile = item.videoId ? path.join(MUSIC_CACHE_DIR, `${item.videoId}.${MUSIC_EXT}`) : null;
-    if (cachedFile && fs.existsSync(cachedFile)) {
-      item.file = cachedFile;
-      item.status = 'ready';
-      console.log(`📋 [${botId}] Pre-download cache hit: ${item.title}`);
-      continue;
-    }
-
+    // Claim it synchronously so a second call can't pick the same item.
     item.status = 'downloading';
-    const url = `https://www.youtube.com/watch?v=${item.videoId}`;
-    // Pass null botId to suppress chat progress messages
-    downloadYouTubeAudio(url, null).then(filePath => {
-      item.file = filePath;
-      item.status = 'ready';
-      console.log(`📋 [${botId}] Pre-downloaded: ${item.title}`);
-    }).catch(err => {
-      item.status = 'error';
-      console.error(`📋 [${botId}] Pre-download failed for ${item.title}:`, err.message);
-    });
+    // Pass null botId to suppress chat progress messages.
+    (async () => {
+      // Spotify items arrive with only a search query — resolve to a videoId first.
+      if (!item.videoId) {
+        try { await ensureItemVideoId(item); }
+        catch (e) { item.status = 'error'; console.error(`📋 [${botId}] resolve failed for ${item.title}:`, e.message); return; }
+      }
+      const cachedFile = path.join(MUSIC_CACHE_DIR, `${item.videoId}.${MUSIC_EXT}`);
+      if (fs.existsSync(cachedFile)) {
+        item.file = cachedFile;
+        item.status = 'ready';
+        console.log(`📋 [${botId}] Pre-download cache hit: ${item.title}`);
+        return;
+      }
+      try {
+        const filePath = await downloadYouTubeAudio(`https://www.youtube.com/watch?v=${item.videoId}`, null);
+        item.file = filePath;
+        item.status = 'ready';
+        console.log(`📋 [${botId}] Pre-downloaded: ${item.title}`);
+      } catch (err) {
+        item.status = 'error';
+        console.error(`📋 [${botId}] Pre-download failed for ${item.title}:`, err.message);
+      }
+    })();
   }
 }
 
@@ -274,8 +280,11 @@ async function _playNextFromPlaylistInner(botId, depth = 0) {
     instance.state.currentlyPlaying = next;
     sendMessageForBot(botId, `⏳ กำลังโหลดเพลงถัดไป: ${next.title}`);
     try {
-      const url = `https://www.youtube.com/watch?v=${next.videoId}`;
-      const filePath = await downloadYouTubeAudio(url, null);
+      if (!next.videoId) await ensureItemVideoId(next);  // Spotify item: resolve query -> videoId
+      const cached = path.join(MUSIC_CACHE_DIR, `${next.videoId}.${MUSIC_EXT}`);
+      const filePath = fs.existsSync(cached)
+        ? cached
+        : await downloadYouTubeAudio(`https://www.youtube.com/watch?v=${next.videoId}`, null);
       next.file = filePath;
       return await playFile(next, ' (fresh download)');
     } catch (err) {
@@ -2375,6 +2384,270 @@ async function getYouTubeInfo(url) {
   });
 }
 
+// ============================================================================
+// Paste-a-link support: a user can @mention a bot and drop a YouTube or Spotify
+// link — a single track OR a whole playlist/album — and the bot queues it, just
+// like asking by song name. YouTube playlists expand natively via yt-dlp.
+// Spotify audio is DRM'd (un-downloadable), so we read only its track list via
+// the Spotify Web API and grab each song from YouTube through the SAME tuned
+// pipeline (WARP proxy, m4a, cache, >1h guard). Links are handled deterministically
+// BEFORE the LLM, which would otherwise garble the URL.
+// ============================================================================
+const MAX_PLAYLIST_ITEMS = parseInt(process.env.MAX_PLAYLIST_ITEMS || '50', 10);
+
+// Detect a music link in free text. Returns { source, kind, ... } or null.
+//   source: 'youtube' | 'spotify'
+//   kind:   'video' (single track) | 'playlist' (multi-track: playlist/album/mix)
+function detectMusicLink(text) {
+  if (!text) return null;
+  // Spotify: open.spotify.com[/intl-xx]/{track|playlist|album}/{id}  or  spotify:{type}:{id}
+  let m = text.match(/(?:open\.spotify\.com\/(?:intl-[a-z]+\/)?|spotify:)(track|playlist|album)[/:]([A-Za-z0-9]+)/i);
+  if (m) {
+    const spType = m[1].toLowerCase();
+    return { source: 'spotify', kind: spType === 'track' ? 'video' : 'playlist', spType, id: m[2] };
+  }
+  // YouTube playlist (explicit list= param). A radio/mix (list=RD…) that's
+  // auto-attached to a shared video is NOT treated as a playlist — the user
+  // meant that one song, so fall through to single-video handling.
+  m = text.match(/[?&]list=([A-Za-z0-9_-]+)/);
+  if (m) {
+    const listId = m[1];
+    const isRadio = /^RD/i.test(listId);
+    const hasVideo = /[?&]v=[A-Za-z0-9_-]{11}/.test(text) || /youtu\.be\/[A-Za-z0-9_-]{11}/.test(text);
+    if (!(isRadio && hasVideo)) {
+      return { source: 'youtube', kind: 'playlist', id: listId, url: `https://www.youtube.com/playlist?list=${listId}` };
+    }
+  }
+  // YouTube single video (watch?v= / youtu.be / shorts / live / music.youtube.com)
+  m = text.match(/(?:youtube\.com\/(?:watch\?[^\s]*\bv=|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  if (m) return { source: 'youtube', kind: 'video', id: m[1] };
+  return null;
+}
+
+// Expand a YouTube playlist/album/mix into [{ videoId, title, duration }] without
+// downloading. `-I 1:cap` bounds even an "infinite" radio mix.
+function expandYouTubePlaylist(listUrl, cap) {
+  return new Promise((resolve, reject) => {
+    execFile('yt-dlp', [
+      '--flat-playlist',
+      '--extractor-args', 'youtube:fetch_pot=never',
+      '-I', `1:${cap}`,
+      '--print', '%(id)s\t%(title)s\t%(duration)s',
+      listUrl
+    ], { timeout: 30000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      if (err && !stdout) return reject(err);
+      const items = (stdout || '').trim().split('\n').filter(Boolean).map(line => {
+        const [id, title, duration] = line.split('\t');
+        return { videoId: id, title: title || 'Unknown', duration: parseInt(duration) || 0 };
+      }).filter(it => it.videoId && it.title !== '[Private video]' && it.title !== '[Deleted video]' && it.title !== '[Unavailable video]');
+      resolve(items);
+    });
+  });
+}
+
+// --- Spotify Web API (Client-Credentials flow: read-only public metadata) ----
+let _spotifyToken = { value: null, exp: 0 };
+function spotifyCreds() {
+  return {
+    id: process.env.SPOTIFY_CLIENT_ID || config.spotify_client_id || '',
+    secret: process.env.SPOTIFY_CLIENT_SECRET || config.spotify_client_secret || ''
+  };
+}
+// Spotify is OFF until credentials are configured — disabled for now by request.
+// Re-enable simply by adding spotify_client_id/secret to config.json (no code
+// change). SPOTIFY_ENABLED=true/false is a hard override. YouTube is unaffected.
+function spotifyEnabled() {
+  if (process.env.SPOTIFY_ENABLED === 'false') return false;
+  if (process.env.SPOTIFY_ENABLED === 'true') return true;
+  const c = spotifyCreds();
+  return !!(c.id && c.secret);
+}
+async function spotifyToken() {
+  if (_spotifyToken.value && Date.now() < _spotifyToken.exp) return _spotifyToken.value;
+  const { id, secret } = spotifyCreds();
+  if (!id || !secret) throw new Error('SPOTIFY_NOT_CONFIGURED');
+  const basic = Buffer.from(`${id}:${secret}`).toString('base64');
+  const resp = await axios.post('https://accounts.spotify.com/api/token',
+    'grant_type=client_credentials',
+    { headers: { Authorization: `Basic ${basic}`, 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 });
+  _spotifyToken.value = resp.data.access_token;
+  _spotifyToken.exp = Date.now() + ((resp.data.expires_in || 3600) - 60) * 1000;
+  return _spotifyToken.value;
+}
+// Fetch a Spotify track/playlist/album as [{ query, title, duration }].
+// query = "Artist Song" used to search YouTube; title = "Artist - Song" for display.
+async function spotifyGetTracks(spType, id, cap) {
+  const token = await spotifyToken();
+  const auth = { headers: { Authorization: `Bearer ${token}` }, timeout: 12000 };
+  const mkItem = (t) => {
+    if (!t || !t.name) return null;
+    const artists = (t.artists || []).map(a => a.name).filter(Boolean).join(', ');
+    const title = artists ? `${artists} - ${t.name}` : t.name;
+    return { query: `${artists} ${t.name}`.trim(), title, duration: Math.round((t.duration_ms || 0) / 1000) };
+  };
+  if (spType === 'track') {
+    const r = await axios.get(`https://api.spotify.com/v1/tracks/${id}`, auth);
+    const it = mkItem(r.data);
+    return it ? [it] : [];
+  }
+  const items = [];
+  let url = spType === 'album'
+    ? `https://api.spotify.com/v1/albums/${id}/tracks?limit=50`
+    : `https://api.spotify.com/v1/playlists/${id}/tracks?limit=100&fields=next,items(track(name,artists(name),duration_ms))`;
+  while (url && items.length < cap) {
+    const r = await axios.get(url, auth);
+    const batch = (r.data.items || [])
+      .map(row => mkItem(spType === 'album' ? row : row.track))
+      .filter(Boolean);
+    items.push(...batch);
+    url = r.data.next;
+  }
+  return items.slice(0, cap);
+}
+
+// Resolve a queue item that has only a search query (Spotify) into a YouTube
+// videoId. YouTube-sourced items already carry a videoId and skip this.
+async function ensureItemVideoId(item) {
+  if (item.videoId) return item.videoId;
+  if (!item.query) throw new Error('no videoId and no query');
+  const vid = await new Promise((resolve, reject) => {
+    execFile('yt-dlp', [
+      `ytsearch1:${item.query}`,
+      '--extractor-args', 'youtube:fetch_pot=never',
+      '--print', '%(id)s', '--no-download', '--flat-playlist'
+    ], { timeout: 20000 }, (err, stdout) => {
+      if (err) return reject(err);
+      const id = ((stdout || '').trim().split('\n')[0] || '').trim();
+      if (!id) return reject(new Error('no YouTube match'));
+      resolve(id);
+    });
+  });
+  item.videoId = vid;
+  return vid;
+}
+
+// Is the bot currently playing anything (a queue item OR a direct PLAY song)?
+async function isBotPlaying(botId) {
+  const pl = getPlaylist(botId);
+  if (pl && pl.some(it => it.status === 'playing')) return true;
+  const gmeUrl = getGmeUrl(botId);
+  if (!gmeUrl) return false;
+  try {
+    const r = await axios.get(`${gmeUrl}/status`, { timeout: 3000 });
+    return !!(r.data && (r.data.status === 'playing' || r.data.playing === true));
+  } catch (e) { return false; }
+}
+
+// Append a batch of items to a bot's queue: drop known >1h tracks, dedupe against
+// what's already queued + within the batch, cap the total. Returns a summary.
+// items: [{ videoId?, query?, title, duration? }]
+function enqueueMusicItems(botId, items, addedBy) {
+  const playlist = getPlaylist(botId);
+  if (!playlist) return { added: 0, total: items.length, longSkipped: 0 };
+  const total = items.length;
+
+  // Known-too-long (>1h) filter. Unknown duration (0) passes; the download-time
+  // --match-filter still guards it.
+  const notLong = items.filter(it => !(it.duration && it.duration > MAX_SONG_SECONDS));
+  const longSkipped = total - notLong.length;
+
+  const seen = new Set(playlist.map(p => (p.videoId || (p.query || '').toLowerCase())).filter(Boolean));
+  const fresh = [];
+  for (const it of notLong) {
+    const key = it.videoId || (it.query || '').toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    fresh.push(it);
+  }
+
+  const capped = fresh.slice(0, MAX_PLAYLIST_ITEMS);
+  for (const it of capped) {
+    playlist.push({
+      title: it.title || 'Unknown',
+      videoId: it.videoId || null,             // null for Spotify -> resolved lazily at download
+      file: null,
+      query: it.query || (it.videoId ? null : it.title),
+      addedBy: addedBy || 'link',
+      status: 'pending'
+    });
+  }
+  return { added: capped.length, total, longSkipped };
+}
+
+// Handle a pasted YouTube/Spotify link end-to-end (fire-and-forget; sends its own
+// chat feedback). Detection is done by the caller so it can `return` synchronously.
+async function handleMusicLink(botId, text, sender) {
+  const link = detectMusicLink(text);
+  if (!link) return;
+
+  const instance = botInstances.get(botId);
+  if (!instance || !instance.state.currentRoom) {
+    sendMessageForBot(botId, 'ให้บอทเข้าห้องก่อนนะคะ แล้วค่อยส่งลิงก์เพลงมา 🎵');
+    return;
+  }
+
+  try {
+    let items = [];
+    let label = '';
+    if (link.source === 'youtube' && link.kind === 'playlist') {
+      label = 'YouTube';
+      sendMessageForBot(botId, '📋 กำลังอ่านเพลย์ลิสต์จาก YouTube รอแป๊บนะคะ...');
+      items = await expandYouTubePlaylist(link.url, MAX_PLAYLIST_ITEMS);
+    } else if (link.source === 'youtube') {
+      label = 'YouTube';
+      const info = await getYouTubeInfo(`https://www.youtube.com/watch?v=${link.id}`).catch(() => null);
+      items = [{ videoId: link.id, title: info?.title || 'YouTube', duration: info?.duration || 0 }];
+    } else if (link.source === 'spotify') {
+      // Spotify disabled for now — still intercept the link (so the LLM doesn't
+      // garble it) and reply cleanly, pointing users at YouTube.
+      if (!spotifyEnabled()) {
+        sendMessageForBot(botId, 'ตอนนี้รองรับแค่ลิงก์ YouTube นะคะ 🎵 (Spotify ปิดไว้ชั่วคราวค่ะ)');
+        return;
+      }
+      label = 'Spotify';
+      if (link.kind === 'playlist') sendMessageForBot(botId, '📋 กำลังอ่านรายชื่อเพลงจาก Spotify รอแป๊บนะคะ...');
+      items = await spotifyGetTracks(link.spType, link.id, MAX_PLAYLIST_ITEMS);
+    }
+
+    if (!items.length) {
+      sendMessageForBot(botId, 'ขอโทษค่ะ ไม่พบเพลงในลิงก์นี้ 😢');
+      return;
+    }
+
+    const firstTitle = items[0].title;
+    const { added, total, longSkipped } = enqueueMusicItems(botId, items, `${label}:${sender}`);
+    if (added === 0) {
+      sendMessageForBot(botId, longSkipped > 0
+        ? 'ขออภัยค่ะ เพลงยาวเกิน 1 ชั่วโมง เล่นไม่ได้ค่ะ 🙏'
+        : 'เพลงนี้อยู่ในคิวอยู่แล้วค่ะ 🎵');
+      return;
+    }
+
+    if (total === 1) {
+      sendMessageForBot(botId, `📋 เพิ่มในคิวแล้วค่ะ: ${firstTitle}`);
+    } else {
+      let msg = `📋 เพิ่ม ${added} เพลงจาก ${label} แล้วค่ะ`;
+      if (total > added) msg += ` (จากทั้งหมด ${total})`;
+      if (longSkipped) msg += ` • ข้ามเพลงยาวเกิน 1 ชม. ${longSkipped} เพลง`;
+      sendMessageForBot(botId, msg + ' 🎶');
+    }
+
+    preDownloadNext(botId);
+    // Append semantics: only start now if nothing is playing; otherwise it plays
+    // when the current song ends (song-ended handler advances the queue).
+    if (!(await isBotPlaying(botId))) {
+      playNextFromPlaylist(botId).catch(e => console.error(`📋 [${botId}] link play error:`, e.message));
+    }
+  } catch (e) {
+    if (e.message === 'SPOTIFY_NOT_CONFIGURED') {
+      sendMessageForBot(botId, 'ยังไม่ได้ตั้งค่า Spotify ค่ะ 🙏 (เจ้าของบอทต้องใส่ Spotify API key ก่อนนะคะ)');
+    } else {
+      console.error(`❌ [${botId}] handleMusicLink error:`, e.message);
+      sendMessageForBot(botId, 'ขอโทษค่ะ โหลดลิงก์นี้ไม่ได้ 😢');
+    }
+  }
+}
+
 // Play YouTube audio - download + play through GME
 app.post('/api/music/youtube', async (req, res) => {
   const { url, loop, botId } = req.body;
@@ -3662,6 +3935,15 @@ app.post('/api/bot/start', async (req, res) => {
             // Validate: Question should be at least 2 characters
             if (question.length < 2) {
               console.log(`[${timestamp}] ⚠️  Question too short, ignoring`);
+              return;
+            }
+
+            // Pasted YouTube/Spotify link (single track OR a whole playlist/album)?
+            // Handle it deterministically here — before the AI, which would garble
+            // the URL — then stop. It queues everything and replies for itself.
+            if (detectMusicLink(question)) {
+              console.log(`[${timestamp}] 🔗 [${botConfig.name}] music link from ${sender}: ${question}`);
+              handleMusicLink(targetBotId, question, sender).catch(e => console.error('handleMusicLink:', e.message));
               return;
             }
 
