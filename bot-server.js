@@ -47,6 +47,15 @@ app.use(express.json());
 // Map of active bot instances: botId -> { config, state, socket, originalRoomOwner }
 const botInstances = new Map();
 
+// Reverse-lookup a botId from its state object (multi-bot speaker functions get
+// `state` but not the id). Used to tag `speakers-update` so the portal can ignore
+// updates for a bot it isn't currently viewing (else slots from bot B leak into
+// the panel while bot A is selected).
+function botIdForState(state) {
+  for (const [id, inst] of botInstances) if (inst && inst.state === state) return id;
+  return null;
+}
+
 // Track unavailable rooms: roomId -> { reason, timestamp, roomTopic, blockedBy }
 const unavailableRooms = new Map();
 
@@ -892,7 +901,7 @@ function lockSpeakerForBot(position, socket, state) {
       if (response?.result === 200) {
         if (state.speakers[position]) {
           state.speakers[position] = { ...state.speakers[position], locked: true, pin_name: '🔒', uuid: null, mic_muted: true };
-          io.emit('speakers-update', state.speakers);
+          io.emit('speakers-update', { botId: botIdForState(state), speakers: state.speakers });
         }
         resolve(response);
       } else {
@@ -914,7 +923,7 @@ function unlockSpeakerForBot(position, socket, state) {
       if (response?.result === 200) {
         if (state.speakers[position]) {
           state.speakers[position] = { ...state.speakers[position], locked: false, pin_name: 'Empty', uuid: null, mic_muted: true };
-          io.emit('speakers-update', state.speakers);
+          io.emit('speakers-update', { botId: botIdForState(state), speakers: state.speakers });
         }
         resolve(response);
       } else {
@@ -936,7 +945,7 @@ function muteSpeakerForBot(position, socket, state) {
       if (response?.result === 200) {
         if (state.speakers[position]) {
           state.speakers[position] = { ...state.speakers[position], mic_muted: true };
-          io.emit('speakers-update', state.speakers);
+          io.emit('speakers-update', { botId: botIdForState(state), speakers: state.speakers });
         }
         resolve(response);
       } else {
@@ -958,7 +967,7 @@ function unmuteSpeakerForBot(position, socket, state) {
       if (response?.result === 200) {
         if (state.speakers[position]) {
           state.speakers[position] = { ...state.speakers[position], mic_muted: false };
-          io.emit('speakers-update', state.speakers);
+          io.emit('speakers-update', { botId: botIdForState(state), speakers: state.speakers });
         }
         resolve(response);
       } else {

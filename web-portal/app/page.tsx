@@ -34,6 +34,7 @@ export default function OverviewPage() {
   const { toast } = useToast()
   const [botStates, setBotStates] = useState<Record<string, any>>({})
   const [bots, setBots] = useState<{ id: string; name: string }[]>([])
+  const [operatorBotId, setOperatorBotId] = useState<string | null>(null) // dedicated to hosting; hidden from the fleet
   const [music, setMusic] = useState<Record<string, { playing?: boolean }>>({})
   const [rooms, setRooms] = useState<{ id: string; topic: string; owner: string }[]>([])
   const [connected, setConnected] = useState<boolean | null>(null)
@@ -83,9 +84,10 @@ export default function OverviewPage() {
 
   // Bots roster
   useEffect(() => {
-    resolveApiUrl().then(() =>
+    resolveApiUrl().then(() => {
       fetch(`${getApiUrl()}/api/bots`).then((r) => r.json()).then((d) => setBots(d.bots || [])).catch(() => {})
-    )
+      fetch(`${getApiUrl()}/api/operator/status`).then((r) => r.json()).then((d) => setOperatorBotId(d.operatorBotId || null)).catch(() => {})
+    })
   }, [])
 
   // Rooms (houses)
@@ -136,7 +138,7 @@ export default function OverviewPage() {
   }, [botsKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fleet = useMemo(() => {
-    const ids = bots.length ? bots.map((b) => b.id) : Object.keys(botStates)
+    const ids = (bots.length ? bots.map((b) => b.id) : Object.keys(botStates)).filter((id) => id !== operatorBotId)
     return ids.map((id) => {
       const st = botStates[id] || {}
       return {
@@ -148,7 +150,7 @@ export default function OverviewPage() {
         playing: !!music[id]?.playing && st.status === 'running',
       }
     })
-  }, [bots, botStates, music])
+  }, [bots, botStates, music, operatorBotId])
 
   const onAir = fleet.filter((f) => f.status === 'running' || f.status === 'waiting')
   const singing = fleet.filter((f) => f.playing)

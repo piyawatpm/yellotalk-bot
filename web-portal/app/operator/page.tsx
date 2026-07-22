@@ -28,6 +28,7 @@ type Status = {
   marker: string
   summonable: Summonable[]
   recentSummons: Summon[]
+  recentMessages?: FeedMsg[]
 }
 type FeedMsg = { from: string; text: string; self: boolean; ts: number }
 
@@ -47,7 +48,12 @@ export default function OperatorPage() {
     try { const r = await fetch(`${api}/api/bots`); const j = await r.json(); setBots(j.bots || []) } catch {}
   }, [api])
   const loadStatus = useCallback(async () => {
-    try { const r = await fetch(`${api}/api/operator/status`); setStatus(await r.json()) } catch {}
+    try {
+      const r = await fetch(`${api}/api/operator/status`); const s = await r.json(); setStatus(s)
+      // Backfill the feed from the operator's recent-message buffer on first load
+      // — the live socket only appends NEW messages, so the feed was empty on open.
+      if (Array.isArray(s.recentMessages)) setFeed((f) => (f.length ? f : s.recentMessages))
+    } catch {}
   }, [api])
 
   // initial load + slow poll fallback

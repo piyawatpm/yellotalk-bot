@@ -149,6 +149,7 @@ export default function ControlPage() {
 
   // Multi-bot management state
   const [bots, setBots] = useState<any[]>([])
+  const [operatorBotId, setOperatorBotId] = useState<string | null>(null) // hidden from join/select lists
   const [botStates, setBotStates] = useState<Record<string, any>>({}) // State for each bot
   const [selectedBotId, setSelectedBotId] = useState<string>('')
   const [showAddBot, setShowAddBot] = useState(false)
@@ -284,9 +285,9 @@ export default function ControlPage() {
       // Legacy bot-state event (backward compatibility)
       newSocket.on('bot-state', (state) => {
         setBotState(state)
-        if (state.speakers?.length > 0) {
-          setSpeakers(state.speakers)
-        }
+        // NOTE: intentionally NOT setSpeakers here — this legacy event isn't
+        // bot-scoped, so it could paint another bot's slots. The scoped
+        // all-bot-states / bot-state-update handlers own the slot list.
         if (state.participants?.length > 0 || state.speakers?.length > 0) {
           fetch(`${getApiUrl()}/api/music/voice-users?botId=${selectedBotId}`).then(r => r.json()).then(d => setVoiceUsers(d.users || [])).catch(() => {})
         }
@@ -316,13 +317,15 @@ export default function ControlPage() {
         }
       })
 
-      newSocket.on('speakers-update', (speakersData) => {
-        console.log('🎤 Speakers update received:', speakersData)
+      newSocket.on('speakers-update', (payload: any) => {
+        // Server tags updates with { botId, speakers }. Only apply the slots if
+        // they belong to the bot we're currently viewing — otherwise bot B's
+        // room slots would overwrite the panel while bot A is selected.
+        const botId = payload && payload.botId
+        const speakersData = payload && Array.isArray(payload.speakers) ? payload.speakers : null
+        if (!speakersData || botId !== selectedBotIdRef.current) return
         setSpeakers(speakersData)
-        setBotState((prev: any) => prev ? ({
-          ...prev,
-          speakers: speakersData
-        }) : prev)
+        setBotState((prev: any) => prev ? ({ ...prev, speakers: speakersData }) : prev)
       })
 
       newSocket.on('poll-check', (data) => {
@@ -402,6 +405,9 @@ export default function ControlPage() {
       const res = await fetch(`${getApiUrl()}/api/bots`)
       const data = await res.json()
       setBots(data.bots || [])
+      // Hide whichever bot is the operator from the join/select lists — it's
+      // dedicated to hosting the summon room, managed from the Operator page.
+      fetch(`${getApiUrl()}/api/operator/status`).then(r => r.json()).then(d => setOperatorBotId(d.operatorBotId || null)).catch(() => {})
       if (data.selectedBotId) {
         setSelectedBotId(data.selectedBotId)
       }
@@ -1259,7 +1265,7 @@ export default function ControlPage() {
 
                 {/* bot switcher (scrolls if many) */}
                 <div className="flex flex-1 items-center gap-1 overflow-x-auto px-1 py-0.5">
-                  {bots.map((b) => {
+                  {bots.filter((b) => b.id !== operatorBotId).map((b) => {
                     const st = botStates[b.id] || {}
                     const active = b.id === activeBot?.id
                     const dot = st.status === 'running' ? 'dot-live' : st.status === 'waiting' ? 'dot-wait' : 'dot-idle'
@@ -1383,7 +1389,7 @@ export default function ControlPage() {
 
         {/* Bot Cards Grid - Shows ALL bots at a glance */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {bots.map((bot) => {
+          {bots.filter((bot) => bot.id !== operatorBotId).map((bot) => {
             const thisBotState = botStates[bot.id] || {}
             const thisBotRunning = thisBotState.status === 'running'
             const thisBotWaiting = thisBotState.status === 'waiting'
