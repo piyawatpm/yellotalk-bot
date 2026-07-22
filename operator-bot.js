@@ -189,6 +189,9 @@ module.exports = function createOperator(rawDeps) {
     sweepSessions();
     const session = sessions.get(uuid);
 
+    // @help — repost how the summon room works
+    if (text.toLowerCase().includes('@help')) { post(INSTRUCTIONS); return; }
+
     // @status — report bot availability on demand
     if (text.toLowerCase().includes('@status') || /^สถานะ$/i.test(text)) {
       const statusBots = (deps.getSummonableBots && deps.getSummonableBots()) || [];
