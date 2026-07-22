@@ -24,7 +24,6 @@ const DEFAULTS = {
   reopenDelayMs: 4000,
 };
 
-const OPERATOR_TOPIC = '🤖 เรียกบอท — พิมพ์ @bot ที่นี่';
 const INSTRUCTIONS = [
   '🤖 สวัสดีค่ะ! ห้องนี้คือห้องเรียกบอท',
   '① ตั้งชื่อห้องของคุณให้มี "@bot" แล้วบอทจะเข้าห้องให้อัตโนมัติ (ถ้ามีบอทว่าง)',
@@ -49,6 +48,7 @@ module.exports = function createOperator(rawDeps) {
   let room = null;             // { id, gme_id, topic } current operator room
   let topicTimer = null;
   let reopening = false;
+  let reopenAttempts = 0;
   const sessions = new Map();  // userUuid -> { step, rooms, name, ts }
   const recentTopicDispatch = new Map(); // roomId -> ts (cooldown)
   const recentSummons = [];    // [{ bot, roomTopic, roomId, by, type, ts }] newest first
@@ -70,48 +70,36 @@ module.exports = function createOperator(rawDeps) {
     return all;
   }
 
-  async function tryCreateRoom(topic) {
-    // Native create (works only if the account has a provisioned gme_user_id).
-    const body = { category_id: 0, is_private: false, limit_speaker: 1, topic };
-    const r = await axios.post(`${cfg.apiBase}/v1/rooms`, body, authHeaders());
-    return r.data.json || r.data;
-  }
-
   // ---------- operator room lifecycle ----------
+  // NOTE: these bot accounts cannot HOST a room — a REST-created room live_ends within ~1s
+  // (no gme_user_id / GME host session). So we only ADOPT a room the owner created in the app
+  // (config.operatorRoomId). With no seeded room, the operator runs topic-summon only.
   async function establishRoom() {
-    // Preferred: a seeded room id in config (owner-created), which the operator adopts + owns.
-    if (op.roomId) {
-      const rooms = await fetchAllRooms().catch(() => []);
-      const found = rooms.find((x) => x.id === op.roomId);
-      if (found) { room = { id: found.id, gme_id: found.gme_id, topic: found.topic }; return 'adopted'; }
-      log(`⚠️ configured operatorRoomId ${op.roomId} not found among open rooms; will try to create.`);
-    }
-    // Fallback: try native creation.
-    try {
-      const created = await tryCreateRoom(OPERATOR_TOPIC);
-      if (created && created.id) { room = { id: created.id, gme_id: created.gme_id, topic: created.topic || OPERATOR_TOPIC }; return 'created'; }
-    } catch (e) {
-      const msg = e.response?.data?.error?.message || e.message;
-      log(`❌ native room creation failed (${msg}).`);
-      log(`   -> This account has no gme_user_id (can't host). Seed one instead:`);
-      log(`   -> create a room in the app, then set "operatorRoomId":"<id>" in config.json.`);
-    }
-    return null;
+    if (!op.roomId) return null;
+    const rooms = await fetchAllRooms().catch(() => []);
+    const found = rooms.find((x) => x.id === op.roomId);
+    if (!found) { log(`⚠️ operatorRoomId ${op.roomId} isn't open right now — topic-summon only until you open it.`); return null; }
+    room = { id: found.id, gme_id: found.gme_id, topic: found.topic };
+    return 'adopted';
   }
 
-  function joinAndOwn() {
+  // Takes explicit ids so a concurrent room=null (live_end) can never crash the ack callbacks.
+  function joinAndOwn(rid, gmeId) {
     return new Promise((resolve) => {
+      let done = false;
+      const finish = (v) => { if (!done) { done = true; resolve(v); } };
+      setTimeout(() => finish(false), 8000);
       const joinData = {
-        room: room.id, uuid: op.user_uuid, avatar_id: op.avatar_id || 0,
-        gme_id: String(room.gme_id || ''), campus: 'No Group', pin_name: op.name,
+        room: rid, uuid: op.user_uuid, avatar_id: op.avatar_id || 0,
+        gme_id: String(gmeId || ''), campus: 'No Group', pin_name: op.name,
         role: 'host', gme_role: 'host', audio_role: 'host',
       };
       socket.emit('join_room', joinData, (jr) => {
         log(`join operator room: result=${jr?.result} ${jr?.description || ''}`);
-        // Claim ownership so the room stays alive on our socket (own room => fine).
-        socket.emit('create_room', { room: room.id, uuid: op.user_uuid, limit_speaker: 1 }, (cr) => {
+        if (jr?.result !== 200) return finish(false);
+        socket.emit('create_room', { room: rid, uuid: op.user_uuid, limit_speaker: 1 }, (cr) => {
           log(`claim ownership: result=${cr?.result} ${cr?.description || ''}`);
-          resolve(jr?.result === 200);
+          finish(true);
         });
       });
     });
@@ -125,29 +113,31 @@ module.exports = function createOperator(rawDeps) {
   }
 
   async function openOperatorRoom() {
-    const how = await establishRoom();
-    if (!how) { emitStatus(); return false; }
+    const how = await establishRoom();                 // adopt a seeded, already-live room (or null)
+    if (!how || !room) { emitStatus(); return false; } // topic-summon still runs without it
     log(`operator room ${how}: "${room.topic}" (${room.id})`);
+    const rid = room.id, gmeId = room.gme_id;          // capture so ack callbacks can't hit a nulled room
 
-    if (socket) { try { socket.removeAllListeners(); socket.disconnect(); } catch {} }
-    socket = socketClient(cfg.wsUrl, { auth: { token: op.jwt_token }, transports: ['websocket'], rejectUnauthorized: false, reconnection: false });
-
-    socket.on('connect', async () => {
-      await joinAndOwn();
-      setTimeout(() => post(INSTRUCTIONS), 1500);
+    if (socket) { try { socket.removeAllListeners(); socket.disconnect(); } catch {} socket = null; }
+    const s = socketClient(cfg.wsUrl, { auth: { token: op.jwt_token }, transports: ['websocket'], rejectUnauthorized: false, reconnection: false });
+    socket = s;
+    s.on('new_message', (d) => handleMessage(d).catch((e) => log('handleMessage err:', e.message)));
+    s.on('live_end', () => { if (socket !== s) return; log('operator room ended'); room = null; emitStatus(); scheduleReopen(); });
+    s.on('disconnect', (reason) => { if (socket !== s) return; if (running && reason !== 'io client disconnect') { room = null; emitStatus(); scheduleReopen(); } });
+    s.on('connect', async () => {
+      const ok = await joinAndOwn(rid, gmeId);
+      if (ok) { reopenAttempts = 0; setTimeout(() => post(INSTRUCTIONS), 1500); }
+      else { log(`⚠️ couldn't hold operator room ${op.roomId} (expired). Topic-summon still active; re-open it in the app.`); room = null; }
       emitStatus();
     });
-    socket.on('new_message', (d) => handleMessage(d).catch((e) => log('handleMessage err:', e.message)));
-    socket.on('live_end', () => { log('operator room ended'); scheduleReopen(); });
-    socket.on('disconnect', (reason) => { if (running && reason !== 'io client disconnect') scheduleReopen(); });
     return true;
   }
 
   function scheduleReopen() {
-    if (!running || reopening) return;
-    reopening = true;
-    room = null; emitStatus();
-    setTimeout(async () => { reopening = false; if (running) await openOperatorRoom(); }, cfg.reopenDelayMs);
+    if (!running || reopening || !op.roomId) return;          // only retry a seeded room
+    if (reopenAttempts >= 4) { log('⚠️ gave up re-opening the operator room; topic-summon still running.'); return; }
+    reopening = true; reopenAttempts++;
+    setTimeout(async () => { reopening = false; if (running) await openOperatorRoom().catch((e) => log('reopen err:', e.message)); }, cfg.reopenDelayMs * Math.min(reopenAttempts, 4));
   }
 
   // ---------- summon logic ----------
@@ -272,11 +262,14 @@ module.exports = function createOperator(rawDeps) {
     if (running) return getStatus();
     op = (deps.getOperatorConfig && deps.getOperatorConfig()) || null;
     if (!op || !op.jwt_token) { log('❌ no operator bot configured'); return getStatus(); }
-    running = true;
+    running = true; reopenAttempts = 0;
     log(`starting operator: ${op.name}`);
-    await openOperatorRoom();
+    // Topic-summon always runs (REST poll -> dispatch); needs no hosted room.
     if (topicTimer) clearInterval(topicTimer);
     topicTimer = setInterval(() => topicPoll(), cfg.topicPollMs);
+    // Chat-picker room only if a seeded operatorRoomId is set (bots can't host their own).
+    if (op.roomId) { await openOperatorRoom().catch((e) => log('openOperatorRoom err:', e.message)); }
+    else { log('ℹ️ no operatorRoomId set — topic-summon only. Name a room with @bot to summon a bot.'); }
     emitStatus();
     return getStatus();
   }
