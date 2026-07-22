@@ -43,7 +43,11 @@ public class MainActivity extends Activity {
         int result=data!=null?data.getIntExtra("result",-999):-999;
         if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_ENTER_ROOM){
           Log.i(TAG,"ENTER_ROOM result="+result);
-          if(result==0){inRoom=true;status="joined";lastError=null;} else {lastError="enter="+result;status="error";}
+          if(result==0){inRoom=true;status="joined";lastError=null;
+            // Upgrade the room codec for music: fluency (type 1) = 16kHz mono = muffled.
+            // HIGHQUALITY may need Tencent to enable it for the app; rc/logs tell us.
+            try{ int rc=ctx.GetRoom().ChangeRoomType(ITMGContext.ITMG_ROOM_TYPE_HIGHQUALITY); Log.i(TAG,"ChangeRoomType(HQ) rc="+rc+" curType="+ctx.GetRoom().GetRoomType()); }catch(Throwable t){ Log.e(TAG,"chgroom",t); }
+          } else {lastError="enter="+result;status="error";}
         } else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_EXIT_ROOM){inRoom=false;status="idle";}
         else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_ACCOMPANY_FINISH){Log.i(TAG,"ACCOMPANY_FINISH");songFinished=true;status="joined";}
       }
