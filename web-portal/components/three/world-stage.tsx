@@ -161,15 +161,40 @@ function Label({ main, sub, dark, y, height = 0.34 }: { main: string; sub?: stri
 
 /* ---------- layout ---------- */
 const truncate = (s: string, n = 16) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
-const HOUSE_Z = -3.2
-const DOCK_Z = 2.1
+const MAX_HOUSES = 40 // safety cap; scales to as many rooms as you have
+const HOUSE_COLS = 5 // houses per row before wrapping to a new row behind
+const HOUSE_Z0 = -2.6 // z of the front-most house row
+const ROW_DZ = -2.9 // each extra row sits this much further back
+const DOCK_Z = 3.0 // idle bots wait in front of the houses
+const HOUSE_SPX = 2.6
+
+// Houses fill a grid (rows of HOUSE_COLS) that grows backward as rooms increase.
 function housePos(i: number, n: number): [number, number] {
-  const spacing = n > 4 ? 2.4 : 2.8
-  return [(i - (n - 1) / 2) * spacing, HOUSE_Z]
+  const cols = Math.min(n, HOUSE_COLS)
+  const row = Math.floor(i / cols)
+  const rowStart = row * cols
+  const inRow = Math.min(cols, n - rowStart) // last row may be shorter
+  const col = i - rowStart
+  const x = (col - (inRow - 1) / 2) * HOUSE_SPX
+  const z = HOUSE_Z0 + row * ROW_DZ
+  return [x, z]
 }
 function dockPos(i: number, n: number): [number, number] {
   const spacing = n > 4 ? 1.4 : 1.7
   return [(i - (n - 1) / 2) * spacing, DOCK_Z]
+}
+
+// Scene extent derived from house count — sizes the ground and frames the camera.
+function layout(nHouses: number) {
+  const n = Math.max(nHouses, 1)
+  const rows = Math.ceil(n / HOUSE_COLS)
+  const cols = Math.min(n, HOUSE_COLS)
+  const backZ = HOUSE_Z0 + (rows - 1) * ROW_DZ
+  const centerZ = (DOCK_Z + backZ) / 2
+  const spanZ = DOCK_Z - backZ + 3
+  const spanX = cols * HOUSE_SPX + 3
+  const radius = Math.max(8, Math.hypot(spanX / 2, spanZ / 2) + 1.5)
+  return { rows, cols, backZ, centerZ, radius }
 }
 
 /* ---------- house ---------- */
@@ -356,8 +381,15 @@ function Bot({
     if (!next) return
     const prev = clipName.current ? actions[clipName.current] : null
     const speed = name === 'Walking' ? 0.9 : name === 'Dance' ? 0.72 : 0.85
+    // "Standing" is a stand-up transition, not a loop — hold its final upright
+    // frame so idle bots stay calm instead of repeating the motion.
+    const hold = name === 'Standing'
     if (prev && prev !== next) prev.fadeOut(0.3)
-    next.reset().setEffectiveWeight(1).setEffectiveTimeScale(speed).fadeIn(0.3).play()
+    next.reset().setEffectiveWeight(1).setEffectiveTimeScale(speed)
+    next.setLoop(hold ? THREE.LoopOnce : THREE.LoopRepeat, hold ? 1 : Infinity)
+    next.clampWhenFinished = hold
+    next.fadeIn(0.3).play()
+    if (hold) next.time = Math.max(0, next.getClip().duration - 0.001)
     clipName.current = name
   }
 
@@ -450,7 +482,7 @@ function Bot({
 }
 
 /* ---------- camera controls ---------- */
-function Controls() {
+function Controls({ targetZ, maxDistance }: { targetZ: number; maxDistance: number }) {
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
   const invalidate = useThree((s) => s.invalidate)
@@ -461,10 +493,13 @@ function Controls() {
     c.dampingFactor = 0.08
     c.enablePan = true
     c.minDistance = 4.5
-    c.maxDistance = 22
+    c.maxDistance = maxDistance
     c.minPolarAngle = Math.PI / 7
     c.maxPolarAngle = Math.PI / 2.12 // stay above the ground
-    c.target.set(0, 0.5, -0.3)
+    c.target.set(0, 0.5, targetZ)
+    // frame the whole town at a comfortable 3/4 distance (re-runs as rooms load)
+    const dist = maxDistance * 0.62
+    camera.position.set(dist * 0.22, dist * 0.6, targetZ + dist * 0.82)
     c.autoRotate = true
     c.autoRotateSpeed = 0.45
     const stopAuto = () => {
@@ -478,7 +513,7 @@ function Controls() {
       c.removeEventListener('start', stopAuto)
       c.dispose()
     }
-  }, [camera, gl, invalidate])
+  }, [camera, gl, invalidate, targetZ, maxDistance])
   useFrame(() => ref.current?.update())
   return null
 }
@@ -529,14 +564,15 @@ function Scene({
     []
   )
 
-  const houses = rooms.slice(0, 5)
+  const houses = rooms.slice(0, MAX_HOUSES)
+  const lay = layout(houses.length)
   const houseByTopic = new Map(houses.map((r, i) => [r.topic, { room: r, pos: housePos(i, houses.length) }]))
 
   // targets: manual walk point wins; else the bot's house; else the dock
-  const freeBots = bots.filter(
-    (b) => !manual[b.id]?.target && !(b.roomTopic && houseByTopic.has(b.roomTopic))
-  )
-  const dockIndex = new Map(freeBots.map((b, i) => [b.id, i]))
+  // Dock slots depend only on room membership — walking one bot away must not
+  // re-index (shuffle) the others.
+  const dockBots = bots.filter((b) => !(b.roomTopic && houseByTopic.has(b.roomTopic)))
+  const dockIndex = new Map(dockBots.map((b, i) => [b.id, i]))
   const perHouse = new Map<string, number>()
 
   const targetFor = (b: WorldBot): { target: [number, number]; atHouse: boolean } => {
@@ -549,7 +585,7 @@ function Scene({
       return { target: [h.pos[0] + (k - 0) * 0.7, h.pos[1] + 1.25], atHouse: true }
     }
     const di = dockIndex.get(b.id) ?? 0
-    return { target: dockPos(di, freeBots.length), atHouse: false }
+    return { target: dockPos(di, dockBots.length), atHouse: false }
   }
 
   const groundClick = (e: ThreeEvent<MouseEvent>) => {
@@ -564,42 +600,46 @@ function Scene({
       <ambientLight intensity={0.55} />
       <hemisphereLight intensity={0.45} color={'#ffffff'} groundColor={pal.grass.getStyle()} />
       <directionalLight
-        position={[6, 11, 7]}
+        position={[lay.radius * 0.6, lay.radius * 1.4, lay.centerZ + lay.radius * 0.7]}
         intensity={1.35}
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
         shadow-bias={-0.0002}
-        shadow-camera-far={44}
-        shadow-camera-left={-12}
-        shadow-camera-right={12}
-        shadow-camera-top={12}
-        shadow-camera-bottom={-12}
+        shadow-camera-far={lay.radius * 5 + 20}
+        shadow-camera-left={-(lay.radius + 4)}
+        shadow-camera-right={lay.radius + 4}
+        shadow-camera-top={lay.radius + 4}
+        shadow-camera-bottom={-(lay.radius + 4)}
       />
       <directionalLight position={[-7, 5, -5]} intensity={0.28} />
 
       {/* grass surround — click to walk the selected bot there */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.03, 0]} receiveShadow onClick={groundClick}>
-        <planeGeometry args={[80, 80]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.03, lay.centerZ]} receiveShadow onClick={groundClick}>
+        <planeGeometry args={[160, 160]} />
         <meshStandardMaterial color={pal.grass} roughness={1} metalness={0} />
       </mesh>
-      {/* paved town square */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow onClick={groundClick}>
-        <circleGeometry args={[7.8, 56]} />
+      {/* paved town green (scales to the number of rooms) */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, lay.centerZ]} receiveShadow onClick={groundClick}>
+        <circleGeometry args={[lay.radius, 72]} />
         <meshStandardMaterial color={pal.ground} roughness={0.9} metalness={0} />
       </mesh>
 
-      {/* trees */}
-      {([
-        [-6.4, -1.4, 1],
-        [6.4, -1.4, 1.1],
-        [-7.0, 2.4, 0.9],
-        [7.0, 2.4, 1],
-        [-3.4, -5.2, 1.05],
-        [3.4, -5.2, 0.95],
-      ] as [number, number, number][]).map(([tx, tz, ts], i) => (
-        <Tree key={i} x={tx} z={tz} s={ts} pal={pal} />
-      ))}
+      {/* trees along the green's edges */}
+      {(() => {
+        const nPerSide = Math.max(2, Math.min(4, lay.rows + 1))
+        const trees: [number, number, number][] = []
+        for (let s = 0; s < 2; s++) {
+          const side = s === 0 ? -1 : 1
+          for (let k = 0; k < nPerSide; k++) {
+            const t = nPerSide === 1 ? 0.5 : k / (nPerSide - 1)
+            const x = side * (lay.radius - 0.5)
+            const z = lay.centerZ - lay.radius * 0.62 + t * lay.radius * 1.24
+            trees.push([x, z, 0.9 + ((k + s) % 3) * 0.07])
+          }
+        }
+        return trees.map(([tx, tz, ts], i) => <Tree key={i} x={tx} z={tz} s={ts} pal={pal} />)
+      })()}
 
       {asset &&
         houses.map((r, i) => {
@@ -639,7 +679,7 @@ function Scene({
           )
         })}
 
-      <Controls />
+      <Controls targetZ={lay.centerZ} maxDistance={lay.radius * 2.8} />
     </>
   )
 }
@@ -661,7 +701,7 @@ export default function WorldStage(props: {
       dpr={[1, 2]}
       frameloop={reduced ? 'demand' : 'always'}
       gl={{ antialias: true, alpha: true }}
-      camera={{ fov: 36, position: [1.5, 5.0, 9.2] }}
+      camera={{ fov: 36, position: [3, 7, 12], near: 0.1, far: 400 }}
       style={{ width: '100%', height: '100%' }}
     >
       <Scene {...props} />
