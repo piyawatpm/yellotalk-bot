@@ -51,6 +51,9 @@ module.exports = function createOperator(rawDeps) {
   let reopening = false;
   const sessions = new Map();  // userUuid -> { step, rooms, name, ts }
   const recentTopicDispatch = new Map(); // roomId -> ts (cooldown)
+  const recentSummons = [];    // [{ bot, roomTopic, roomId, by, type, ts }] newest first
+
+  function emitEvent(name, payload) { if (io) io.emit(name, payload); }
 
   const authHeaders = () => ({ headers: { Authorization: `Bearer ${op.jwt_token}`, 'User-Agent': 'ios' }, httpsAgent, timeout: 12000 });
 
@@ -118,6 +121,7 @@ module.exports = function createOperator(rawDeps) {
     if (!socket || !socket.connected || !room) return;
     // Matches bot-server's sendMessageForBot: server routes by the socket's joined room.
     socket.emit('new_message', { message: text });
+    emitEvent('operator-message', { from: op.name, text, self: true, ts: Date.now() });
   }
 
   async function openOperatorRoom() {
@@ -168,6 +172,7 @@ module.exports = function createOperator(rawDeps) {
     if (!uuid || uuid.toUpperCase() === (op.user_uuid || '').toUpperCase()) return; // ignore self
     if ((d.pin_name || '').includes(op.name)) return;
 
+    emitEvent('operator-message', { from: sender, text, self: false, ts: Date.now() });
     sweepSessions();
     const session = sessions.get(uuid);
 
@@ -211,6 +216,9 @@ module.exports = function createOperator(rawDeps) {
     if (!bot) { post(`ขอโทษค่ะ บอทเพิ่งไม่ว่างพอดี ลองใหม่นะคะ 🙏`); return; }
     try {
       await deps.dispatchBot(bot.id, targetRoom.id, summonInfo);
+      recentSummons.unshift({ bot: bot.name, roomTopic: targetRoom.topic, roomId: targetRoom.id, by: summonInfo.by || null, type: summonInfo.type, ts: Date.now() });
+      if (recentSummons.length > 15) recentSummons.length = 15;
+      emitEvent('operator-summon', recentSummons[0]);
       if (summonInfo.type === 'chat') post(`✅ กำลังส่ง "${bot.name}" เข้าห้อง "${targetRoom.topic}" ให้คุณ${summonInfo.by} ค่ะ 🎵`);
       log(`dispatched ${bot.name} -> "${targetRoom.topic}" (${summonInfo.type}${summonInfo.by ? ' by ' + summonInfo.by : ''})`);
       emitStatus();
@@ -255,6 +263,7 @@ module.exports = function createOperator(rawDeps) {
       room: room ? { id: room.id, topic: room.topic } : null,
       activeSessions: sessions.size,
       marker,
+      recentSummons: recentSummons.slice(0, 15),
     };
   }
 
