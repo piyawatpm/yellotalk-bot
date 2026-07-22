@@ -30,10 +30,20 @@ const PORT = parseInt(arg('--port', '9876'), 10);
 const BOT_ID = arg('--bot-id', 'redroid-1');
 const CALLBACK_URL = arg('--callback-url', '');
 const SERIAL = process.env.REDROID_SERIAL || 'localhost:5555';
-const APP_HOST_PORT = parseInt(process.env.REDROID_APP_PORT || '9877', 10);
-const APP_DEVICE_PORT = 9099;
+// Multi-instance: each bot drives its OWN app copy (com.gmebot.botN) so N bots
+// can sit in different rooms playing different songs at once. bot-server passes
+// the instance index (REDROID_APP_INDEX); fall back to deriving it from PORT.
+const INSTANCE = parseInt(process.env.REDROID_APP_INDEX || String(Math.max(0, PORT - 9876)), 10);
+const APP_PKG = process.env.REDROID_APP_PKG || `com.gmebot.bot${INSTANCE}`;
+const APP_ACTIVITY = `${APP_PKG}/com.gmebot.test.MainActivity`;
+// Host port for `adb forward` -> app. MUST NOT collide with this adapter's own
+// bot-server-facing PORT (bot-server allocates 9876, 9877, ...). Derive it as
+// PORT+10000 so they can never clash.
+const APP_HOST_PORT = parseInt(process.env.REDROID_APP_PORT || String(PORT + 10000), 10);
+// Each app copy binds its own device port (9099+index) and reads its own mp3.
+const APP_DEVICE_PORT = parseInt(process.env.REDROID_APP_DEVICE_PORT || String(9099 + INSTANCE), 10);
 const APP = `http://127.0.0.1:${APP_HOST_PORT}`;
-const DEVICE_MP3 = '/data/local/tmp/gmesong.mp3';
+const DEVICE_MP3 = `/data/local/tmp/gmesong${INSTANCE}.mp3`;
 
 function log(m) { console.log(`[${BOT_ID}] ${m}`); }
 
@@ -60,13 +70,17 @@ function appCall(method, path, body) {
   });
 }
 
-// Make sure the container is reachable, the app is running, and the port is forwarded.
-async function ensureApp() {
+// Make sure the container is reachable, the app is running, and the port is
+// forwarded. `fresh` force-restarts the app so it never carries a stale room.
+async function ensureApp(fresh) {
   await new Promise(r => execFile('adb', ['connect', SERIAL], () => r()));
-  await adb(['shell', 'am', 'start', '-n', 'com.gmebot.test/.MainActivity']);
   await adb(['forward', `tcp:${APP_HOST_PORT}`, `tcp:${APP_DEVICE_PORT}`]);
-  // give the in-app HTTP server a moment on a cold start
-  await new Promise(r => setTimeout(r, 800));
+  if (fresh) { await adb(['shell', 'am', 'force-stop', APP_PKG]); await new Promise(r => setTimeout(r, 500)); }
+  await adb(['shell', 'am', 'start', '-n', APP_ACTIVITY]);
+  // wait for the in-app HTTP control server to respond
+  for (let i = 0; i < 30; i++) {
+    try { await appCall('GET', '/status'); return; } catch (e) { await new Promise(r => setTimeout(r, 400)); }
+  }
 }
 
 let state = { currentFile: null, loop: false };
@@ -111,9 +125,12 @@ const server = http.createServer((req, res) => {
       if (u.pathname === '/join' && req.method === 'POST') {
         const { room, user, uuid } = j;
         if (!room || !user) return res.end(JSON.stringify({ error: 'room and user required' }));
-        await ensureApp();
+        await ensureApp(true);
         log(`join room=${room} user=${user}`);
-        const r = await appCall('POST', '/join', { room: String(room), user: String(user), uuid: uuid ? String(uuid) : String(user) });
+        // GME's auth identifier MUST equal the Init openId (= user). bot-server
+        // sometimes passes the YelloTalk uuid (a GUID) which is NOT a valid GME
+        // identifier and makes EnterRoom fail auth. Always auth as `user`.
+        const r = await appCall('POST', '/join', { room: String(room), user: String(user), uuid: String(user) });
         if (r.inRoom) startSongPoll();
         return res.end(JSON.stringify({ ok: !!r.inRoom, inRoom: !!r.inRoom, status: r.status, room, user, error: r.error }));
       }
@@ -121,11 +138,16 @@ const server = http.createServer((req, res) => {
         const host = j.file;
         if (!host || !fs.existsSync(host)) return res.status ? res.end(JSON.stringify({ error: 'file not found: ' + host })) : res.end(JSON.stringify({ error: 'file not found: ' + host }));
         log(`play ${host} (loop=${!!j.loop})`);
-        const push = await adb(['push', host, DEVICE_MP3]);
+        // Push with the file's real extension (.m4a/.mp3) so GME picks the right decoder.
+        const ext = (require('path').extname(host) || '.mp3').toLowerCase();
+        const devFile = `/data/local/tmp/gmesong${INSTANCE}${ext}`;
+        const push = await adb(['push', host, devFile]);
         if (push.e) return res.end(JSON.stringify({ error: 'adb push failed: ' + push.e.message }));
         state.currentFile = host; state.loop = !!j.loop;
-        const r = await appCall('POST', '/play', { file: DEVICE_MP3, loop: !!j.loop });
-        return res.end(JSON.stringify({ ok: !!r.ok, status: 'playing', file: host }));
+        // The app's /play does StopAccompany + StartAccompany (+retry on GME -7).
+        const r = await appCall('POST', '/play', { file: devFile, loop: !!j.loop });
+        log(`play -> ${APP_PKG} startRc=${r.startRc} ok=${r.ok}`);
+        return res.end(JSON.stringify({ ok: !!r.ok, status: 'playing', file: host, startRc: r.startRc }));
       }
       if (['/stop', '/pause', '/resume', '/leave'].includes(u.pathname) && req.method === 'POST') {
         if (u.pathname === '/leave') { state.currentFile = null; }
@@ -144,8 +166,10 @@ const server = http.createServer((req, res) => {
   });
 });
 
+server.on('error', (e) => { log('HTTP server error: ' + e.message); });
+
 ensureApp()
-  .then(() => server.listen(PORT, () => log(`redroid adapter listening on ${PORT}, driving app at ${APP}`)))
+  .then(() => server.listen(PORT, () => log(`redroid adapter listening on ${PORT} -> ${APP_PKG} (adb :${APP_HOST_PORT} -> :${APP_DEVICE_PORT})`)))
   .catch((e) => { log('ensureApp failed: ' + e.message); server.listen(PORT, () => log(`redroid adapter listening on ${PORT} (app not ready yet)`)); });
 
 process.on('SIGTERM', () => process.exit(0));

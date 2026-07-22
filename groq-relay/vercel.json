@@ -1,0 +1,6 @@
+{
+  "regions": ["iad1"],
+  "rewrites": [
+    { "source": "/api/openai/:path*", "destination": "/api/proxy?upstream=openai/:path*" }
+  ]
+}

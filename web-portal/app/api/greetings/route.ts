@@ -44,8 +44,12 @@ async function updateBotCode(data: any) {
   const botPath = path.join(process.cwd(), '..', 'bot.js')
   let botCode = await fs.readFile(botPath, 'utf-8')
 
-  // Generate custom greeting code
-  const customNames = Object.keys(data.customGreetings)
+  // Generate custom greeting code. Only substring rules (string values) belong
+  // in the userName.includes() chain; per-user rules keyed by UUID (object
+  // values) are matched elsewhere and would otherwise emit "[object Object]".
+  const customNames = Object.keys(data.customGreetings).filter(
+    (name) => typeof data.customGreetings[name] === 'string'
+  )
   const greetingConditions = customNames.map((name, i) => {
     const greeting = data.customGreetings[name]
     const isFirst = i === 0
