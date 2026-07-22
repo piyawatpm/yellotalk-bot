@@ -23,7 +23,10 @@ echo -e "${GREEN}[2/6] Redroid (Android) container...${NC}"
 if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx redroid; then
   docker start redroid >/dev/null 2>&1 || true
 else
-  docker run -itd --privileged --name redroid -v /root/redroid-data:/data -p 5555:5555 \
+  # SECURITY: bind adb to 127.0.0.1 ONLY. Publishing 5555 to 0.0.0.0 exposes adb
+  # to the internet and gets the container infected by ADB-worm malware. The
+  # adapters connect via localhost, so localhost-only binding changes nothing for us.
+  docker run -itd --privileged --name redroid -v /root/redroid-data:/data -p 127.0.0.1:5555:5555 \
     redroid/redroid:11.0.0-latest androidboot.redroid_gpu_mode=guest >/dev/null
 fi
 

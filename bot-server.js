@@ -156,7 +156,7 @@ function preDownloadNext(botId) {
 
   for (const item of toDownload) {
     // Check cache first
-    const cachedFile = item.videoId ? path.join(MUSIC_CACHE_DIR, `${item.videoId}.mp3`) : null;
+    const cachedFile = item.videoId ? path.join(MUSIC_CACHE_DIR, `${item.videoId}.${MUSIC_EXT}`) : null;
     if (cachedFile && fs.existsSync(cachedFile)) {
       item.file = cachedFile;
       item.status = 'ready';
@@ -2222,6 +2222,11 @@ app.post('/api/music/volume', async (req, res) => {
 const { execFile, spawn } = require('child_process');
 const path = require('path');
 const MUSIC_CACHE_DIR = path.join(__dirname, 'music-cache');
+// Audio format for downloads: 'm4a' = grab YouTube AAC directly, NO re-encode (~5s,
+// but GME must be able to play m4a) | 'mp3' = re-encode (safe, ~13s). Flip with the
+// MUSIC_FORMAT env var + restart if m4a plays silence.
+const MUSIC_FORMAT = (process.env.MUSIC_FORMAT || 'm4a').toLowerCase();
+const MUSIC_EXT = MUSIC_FORMAT === 'm4a' ? 'm4a' : 'mp3';
 
 // Ensure cache dir exists
 if (!fs.existsSync(MUSIC_CACHE_DIR)) {
@@ -2239,7 +2244,7 @@ function evictMusicCache() {
   try {
     const cap = MAX_CACHE_MB * 1024 * 1024;
     const files = fs.readdirSync(MUSIC_CACHE_DIR)
-      .filter(f => f.endsWith('.mp3'))
+      .filter(f => f.endsWith('.mp3') || f.endsWith('.m4a'))
       .map(f => { const p = path.join(MUSIC_CACHE_DIR, f); const s = fs.statSync(p); return { p, size: s.size, mtime: s.mtimeMs }; });
     let total = files.reduce((a, f) => a + f.size, 0);
     if (total <= cap) return;
@@ -2256,14 +2261,17 @@ evictMusicCache(); // trim on boot in case the cache is already oversized
 // Download YouTube audio and return file path
 async function downloadYouTubeAudio(url, botId) {
   return new Promise((resolve, reject) => {
-    // Use yt-dlp to extract audio as mp3
+    // MUSIC_FORMAT=m4a: download YouTube's AAC audio directly (no re-encode, ~5s).
+    // MUSIC_FORMAT=mp3: re-encode to mp3 (safe, ~13s). Toggle via env if GME can't play m4a.
+    const fmtArgs = MUSIC_FORMAT === 'm4a'
+      ? ['-f', 'ba[ext=m4a]/140']    // AAC in m4a container (itag 140 fallback), no conversion
+      : ['-x', '--audio-format', 'mp3', '--audio-quality', '5',
+         '--postprocessor-args', `ffmpeg:-b:a ${process.env.MUSIC_MP3_BITRATE || '128k'}`];
     const args = [
-      '-x',                          // Extract audio
-      '--audio-format', 'mp3',       // Convert to mp3
-      '--audio-quality', '5',        // GME re-encodes to ~48kbps anyway, so best is wasted
-      '--postprocessor-args', `ffmpeg:-b:a ${process.env.MUSIC_MP3_BITRATE || '128k'}`,  // 128k mp3: smaller file, faster download+convert, no audible loss in the room
+      ...fmtArgs,
       '-o', path.join(MUSIC_CACHE_DIR, '%(id)s.%(ext)s'),  // Output template
       '--no-playlist',               // Single video only
+      '--extractor-args', 'youtube:fetch_pot=never', // skip the (broken) PO-token provider — WARP already gives a clean IP; this alone cuts ~20s/download
       '--match-filter', `!is_live & duration<=${MAX_SONG_SECONDS}`, // hard cap: no live / over-long
       '--newline',                   // Force progress on new lines
       '--print', 'after_move:filepath', // Print final file path
@@ -2358,7 +2366,7 @@ async function downloadYouTubeAudio(url, botId) {
 // Get YouTube video info (title, duration)
 async function getYouTubeInfo(url) {
   return new Promise((resolve, reject) => {
-    execFile('yt-dlp', ['--print', '%(title)s\n%(duration)s\n%(id)s\n%(is_live)s', '--no-playlist', url], { timeout: 15000 }, (err, stdout) => {
+    execFile('yt-dlp', ['--extractor-args', 'youtube:fetch_pot=never', '--print', '%(title)s\n%(duration)s\n%(id)s\n%(is_live)s', '--no-playlist', url], { timeout: 15000 }, (err, stdout) => {
       if (err) return reject(err);
       const lines = stdout.trim().split('\n');
       resolve({ title: lines[0] || 'Unknown', duration: parseInt(lines[1]) || 0, id: lines[2] || '', isLive: lines[3] === 'True' });
@@ -2411,7 +2419,7 @@ app.post('/api/music/youtube', async (req, res) => {
     }
 
     // Step 2: Check cache
-    const cachedFile = info.id ? path.join(MUSIC_CACHE_DIR, `${info.id}.mp3`) : null;
+    const cachedFile = info.id ? path.join(MUSIC_CACHE_DIR, `${info.id}.${MUSIC_EXT}`) : null;
     let filePath;
 
     if (cachedFile && fs.existsSync(cachedFile)) {
@@ -2581,7 +2589,7 @@ app.get('/api/music/youtube/search', async (req, res) => {
 app.get('/api/music/cache', (req, res) => {
   try {
     const files = fs.readdirSync(MUSIC_CACHE_DIR)
-      .filter(f => f.endsWith('.mp3'))
+      .filter(f => f.endsWith('.mp3') || f.endsWith('.m4a'))
       .map(f => {
         const stat = fs.statSync(path.join(MUSIC_CACHE_DIR, f));
         return { name: f, size: stat.size, modified: stat.mtime };
