@@ -91,8 +91,14 @@ function Bot({ status, playing }: { status: string; playing: boolean }) {
     if (!next) return
     const prev = clip.current ? built.actions[clip.current] : null
     const speed = target === 'Dance' ? 0.72 : 0.85
+    // "Standing" is a stand-up transition — hold its final upright frame.
+    const hold = target === 'Standing'
     if (prev && prev !== next) prev.fadeOut(0.3)
-    next.reset().setEffectiveTimeScale(speed).fadeIn(0.3).play()
+    next.reset().setEffectiveTimeScale(speed)
+    next.setLoop(hold ? THREE.LoopOnce : THREE.LoopRepeat, hold ? 1 : Infinity)
+    next.clampWhenFinished = hold
+    next.fadeIn(0.3).play()
+    if (hold) next.time = Math.max(0, next.getClip().duration - 0.001)
     clip.current = target
     if (reduced) built.mixer.update(0.2)
   }, [built, target, reduced])
