@@ -84,6 +84,10 @@ async function ensureApp(fresh) {
 }
 
 let state = { currentFile: null, loop: false };
+// Per-bot music volume (GME native scale 0-200, default 25). The Android app
+// resets its own volume field to 100 whenever it force-restarts on /join, so we
+// re-assert this after every /play — otherwise each fresh song plays loud.
+let lastVol = 25;
 let songPoll = null;
 
 function startSongPoll() {
@@ -146,7 +150,10 @@ const server = http.createServer((req, res) => {
         state.currentFile = host; state.loop = !!j.loop;
         // The app's /play does StopAccompany + StartAccompany (+retry on GME -7).
         const r = await appCall('POST', '/play', { file: devFile, loop: !!j.loop });
-        log(`play -> ${APP_PKG} startRc=${r.startRc} ok=${r.ok}`);
+        // Re-assert the bot's volume (default 25) — the app's field resets to 100
+        // on force-restart, so every fresh song would otherwise start loud.
+        try { await appCall('POST', '/volume', { vol: lastVol }); } catch (e) {}
+        log(`play -> ${APP_PKG} startRc=${r.startRc} ok=${r.ok} vol=${lastVol}`);
         return res.end(JSON.stringify({ ok: !!r.ok, status: 'playing', file: host, startRc: r.startRc }));
       }
       if (['/stop', '/pause', '/resume', '/leave'].includes(u.pathname) && req.method === 'POST') {
@@ -155,8 +162,12 @@ const server = http.createServer((req, res) => {
         return res.end(JSON.stringify(r));
       }
       if (u.pathname === '/volume' && req.method === 'POST') {
-        const r = await appCall('POST', '/volume', { vol: parseInt(j.vol, 10) || 100 });
-        return res.end(JSON.stringify(r));
+        // 0 is a valid value (mute) — never `|| 100`. Clamp to GME's [0,200] range
+        // and remember it so the next song keeps this level.
+        const vv = parseInt(j.vol, 10);
+        if (!isNaN(vv)) lastVol = Math.max(0, Math.min(200, vv));
+        const r = await appCall('POST', '/volume', { vol: lastVol });
+        return res.end(JSON.stringify({ ...r, vol: lastVol }));
       }
       if (u.pathname === '/voice-users') { return res.end(JSON.stringify({ ok: true, events: [] })); }
       res.statusCode = 404; res.end(JSON.stringify({ error: 'unknown endpoint' }));

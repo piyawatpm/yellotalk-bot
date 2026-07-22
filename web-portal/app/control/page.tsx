@@ -169,7 +169,7 @@ export default function ControlPage() {
   const [musicStatus, setMusicStatus] = useState<any>({ online: false })
   const [musicFile, setMusicFile] = useState('gme-music-bot/test-audio.mp3')
   const [musicLoop, setMusicLoop] = useState(true)
-  const [musicVolume, setMusicVolume] = useState(50)
+  const [musicVolume, setMusicVolume] = useState(25) // GME native scale 0-200, default 25
   const [musicLogs, setMusicLogs] = useState<string[]>([])
   const [musicLoading, setMusicLoading] = useState(false)
   const [youtubeUrl, setYoutubeUrl] = useState('')
@@ -975,15 +975,16 @@ export default function ControlPage() {
 
   const musicSetVolume = async (vol: number) => {
     setMusicVolume(vol)
-    // Slider 0-100% maps to GME 0-50
-    const gmeVol = Math.round(vol * 0.5)
+    // GME accompaniment volume is native 0-200 linear (100 = original, 200 = max
+    // boost, 0 = mute). Send it straight through — no remapping.
+    const gmeVol = Math.max(0, Math.min(200, Math.round(vol)))
     try {
       await fetch(`${getApiUrl()}/api/music/volume`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vol: gmeVol, botId: selectedBotId })
       })
-      addMusicLog(`Volume: ${vol}% (GME: ${gmeVol})`)
+      addMusicLog(`Volume: ${gmeVol}/200`)
     } catch (error: any) {
       addMusicLog(`Volume error: ${error.message}`)
     }
@@ -2397,12 +2398,14 @@ export default function ControlPage() {
                     <input
                       type="range"
                       min={0}
-                      max={100}
+                      max={200}
+                      step={5}
                       value={musicVolume}
                       onChange={(e) => musicSetVolume(Number(e.target.value))}
                       className="flex-1 accent-purple-500"
+                      title="GME volume 0-200 (100 = original)"
                     />
-                    <span className="text-xs font-mono w-10 text-right">{musicVolume}%</span>
+                    <span className="text-xs font-mono w-14 text-right">{musicVolume}/200</span>
                   </div>
 
                   {/* Debug Logs */}

@@ -76,28 +76,18 @@ if ! command -v ffmpeg &>/dev/null; then
     fi
 fi
 
-# Install npm packages for root (bot-server)
-if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
-    echo -e "${YELLOW}Installing root packages...${NC}"
-    (cd "$SCRIPT_DIR" && npm install)
-else
-    echo -e "${GREEN}Root packages OK${NC}"
+# Sync npm packages. Run `npm install` EVERY time — it's idempotent (a no-op when
+# the lockfile is already satisfied) but it PICKS UP newly-added deps. The old
+# `[ ! -d node_modules ]` guard skipped installs whenever node_modules existed, so
+# a dependency added to package.json (e.g. the 3D console's `three`) silently
+# broke the build.
+echo -e "${BLUE}Syncing npm packages...${NC}"
+(cd "$SCRIPT_DIR" && npm install --no-audit --no-fund) || echo -e "${RED}⚠️  root npm install failed${NC}"
+if [ -d "$SCRIPT_DIR/web-portal" ]; then
+    (cd "$SCRIPT_DIR/web-portal" && npm install --no-audit --no-fund) || echo -e "${RED}⚠️  web-portal npm install failed${NC}"
 fi
-
-# Install npm packages for web-portal
-if [ -d "$SCRIPT_DIR/web-portal" ] && [ ! -d "$SCRIPT_DIR/web-portal/node_modules" ]; then
-    echo -e "${YELLOW}Installing web-portal packages...${NC}"
-    (cd "$SCRIPT_DIR/web-portal" && npm install)
-else
-    echo -e "${GREEN}Web portal packages OK${NC}"
-fi
-
-# Install npm packages for gme-web-bot
-if [ -d "$SCRIPT_DIR/gme-web-bot" ] && [ ! -d "$SCRIPT_DIR/gme-web-bot/node_modules" ]; then
-    echo -e "${YELLOW}Installing gme-web-bot packages...${NC}"
-    (cd "$SCRIPT_DIR/gme-web-bot" && npm install)
-else
-    echo -e "${GREEN}GME web bot packages OK${NC}"
+if [ -d "$SCRIPT_DIR/gme-web-bot" ]; then
+    (cd "$SCRIPT_DIR/gme-web-bot" && npm install --no-audit --no-fund) || echo -e "${RED}⚠️  gme-web-bot npm install failed${NC}"
 fi
 
 echo -e "${GREEN}All dependencies ready.${NC}"

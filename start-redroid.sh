@@ -77,9 +77,14 @@ warp-cli --accept-tos connect >/dev/null 2>&1 || true
 grep -q "socks5://127.0.0.1:40000" /etc/yt-dlp.conf 2>/dev/null || echo "--proxy socks5://127.0.0.1:40000" >> /etc/yt-dlp.conf
 echo "      WARP proxy on :40000; yt-dlp routed through it (box default route unchanged)."
 
-echo -e "${GREEN}[6/7] npm deps...${NC}"
-[ -d "$SCRIPT_DIR/node_modules" ] || (cd "$SCRIPT_DIR" && npm install >/dev/null 2>&1)
-[ -d "$SCRIPT_DIR/web-portal/node_modules" ] || (cd "$SCRIPT_DIR/web-portal" && npm install >/dev/null 2>&1)
+echo -e "${GREEN}[6/7] npm deps (always sync so new deps in package.json aren't skipped)...${NC}"
+# Run `npm install` EVERY time — it's idempotent (a no-op when the lockfile is
+# already satisfied) but it PICKS UP newly-added deps. The old `[ -d node_modules ]||`
+# guard skipped installs whenever node_modules existed, so a dependency added to
+# package.json (e.g. the 3D console's `three`) silently broke `next build`.
+# stdout is hidden but stderr passes through, so real failures still surface.
+(cd "$SCRIPT_DIR" && npm install --no-audit --no-fund >/dev/null) || echo -e "      ⚠️  root npm install failed (see errors above)"
+(cd "$SCRIPT_DIR/web-portal" && npm install --no-audit --no-fund >/dev/null) || echo -e "      ⚠️  web-portal npm install failed (see errors above)"
 
 echo -e "${GREEN}[7/7] build portal (production) + start services via pm2...${NC}"
 pm2 delete yt-bot yt-portal >/dev/null 2>&1 || true
