@@ -1,37 +1,55 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Mitr, IBM_Plex_Sans_Thai, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
-import { Navigation } from '@/components/navigation'
+import { Sidebar } from '@/components/sidebar'
 
-const inter = Inter({ subsets: ['latin'] })
+// Playful rounded display + Thai-capable body, matching the YelloTalk brand.
+const display = Mitr({
+  weight: ['500', '600', '700'],
+  subsets: ['latin', 'thai'],
+  variable: '--font-display',
+})
+
+const sans = IBM_Plex_Sans_Thai({
+  weight: ['400', '500', '600'],
+  subsets: ['latin', 'thai'],
+  variable: '--font-sans',
+})
+
+const mono = JetBrains_Mono({
+  weight: ['400', '500', '600'],
+  subsets: ['latin'],
+  variable: '--font-mono',
+})
 
 export const metadata: Metadata = {
-  title: 'YelloTalk Bot Portal',
-  description: 'Manage your YelloTalk bot settings with style',
+  title: 'YelloTalk · Signal Ops',
+  description: 'Live operations console for YelloTalk room bots — fleet, control, and configuration.',
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="scroll-smooth">
-      <body className={`${inter.className} min-h-screen`}>
-        {/* Background decoration */}
-        <div className="fixed inset-0 -z-10 overflow-hidden">
-          <div className="absolute -top-40 -right-40 w-80 h-80 bg-rose-200/30 dark:bg-rose-900/20 rounded-full blur-3xl" />
-          <div className="absolute top-1/2 -left-40 w-80 h-80 bg-pink-200/30 dark:bg-pink-900/20 rounded-full blur-3xl" />
-          <div className="absolute -bottom-40 right-1/3 w-80 h-80 bg-fuchsia-200/30 dark:bg-fuchsia-900/20 rounded-full blur-3xl" />
+    <html
+      lang="en"
+      className={`${display.variable} ${sans.variable} ${mono.variable} h-full`}
+      suppressHydrationWarning
+    >
+      <head>
+        {/* apply saved theme before first paint (light-first) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var t=localStorage.getItem('yt-theme');document.documentElement.dataset.theme=(t==='dark')?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}",
+          }}
+        />
+      </head>
+      <body className="min-h-screen font-sans antialiased">
+        <div className="pointer-events-none fixed inset-0 -z-10 aurora" />
+        <Sidebar />
+        <div className="lg:pl-60">
+          <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">{children}</main>
         </div>
-
-        <Navigation />
-
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-          {children}
-        </main>
-
         <Toaster />
       </body>
     </html>

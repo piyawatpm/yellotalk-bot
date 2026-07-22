@@ -1,332 +1,441 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import {
-  Activity,
-  Radio,
-  MessageSquare,
-  Users,
-  ArrowRight,
-  PlayCircle,
-  Sparkles,
-  Heart,
-  Zap,
-  Settings
-} from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { SlidersHorizontal, MessageSquare, Zap, ArrowRight, Users, Radio, Music, Power, MousePointerClick, X, Hand, PartyPopper, ChevronsUp, ThumbsUp, RotateCcw } from 'lucide-react'
 import io from 'socket.io-client'
+import { getApiUrl, resolveApiUrl } from '@/lib/api'
+import { useToast } from '@/hooks/use-toast'
+import { Panel, Label, Readout, StatusPill } from '@/components/console'
+import { cn } from '@/lib/utils'
 
-let _resolvedApiUrl: string | null = null
+const WorldStage = dynamic(() => import('@/components/three/world-stage'), { ssr: false })
 
-const getApiUrl = () => {
-  if (_resolvedApiUrl) return _resolvedApiUrl
-  if (typeof window === 'undefined') return 'http://localhost:5353'
-  const h = window.location.hostname
-  if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:5353'
-  return `http://${h}:5353`
+// Fun actions you can make a selected bot perform on the map.
+const EMOTES = [
+  { clip: 'Wave', label: 'Wave', icon: Hand },
+  { clip: 'Dance', label: 'Dance', icon: PartyPopper },
+  { clip: 'Jump', label: 'Jump', icon: ChevronsUp },
+  { clip: 'ThumbsUp', label: 'Nice', icon: ThumbsUp },
+] as const
+
+function Equalizer() {
+  return (
+    <span className="inline-flex h-3.5 items-end gap-[2px]" aria-hidden>
+      {[0, 1, 2, 3].map((i) => (
+        <span key={i} className="eqbar h-full" style={{ animationDelay: `${i * 0.14}s` }} />
+      ))}
+    </span>
+  )
 }
 
-async function resolveApiUrl(): Promise<string> {
-  if (_resolvedApiUrl) return _resolvedApiUrl
-  if (typeof window === 'undefined') return 'http://localhost:5353'
-  const h = window.location.hostname
-  if (h === 'localhost' || h === '127.0.0.1' || /^(10|172|192)\.\d/.test(h)) {
-    _resolvedApiUrl = getApiUrl()
-    return _resolvedApiUrl
-  }
-  try {
-    const resp = await fetch('/api/tunnel-url')
-    const data = await resp.json()
-    if (data.url) {
-      _resolvedApiUrl = data.url
-      return data.url
-    }
-  } catch {}
-  _resolvedApiUrl = getApiUrl()
-  return _resolvedApiUrl
-}
-
-export default function DashboardPage() {
-  const [botState, setBotState] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let socket: any
-    resolveApiUrl().then(url => {
-      socket = io(url)
-
-      socket.on('connect', () => {
-        setLoading(false)
-      })
-
-      socket.on('bot-state', (state: any) => {
-        setBotState(state)
-      })
-
-      socket.on('connect_error', () => {
-        setLoading(false)
-      })
+export default function OverviewPage() {
+  const { toast } = useToast()
+  const [botStates, setBotStates] = useState<Record<string, any>>({})
+  const [bots, setBots] = useState<{ id: string; name: string }[]>([])
+  const [music, setMusic] = useState<Record<string, { playing?: boolean }>>({})
+  const [rooms, setRooms] = useState<{ id: string; topic: string; owner: string }[]>([])
+  const [connected, setConnected] = useState<boolean | null>(null)
+  const [selectedBotId, setSelectedBotId] = useState<string | null>(null)
+  // Manual "play" overrides per bot: a free walk point and/or an emote clip.
+  const [manual, setManual] = useState<Record<string, { target?: [number, number]; emote?: string }>>({})
+  const moveBot = (botId: string, x: number, z: number) =>
+    setManual((m) => ({ ...m, [botId]: { ...m[botId], target: [x, z] } }))
+  const emoteBot = (botId: string, emote?: string) =>
+    setManual((m) => ({ ...m, [botId]: { ...m[botId], emote } }))
+  const resetBot = (botId: string) =>
+    setManual((m) => {
+      const n = { ...m }
+      delete n[botId]
+      return n
     })
 
-    return () => { if (socket) socket.disconnect() }
+  // Socket
+  useEffect(() => {
+    let socket: ReturnType<typeof io> | undefined
+    resolveApiUrl().then((url) => {
+      socket = io(url)
+      socket.on('connect', () => setConnected(true))
+      socket.on('connect_error', () => setConnected(false))
+      socket.on('disconnect', () => setConnected(false))
+      socket.on('all-bot-states', (s: Record<string, any>) => setBotStates(s || {}))
+      socket.on('bot-state-update', ({ botId, state }: any) => setBotStates((p) => ({ ...p, [botId]: state })))
+      socket.on('bot-state', (state: any) => setBotStates((p) => ({ ...p, [state?.botId || 'bot']: state })))
+    })
+    return () => {
+      if (socket) socket.disconnect()
+    }
   }, [])
 
-  const metrics = [
-    {
-      title: 'Bot Status',
-      value: botState?.status || 'offline',
-      icon: Activity,
-      isRunning: botState?.status === 'running'
-    },
-    {
-      title: 'Messages',
-      value: botState?.messageCount || 0,
-      icon: MessageSquare,
-    },
-    {
-      title: 'Participants',
-      value: botState?.participants?.length || 0,
-      icon: Users,
-    },
-    {
-      title: 'Current Room',
-      value: botState?.currentRoom?.topic || 'None',
-      icon: Radio,
-      isText: true
+  // Bots roster
+  useEffect(() => {
+    resolveApiUrl().then(() =>
+      fetch(`${getApiUrl()}/api/bots`).then((r) => r.json()).then((d) => setBots(d.bots || [])).catch(() => {})
+    )
+  }, [])
+
+  // Rooms (houses)
+  useEffect(() => {
+    let stopped = false
+    const load = () =>
+      fetch(`${getApiUrl()}/api/bot/rooms`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (stopped) return
+          setRooms((d.rooms || []).map((r: any) => ({ id: r.id, topic: r.topic || 'Room', owner: r.owner?.pin_name || '' })))
+        })
+        .catch(() => {})
+    resolveApiUrl().then(load)
+    const t = setInterval(load, 12000)
+    return () => {
+      stopped = true
+      clearInterval(t)
     }
+  }, [])
+
+  // Music status per bot
+  const botsKey = bots.map((b) => b.id).join(',')
+  useEffect(() => {
+    const ids = bots.map((b) => b.id)
+    if (!ids.length) return
+    let stopped = false
+    const poll = async () => {
+      const url = getApiUrl()
+      const entries = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const r = await fetch(`${url}/api/music/status?botId=${id}`)
+            return [id, await r.json()] as const
+          } catch {
+            return [id, {}] as const
+          }
+        })
+      )
+      if (!stopped) setMusic(Object.fromEntries(entries))
+    }
+    poll()
+    const t = setInterval(poll, 4000)
+    return () => {
+      stopped = true
+      clearInterval(t)
+    }
+  }, [botsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fleet = useMemo(() => {
+    const ids = bots.length ? bots.map((b) => b.id) : Object.keys(botStates)
+    return ids.map((id) => {
+      const st = botStates[id] || {}
+      return {
+        id,
+        name: bots.find((b) => b.id === id)?.name || st.name || id.slice(0, 8),
+        status: (st.status as string) || 'stopped',
+        roomTopic: st.currentRoom?.topic || null,
+        participants: st.participants?.length || 0,
+        playing: !!music[id]?.playing && st.status === 'running',
+      }
+    })
+  }, [bots, botStates, music])
+
+  const onAir = fleet.filter((f) => f.status === 'running' || f.status === 'waiting')
+  const singing = fleet.filter((f) => f.playing)
+  const listeners = fleet.reduce((n, f) => n + f.participants, 0)
+  const activeRooms = fleet.filter((f) => f.roomTopic)
+  const selectedBot = fleet.find((f) => f.id === selectedBotId) || null
+
+  const assignRoom = async (botId: string, roomId: string) => {
+    const room = rooms.find((r) => r.id === roomId)
+    const bot = fleet.find((f) => f.id === botId)
+    if (!room || !bot) return
+    // optimistic: the bot heads to the house right away (clear any manual walk/emote)
+    resetBot(botId)
+    setBotStates((p) => ({ ...p, [botId]: { ...(p[botId] || {}), status: 'running', currentRoom: { topic: room.topic } } }))
+    setSelectedBotId(null)
+    toast({ title: `${bot.name} → ${room.topic}`, description: 'Walking over to join the room…' })
+    try {
+      await fetch(`${getApiUrl()}/api/bot/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'regular', roomId, botId }),
+      })
+    } catch {
+      toast({ title: 'Could not start bot', description: 'Is the bot server running?', variant: 'destructive' })
+    }
+  }
+
+  const quickLinks = [
+    { href: '/control', code: 'CTL', title: 'Control', desc: 'Launch bots, rooms, speakers, chat.', icon: SlidersHorizontal },
+    { href: '/greetings', code: 'GRT', title: 'Greetings', desc: 'Welcome each user by name.', icon: MessageSquare },
+    { href: '/keywords', code: 'KEY', title: 'Keywords', desc: 'Auto-replies from trigger words.', icon: Zap },
   ]
 
   return (
-    <div className="space-y-8">
-      {/* Hero Section */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="text-center space-y-6 py-8 lg:py-12"
-      >
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-sm font-medium">
-          <Sparkles className="w-4 h-4" />
-          Welcome to YelloTalk Bot Portal
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <Label code="//">Operations · Overview</Label>
+          <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">Live fleet</h1>
+          <p className="mt-1 text-sm text-dim">Pick a bot, choose a room, and watch it walk over to join.</p>
         </div>
+        <StatusPill state={connected === false ? 'err' : onAir.length ? 'live' : 'idle'}>
+          {connected === false ? 'Server offline' : onAir.length ? `${onAir.length} on air` : 'Standby'}
+        </StatusPill>
+      </div>
 
-        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight">
-          <span className="bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600 bg-clip-text text-transparent">
-            YelloTalk
-          </span>
-          <br />
-          <span className="text-foreground">Bot Portal</span>
-        </h1>
-
-        <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-          Monitor, control, and customize your bot in real-time with our beautiful and intuitive dashboard
-        </p>
-
-        <div className="flex flex-wrap justify-center gap-4">
-          <Link href="/control">
-            <Button size="lg" className="bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-lg shadow-rose-500/25 transition-all duration-300 hover:shadow-rose-500/40">
-              <PlayCircle className="mr-2 h-5 w-5" />
-              Start Bot
-            </Button>
-          </Link>
-          <Link href="/greetings">
-            <Button size="lg" variant="outline" className="border-rose-200 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950/30 transition-colors duration-300">
-              <Settings className="mr-2 h-5 w-5" />
-              Configure
-            </Button>
-          </Link>
-        </div>
-      </motion.div>
-
-      {/* Metrics Grid */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.1 }}
-        className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6"
-      >
-        {metrics.map((metric, index) => {
-          const Icon = metric.icon
-          return (
-            <motion.div
-              key={metric.title}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.1 + index * 0.05 }}
-            >
-              <Card className="overflow-hidden border-0 shadow-lg bg-white dark:bg-gray-900 hover:shadow-xl hover:shadow-rose-500/10 transition-shadow duration-300">
-                <CardContent className="p-4 lg:p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-2">
-                      <p className="text-xs lg:text-sm font-medium text-muted-foreground">{metric.title}</p>
-                      <p className={`text-2xl lg:text-3xl font-bold text-rose-600 dark:text-rose-400 ${metric.isText ? 'text-sm lg:text-base truncate max-w-[100px] lg:max-w-[150px]' : ''}`}>
-                        {metric.isRunning !== undefined ? (
-                          <span className={metric.isRunning ? 'text-emerald-500' : 'text-gray-400'}>
-                            {metric.value}
-                          </span>
-                        ) : metric.value}
-                      </p>
-                    </div>
-                    <div className={`p-2 lg:p-3 rounded-xl ${metric.isRunning ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-rose-100 dark:bg-rose-900/30'}`}>
-                      <Icon className={`h-4 w-4 lg:h-5 lg:w-5 ${metric.isRunning ? 'text-emerald-500' : 'text-rose-500'}`} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )
-        })}
-      </motion.div>
-
-      {/* Quick Actions */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
-        className="grid grid-cols-1 lg:grid-cols-2 gap-6"
-      >
-        <Link href="/control" className="block">
-          <Card className="h-full overflow-hidden border-0 shadow-lg bg-white dark:bg-gray-900 hover:shadow-xl hover:shadow-rose-500/10 transition-all duration-300 cursor-pointer group">
-            <CardHeader className="pb-4">
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 shadow-lg shadow-rose-500/25">
-                  <PlayCircle className="h-6 w-6 text-white" />
-                </div>
-                <div className="flex-1">
-                  <CardTitle className="text-lg lg:text-xl">Bot Control Center</CardTitle>
-                  <CardDescription>Start, stop, and monitor your bot in real-time</CardDescription>
-                </div>
-                <ArrowRight className="h-5 w-5 text-muted-foreground group-hover:text-rose-500 group-hover:translate-x-1 transition-all duration-300" />
+      {/* Hero — interactive world */}
+      <Panel className="overflow-hidden">
+        <div className="relative h-[360px] sm:h-[440px] lg:h-[520px]">
+          {fleet.length > 0 ? (
+            <WorldStage
+              bots={fleet}
+              rooms={rooms}
+              selectedBotId={selectedBotId}
+              manual={manual}
+              onSelectBot={setSelectedBotId}
+              onAssignRoom={assignRoom}
+              onMoveBot={moveBot}
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-panel text-faint">
+                <Power className="h-6 w-6" />
               </div>
-            </CardHeader>
-            <CardContent>
-              <Button className="w-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-lg shadow-rose-500/20 transition-all duration-300">
-                Open Control Panel
-              </Button>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Card className="overflow-hidden border-0 shadow-lg bg-white dark:bg-gray-900 hover:shadow-xl hover:shadow-rose-500/10 transition-all duration-300">
-          <CardHeader className="pb-4">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-xl bg-gradient-to-br from-rose-400 to-pink-400 shadow-lg shadow-rose-500/25">
-                <MessageSquare className="h-6 w-6 text-white" />
-              </div>
-              <div className="flex-1">
-                <CardTitle className="text-lg lg:text-xl">Bot Settings</CardTitle>
-                <CardDescription>Customize greetings and keyword triggers</CardDescription>
-              </div>
+              <p className="text-sm font-medium text-ink">{connected === false ? 'Bot server offline' : 'No bots yet'}</p>
+              <p className="max-w-xs text-xs text-dim">
+                {connected === false ? 'Start bot-server.js to see your fleet.' : 'Add a bot in Control to populate the map.'}
+              </p>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-3">
-              <Link href="/greetings" className="flex-1">
-                <Button variant="outline" className="w-full border-rose-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-300 dark:border-rose-800 dark:hover:bg-rose-950/30 transition-all duration-300">
-                  <Heart className="mr-2 h-4 w-4" />
-                  Greetings
-                </Button>
-              </Link>
-              <Link href="/keywords" className="flex-1">
-                <Button variant="outline" className="w-full border-rose-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-300 dark:border-rose-800 dark:hover:bg-rose-950/30 transition-all duration-300">
-                  <Zap className="mr-2 h-4 w-4" />
-                  Keywords
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
+          )}
 
-      {/* Recent Activity */}
-      {botState?.messages && botState.messages.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-        >
-          <Card className="border-0 shadow-lg bg-white dark:bg-gray-900">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <MessageSquare className="h-5 w-5 text-rose-500" />
-                    Recent Activity
-                  </CardTitle>
-                  <CardDescription>Latest messages from the bot</CardDescription>
-                </div>
-                <Badge className="bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400">
-                  {botState.messages.length} messages
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {botState.messages.slice(-5).reverse().map((msg: any, i: number) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-3 p-3 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100/50 dark:hover:bg-rose-950/30 transition-colors duration-200"
+          {/* Title + selection prompt */}
+          <div className="pointer-events-none absolute left-4 top-4 sm:left-5 sm:top-5">
+            <div className="microlabel">Fleet map</div>
+            <div className="mt-1 font-display text-base font-semibold text-ink sm:text-lg">
+              {fleet.length} bot{fleet.length === 1 ? '' : 's'}
+              {singing.length > 0 && <span className="ml-2 text-glow">· {singing.length} singing</span>}
+            </div>
+          </div>
+
+          {/* Action bar (when a bot is selected) / hint */}
+          <div className="absolute inset-x-4 bottom-4 sm:inset-x-5">
+            {selectedBot ? (
+              <div className="flex flex-col items-start gap-1.5">
+                <div className="pointer-events-auto flex max-w-full flex-wrap items-center gap-1 rounded-xl glass px-2 py-1.5">
+                  <span className="px-1.5 text-xs font-semibold text-gold">{selectedBot.name}</span>
+                  {EMOTES.map((em) => {
+                    const active = manual[selectedBot.id]?.emote === em.clip
+                    const Icon = em.icon
+                    return (
+                      <button
+                        key={em.clip}
+                        onClick={() => emoteBot(selectedBot.id, active ? undefined : em.clip)}
+                        className={cn(
+                          'inline-flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-medium transition-colors',
+                          active ? 'bg-brand' : 'text-dim hover:bg-panel hover:text-ink'
+                        )}
+                        style={active ? { color: 'rgb(var(--color-onaccent))' } : undefined}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {em.label}
+                      </button>
+                    )
+                  })}
+                  <span className="mx-0.5 h-4 w-px bg-line" />
+                  <button
+                    onClick={() => resetBot(selectedBot.id)}
+                    className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-medium text-dim hover:bg-panel hover:text-ink"
                   >
-                    <div className="w-10 h-10 bg-gradient-to-br from-rose-500 to-pink-500 rounded-xl flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-lg shadow-rose-500/25">
-                      {msg.sender?.charAt(0) || '?'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold">{msg.sender}</span>
-                        <span className="text-xs text-muted-foreground">{msg.time}</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground truncate">{msg.message}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* Getting Started Guide */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.4 }}
-      >
-        <Card className="border-0 shadow-lg overflow-hidden bg-gradient-to-br from-rose-50 via-pink-50 to-rose-50 dark:from-rose-950/30 dark:via-pink-950/30 dark:to-rose-950/30">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-rose-500" />
-              Getting Started
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {[
-                { step: '1', title: 'Start Server', desc: 'Run node bot-server.js' },
-                { step: '2', title: 'Select Room', desc: 'Go to Bot Control and pick a room' },
-                { step: '3', title: 'Start Bot', desc: 'Click Start Bot to begin' },
-                { step: '4', title: 'Customize', desc: 'Configure greetings and keywords' },
-              ].map((item, index) => (
-                <div
-                  key={item.step}
-                  className="relative p-4 rounded-xl bg-white/60 dark:bg-gray-900/60 backdrop-blur-sm hover:bg-white/80 dark:hover:bg-gray-900/80 transition-colors duration-200"
-                >
-                  <div className="absolute -top-2 -left-2 w-8 h-8 rounded-lg bg-gradient-to-br from-rose-500 to-pink-500 flex items-center justify-center text-white text-sm font-bold shadow-lg shadow-rose-500/25">
-                    {item.step}
-                  </div>
-                  <div className="pt-4">
-                    <h4 className="font-semibold text-sm">{item.title}</h4>
-                    <p className="text-xs text-muted-foreground mt-1">{item.desc}</p>
-                  </div>
+                    <RotateCcw className="h-3.5 w-3.5" /> Home
+                  </button>
+                  <button
+                    onClick={() => setSelectedBotId(null)}
+                    aria-label="Done"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-faint hover:bg-panel hover:text-ink"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-              ))}
+                <div className="rounded-lg glass px-2.5 py-1 text-[11px] text-faint">
+                  Click the ground to walk it there · click a house to join a room
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="rounded-xl glass px-3.5 py-2 text-xs font-medium text-dim">
+                  <span className="flex items-center gap-2">
+                    <MousePointerClick className="h-3.5 w-3.5 text-gold" /> Click a bot to play with it
+                  </span>
+                </div>
+                <div className="hidden flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl glass px-3.5 py-2 text-xs text-dim sm:flex">
+                  <span className="inline-flex items-center gap-1.5"><span className="dot dot-live" /> On air</span>
+                  <span className="inline-flex items-center gap-1.5"><span className="dot dot-wait" /> Waiting</span>
+                  <span className="inline-flex items-center gap-1.5"><span className="dot dot-idle" /> Idle</span>
+                  <span className="inline-flex items-center gap-1.5"><span className="dot dot-music" /> Music</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Telemetry */}
+        <div className="grid grid-cols-2 gap-px border-t border-line bg-line sm:grid-cols-4">
+          <Readout label="Bots" value={fleet.length} className="bg-raised" />
+          <Readout label="On air" value={onAir.length} tone={onAir.length ? 'ok' : 'ink'} className="bg-raised" />
+          <Readout label="Singing" value={singing.length} tone={singing.length ? 'glow' : 'ink'} className="bg-raised" />
+          <Readout label="Listeners" value={listeners} tone="side" className="bg-raised" />
+        </div>
+      </Panel>
+
+      {/* Roster + rooms */}
+      <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+        <Panel className="overflow-hidden">
+          <div className="flex items-center justify-between border-b border-line px-5 py-4">
+            <div>
+              <div className="microlabel mb-1">Roster</div>
+              <h3 className="font-display text-base font-semibold tracking-tight text-ink">Bots</h3>
             </div>
-          </CardContent>
-        </Card>
-      </motion.div>
+            <Link href="/control" className="text-sm font-medium text-gold hover:underline">
+              Manage
+            </Link>
+          </div>
+          <div className="p-3">
+            {fleet.length > 0 ? (
+              <ul className="space-y-2">
+                {fleet.map((b) => {
+                  const running = b.status === 'running' || b.status === 'waiting'
+                  const isSel = selectedBotId === b.id
+                  return (
+                    <li key={b.id}>
+                      <button
+                        onClick={() => setSelectedBotId(isSel ? null : b.id)}
+                        className={cn(
+                          'flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors',
+                          isSel ? 'border-gold bg-gold/[0.06]' : 'border-line bg-raised hover:border-linehi'
+                        )}
+                      >
+                        <span
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold text-white"
+                          style={{
+                            background: b.playing
+                              ? 'linear-gradient(135deg, rgb(var(--color-glow)), rgb(var(--color-gold)))'
+                              : running
+                                ? 'rgb(var(--color-gold))'
+                                : 'rgb(var(--color-faint))',
+                          }}
+                        >
+                          {b.name.charAt(0).toUpperCase()}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-semibold text-ink">{b.name}</span>
+                            {b.playing && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-glow/10 px-2 py-0.5 text-[11px] font-semibold text-glow">
+                                <Equalizer /> Playing
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 truncate text-xs text-dim">
+                            {b.roomTopic ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Radio className="h-3 w-3" /> {b.roomTopic}
+                              </span>
+                            ) : (
+                              'Not in a room'
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <StatusPill state={b.status === 'running' ? 'live' : b.status === 'waiting' ? 'wait' : 'idle'}>
+                            {b.status === 'running' ? 'On air' : b.status === 'waiting' ? 'Waiting' : 'Idle'}
+                          </StatusPill>
+                          <span className="inline-flex items-center gap-1 text-xs text-faint">
+                            <Users className="h-3 w-3" /> {b.participants}
+                          </span>
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <div className="px-4 py-10 text-center text-sm text-dim">No bots configured yet.</div>
+            )}
+          </div>
+        </Panel>
+
+        <Panel className="overflow-hidden">
+          <div className="border-b border-line px-5 py-4">
+            <div className="microlabel mb-1">Live rooms</div>
+            <h3 className="font-display text-base font-semibold tracking-tight text-ink">Who's in a room</h3>
+          </div>
+          <div className="p-3">
+            {activeRooms.length > 0 ? (
+              <ul className="space-y-2">
+                {activeRooms.map((b) => (
+                  <li key={b.id} className="rounded-xl border border-line bg-raised p-3.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-ink">{b.roomTopic}</div>
+                        <div className="mt-0.5 text-xs text-dim">
+                          via <span className="text-gold">{b.name}</span>
+                        </div>
+                      </div>
+                      {b.playing ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-glow/10 px-2 py-0.5 text-[11px] font-semibold text-glow">
+                          <Music className="h-3 w-3" /> Music
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-faint">
+                          <Users className="h-3 w-3" /> {b.participants}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-panel text-faint">
+                  <Radio className="h-5 w-5" />
+                </div>
+                <p className="text-sm font-medium text-ink">No active rooms</p>
+                <p className="text-xs text-dim">Send a bot to a house to fill one.</p>
+              </div>
+            )}
+          </div>
+        </Panel>
+      </div>
+
+      {/* Quick links */}
+      <div>
+        <Label className="mb-3 block">Console modules</Label>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {quickLinks.map((q) => {
+            const Icon = q.icon
+            return (
+              <Link key={q.href} href={q.href} className="group">
+                <Panel className="flex h-full items-start gap-4 p-5 transition-all hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gold/10 text-gold">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-display text-base font-semibold tracking-tight text-ink">{q.title}</h3>
+                      <span className="text-[10px] font-semibold tracking-wide text-faint">{q.code}</span>
+                    </div>
+                    <p className="mt-1 text-sm leading-relaxed text-dim">{q.desc}</p>
+                    <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-gold">
+                      Open
+                      <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                    </span>
+                  </div>
+                </Panel>
+              </Link>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }

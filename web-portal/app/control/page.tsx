@@ -50,7 +50,19 @@ import {
   Search
 } from 'lucide-react'
 import io from 'socket.io-client'
+import dynamic from 'next/dynamic'
 import { useToast } from '@/hooks/use-toast'
+import { Label as SectionLabel, StatusPill } from '@/components/console'
+
+const BotAvatar = dynamic(() => import('@/components/three/bot-avatar'), { ssr: false })
+
+const CAPS: { icon: any; title: string; items: string[] }[] = [
+  { icon: Play, title: 'Presence', items: ['Start & stop', 'Auto-join a random room', 'Welcome message on join', 'Room health check'] },
+  { icon: Radio, title: 'Room', items: ['Join any live room', 'Kick users from the room', 'Live chat + send messages'] },
+  { icon: Mic, title: 'Speakers', items: ['Lock / unlock slots', 'Mute / unmute', 'Kick from a slot', 'Bot takes a slot'] },
+  { icon: Music, title: 'Music', items: ['Join the voice room', 'Play / pause / stop', 'YouTube search & play', 'Volume + auto-play'] },
+  { icon: Users, title: 'Users', items: ['Room profiles', 'Cached user directory', 'Hidden-listener detection'] },
+]
 
 let _resolvedApiUrl: string | null = null
 
@@ -1216,31 +1228,29 @@ export default function ControlPage() {
         animate={{ opacity: 1, y: 0 }}
       >
         {/* Title Bar */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 shadow-lg shadow-rose-500/25">
-              <Bot className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl lg:text-3xl font-bold bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600 bg-clip-text text-transparent">
-                Multi-Bot Control Center
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                {runningBots.length > 0
-                  ? `${runningBots.length} bot${runningBots.length > 1 ? 's' : ''} running`
-                  : 'All bots stopped'}
-              </p>
-            </div>
+        <div className="flex flex-wrap items-end justify-between gap-4 mb-5">
+          <div>
+            <SectionLabel code="//">Operations · Control</SectionLabel>
+            <h1 className="mt-2 font-display text-2xl lg:text-3xl font-bold tracking-tight text-ink">
+              Bot control
+            </h1>
+            <p className="mt-1 text-sm text-dim">
+              {runningBots.length > 0
+                ? `${runningBots.length} bot${runningBots.length > 1 ? 's' : ''} online`
+                : 'All bots stopped'}
+            </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <StatusPill state={runningBots.length > 0 ? 'live' : 'idle'}>
+              {runningBots.length > 0 ? `${runningBots.length} on air` : 'standby'}
+            </StatusPill>
             <Button
               size="sm"
               variant="outline"
               onClick={() => setShowAddBot(!showAddBot)}
-              className="border-blue-200 hover:bg-blue-50"
             >
-              <Plus className="h-4 w-4 mr-1" />
-              Add Bot
+              <Plus className="h-4 w-4" />
+              Add bot
             </Button>
             <Button
               onClick={fetchRooms}
@@ -1501,6 +1511,63 @@ export default function ControlPage() {
         </motion.div>
       )}
 
+      {/* ===== CAPABILITIES + BOT AVATAR ===== */}
+      <Card className="overflow-hidden">
+        <div className="grid lg:grid-cols-[260px_1fr]">
+          <div className="relative min-h-[240px] border-b border-line bg-gradient-to-b from-panel to-raised lg:border-b-0 lg:border-r">
+            <BotAvatar status={currentBotState?.status || 'stopped'} playing={!!musicStatus?.playing} />
+            <div className="absolute left-4 top-4">
+              <div className="microlabel">Selected bot</div>
+              <div className="mt-1 font-display text-lg font-semibold text-ink">
+                {bots.find((b) => b.id === selectedBotId)?.name || currentBotState?.name || 'Bot'}
+              </div>
+              <div className="mt-2">
+                <StatusPill
+                  state={
+                    currentBotState?.status === 'running'
+                      ? 'live'
+                      : currentBotState?.status === 'waiting'
+                        ? 'wait'
+                        : 'idle'
+                  }
+                >
+                  {currentBotState?.status === 'running'
+                    ? 'On air'
+                    : currentBotState?.status === 'waiting'
+                      ? 'Waiting'
+                      : 'Idle'}
+                </StatusPill>
+              </div>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="microlabel mb-3">What this bot can do</div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {CAPS.map((cap) => {
+                const Icon = cap.icon
+                return (
+                  <div key={cap.title} className="rounded-xl border border-line bg-raised p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gold/10 text-gold">
+                        <Icon className="h-3.5 w-3.5" />
+                      </span>
+                      <span className="font-display text-sm font-semibold text-ink">{cap.title}</span>
+                    </div>
+                    <ul className="space-y-1">
+                      {cap.items.map((it) => (
+                        <li key={it} className="flex items-center gap-2 text-xs text-dim">
+                          <span className="h-1 w-1 rounded-full bg-gold/60" /> {it}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </Card>
+
       {/* ===== MAIN CONTENT GRID ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Controls */}
@@ -1549,43 +1616,6 @@ export default function ControlPage() {
                         id="welcome-toggle-main"
                         checked={currentBotState?.enableWelcomeMessage ?? true}
                         onCheckedChange={toggleWelcomeMessage}
-                      />
-                    </div>
-
-                    {/* Auto-Hijack Toggle */}
-                    <div className="flex items-center justify-between p-3 border-2 border-rose-500/50 rounded-xl bg-rose-50/50 dark:bg-rose-950/20">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <Zap className="h-4 w-4 text-rose-500" />
-                          <Label htmlFor="hijack-toggle" className="text-sm font-medium cursor-pointer">
-                            Auto-Hijack Rooms (Exploit)
-                          </Label>
-                        </div>
-                        <p className="text-xs text-gray-500 pl-6">Use create_room exploit to control speaker slots</p>
-                        <p className="text-xs text-rose-600 pl-6 font-semibold">⚠️ Beta version - use at your own risk, some times it might cause issues with the room</p>
-                      </div>
-                      <Switch
-                        id="hijack-toggle"
-                        checked={currentBotState?.autoHijackRooms ?? false}
-                        onCheckedChange={async (checked) => {
-                          try {
-                            await fetch(`${getApiUrl()}/api/bot/toggle-hijack`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ enabled: checked, botId: selectedBotId })
-                            })
-                            setBotStates((prev: any) => ({
-                              ...prev,
-                              [selectedBotId]: { ...(prev[selectedBotId] || {}), autoHijackRooms: checked }
-                            }))
-                            toast({
-                              title: checked ? 'Auto-Hijack Enabled' : 'Auto-Hijack Disabled',
-                              description: checked ? 'Bot will join as room owner' : 'Bot joins normally'
-                            })
-                          } catch (error) {
-                            toast({ title: 'Error', description: 'Failed to toggle hijack', variant: 'destructive' })
-                          }
-                        }}
                       />
                     </div>
 
@@ -1953,9 +1983,8 @@ export default function ControlPage() {
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Mic className="h-5 w-5 text-rose-500" />
                   Speaker Control
-                  <Badge variant="destructive" className="ml-2">Auto-Hijacked</Badge>
                 </CardTitle>
-                <CardDescription>Control speaker slots (powered by room hijack exploit)</CardDescription>
+                <CardDescription>Control the room's speaker slots</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
