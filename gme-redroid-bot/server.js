@@ -138,11 +138,14 @@ const server = http.createServer((req, res) => {
         const host = j.file;
         if (!host || !fs.existsSync(host)) return res.status ? res.end(JSON.stringify({ error: 'file not found: ' + host })) : res.end(JSON.stringify({ error: 'file not found: ' + host }));
         log(`play ${host} (loop=${!!j.loop})`);
-        const push = await adb(['push', host, DEVICE_MP3]);
+        // Push with the file's real extension (.m4a/.mp3) so GME picks the right decoder.
+        const ext = (require('path').extname(host) || '.mp3').toLowerCase();
+        const devFile = `/data/local/tmp/gmesong${INSTANCE}${ext}`;
+        const push = await adb(['push', host, devFile]);
         if (push.e) return res.end(JSON.stringify({ error: 'adb push failed: ' + push.e.message }));
         state.currentFile = host; state.loop = !!j.loop;
         // The app's /play does StopAccompany + StartAccompany (+retry on GME -7).
-        const r = await appCall('POST', '/play', { file: DEVICE_MP3, loop: !!j.loop });
+        const r = await appCall('POST', '/play', { file: devFile, loop: !!j.loop });
         log(`play -> ${APP_PKG} startRc=${r.startRc} ok=${r.ok}`);
         return res.end(JSON.stringify({ ok: !!r.ok, status: 'playing', file: host, startRc: r.startRc }));
       }
