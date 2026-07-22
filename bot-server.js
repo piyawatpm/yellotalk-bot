@@ -2264,6 +2264,7 @@ async function downloadYouTubeAudio(url, botId) {
       '--postprocessor-args', `ffmpeg:-b:a ${process.env.MUSIC_MP3_BITRATE || '128k'}`,  // 128k mp3: smaller file, faster download+convert, no audible loss in the room
       '-o', path.join(MUSIC_CACHE_DIR, '%(id)s.%(ext)s'),  // Output template
       '--no-playlist',               // Single video only
+      '--extractor-args', 'youtube:fetch_pot=never', // skip the (broken) PO-token provider — WARP already gives a clean IP; this alone cuts ~20s/download
       '--match-filter', `!is_live & duration<=${MAX_SONG_SECONDS}`, // hard cap: no live / over-long
       '--newline',                   // Force progress on new lines
       '--print', 'after_move:filepath', // Print final file path
@@ -2358,7 +2359,7 @@ async function downloadYouTubeAudio(url, botId) {
 // Get YouTube video info (title, duration)
 async function getYouTubeInfo(url) {
   return new Promise((resolve, reject) => {
-    execFile('yt-dlp', ['--print', '%(title)s\n%(duration)s\n%(id)s\n%(is_live)s', '--no-playlist', url], { timeout: 15000 }, (err, stdout) => {
+    execFile('yt-dlp', ['--extractor-args', 'youtube:fetch_pot=never', '--print', '%(title)s\n%(duration)s\n%(id)s\n%(is_live)s', '--no-playlist', url], { timeout: 15000 }, (err, stdout) => {
       if (err) return reject(err);
       const lines = stdout.trim().split('\n');
       resolve({ title: lines[0] || 'Unknown', duration: parseInt(lines[1]) || 0, id: lines[2] || '', isLive: lines[3] === 'True' });
