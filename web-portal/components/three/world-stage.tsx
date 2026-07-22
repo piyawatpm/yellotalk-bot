@@ -282,7 +282,7 @@ function Tree({ x, z, s = 1, pal }: { x: number; z: number; s?: number; pal: Pal
 /* ---------- bot ---------- */
 function animFor(bot: WorldBot): string {
   if (bot.playing && bot.status === 'running') return 'Dance'
-  return 'Standing' // upright neutral idle ("Idle" hunches, "Sitting" loops the sit-down)
+  return 'Standing' // calm upright idle for every non-dancing bot
 }
 
 const _v = new THREE.Vector3()
