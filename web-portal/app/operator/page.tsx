@@ -150,18 +150,26 @@ export default function OperatorPage() {
       {/* Status tiles */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatTile label="Operator" value={bots.find((b) => b.id === operatorBotId)?.name || '—'} icon={<Bot className="h-4 w-4" />} />
-        <StatTile label="Room" value={status?.room ? 'open' : 'not open'} icon={<DoorOpen className="h-4 w-4" />} warn={running && !status?.room} />
+        <StatTile label="Room" value={status?.room ? 'open' : 'topic-only'} icon={<DoorOpen className="h-4 w-4" />} warn={running && !status?.room && !!status?.operatorRoomId} />
         <StatTile label="Pickers" value={String(status?.activeSessions ?? 0)} icon={<Users className="h-4 w-4" />} />
         <StatTile label="Free bots" value={`${(status?.summonable || []).filter((s) => s.available).length}/${summonable.length}`} icon={<ArrowRightCircle className="h-4 w-4" />} />
       </div>
 
       {running && !status?.room && (
-        <Alert variant="destructive">
-          <AlertDescription className="text-xs">
-            Operator couldn’t open a room — these accounts can’t host natively (no <code>gme_user_id</code>). Create a room in the app,
-            set <code>&quot;operatorRoomId&quot;:&quot;&lt;id&gt;&quot;</code> in <code>config.json</code>, and restart. <b>Topic-summon still works</b> without a hosted room.
-          </AlertDescription>
-        </Alert>
+        status?.operatorRoomId ? (
+          <Alert variant="destructive">
+            <AlertDescription className="text-xs">
+              Seeded room <code>{status.operatorRoomId}</code> isn’t open or couldn’t be held — re-open it in the app. Topic-summon still works.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert>
+            <AlertDescription className="text-xs">
+              <b>Topic-summon mode</b> — name a room with <code>@bot</code> to summon a bot. Bots can’t host their own room, so the in-room
+              <b> picker</b> needs a seeded room: create one in the app and set <code>&quot;operatorRoomId&quot;</code> in <code>config.json</code>.
+            </AlertDescription>
+          </Alert>
+        )
       )}
 
       {/* Live operator-room feed */}
