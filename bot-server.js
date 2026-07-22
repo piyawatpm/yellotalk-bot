@@ -5627,11 +5627,37 @@ app.post('/api/bot/room/kick', async (req, res) => {
 });
 
 // WebSocket from portal
+// Shared "play" layer for the 3D fleet map: per-bot walk target + emote, kept on
+// the server and broadcast to every client so the map looks identical for all.
+const worldState = {}; // { [botId]: { target?: [x, z], emote?: string } }
+
 io.on('connection', (socket) => {
   console.log('✅ Web portal connected');
 
   // Send all bot states to new connection
   socket.emit('all-bot-states', getAllBotStates());
+
+  // Send the current shared fleet-map state to the new client
+  socket.emit('world-state', worldState);
+
+  // Shared fleet-map controls — any client's move/emote/reset reaches everyone
+  socket.on('world-move', ({ botId, x, z } = {}) => {
+    if (!botId || typeof x !== 'number' || typeof z !== 'number') return;
+    worldState[botId] = { ...worldState[botId], target: [x, z] };
+    io.emit('world-state', worldState);
+  });
+  socket.on('world-emote', ({ botId, emote } = {}) => {
+    if (!botId) return;
+    const next = { ...worldState[botId] };
+    if (emote) next.emote = emote; else delete next.emote;
+    worldState[botId] = next;
+    io.emit('world-state', worldState);
+  });
+  socket.on('world-reset', ({ botId } = {}) => {
+    if (!botId) return;
+    delete worldState[botId];
+    io.emit('world-state', worldState);
+  });
 
   // Handle send-message with optional botId
   socket.on('send-message', (data) => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { SlidersHorizontal, MessageSquare, Zap, ArrowRight, Users, Radio, Music, Power, MousePointerClick, X, Hand, PartyPopper, ChevronsUp, ThumbsUp, RotateCcw } from 'lucide-react'
@@ -40,30 +40,43 @@ export default function OverviewPage() {
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null)
   // Manual "play" overrides per bot: a free walk point and/or an emote clip.
   const [manual, setManual] = useState<Record<string, { target?: [number, number]; emote?: string }>>({})
-  const moveBot = (botId: string, x: number, z: number) =>
+  const socketRef = useRef<ReturnType<typeof io> | null>(null)
+  // Optimistic local update + emit to the server, which broadcasts the shared
+  // world state back to every client, keeping all maps in sync.
+  const moveBot = (botId: string, x: number, z: number) => {
     setManual((m) => ({ ...m, [botId]: { ...m[botId], target: [x, z] } }))
-  const emoteBot = (botId: string, emote?: string) =>
+    socketRef.current?.emit('world-move', { botId, x, z })
+  }
+  const emoteBot = (botId: string, emote?: string) => {
     setManual((m) => ({ ...m, [botId]: { ...m[botId], emote } }))
-  const resetBot = (botId: string) =>
+    socketRef.current?.emit('world-emote', { botId, emote })
+  }
+  const resetBot = (botId: string) => {
     setManual((m) => {
       const n = { ...m }
       delete n[botId]
       return n
     })
+    socketRef.current?.emit('world-reset', { botId })
+  }
 
   // Socket
   useEffect(() => {
     let socket: ReturnType<typeof io> | undefined
     resolveApiUrl().then((url) => {
       socket = io(url)
+      socketRef.current = socket
       socket.on('connect', () => setConnected(true))
       socket.on('connect_error', () => setConnected(false))
       socket.on('disconnect', () => setConnected(false))
       socket.on('all-bot-states', (s: Record<string, any>) => setBotStates(s || {}))
       socket.on('bot-state-update', ({ botId, state }: any) => setBotStates((p) => ({ ...p, [botId]: state })))
       socket.on('bot-state', (state: any) => setBotStates((p) => ({ ...p, [state?.botId || 'bot']: state })))
+      // Shared fleet-map "play" state (walk targets + emotes) from the server
+      socket.on('world-state', (ws: any) => setManual(ws || {}))
     })
     return () => {
+      socketRef.current = null
       if (socket) socket.disconnect()
     }
   }, [])
