@@ -564,9 +564,27 @@ function Scene({
     []
   )
 
-  const houses = rooms.slice(0, MAX_HOUSES)
-  const lay = layout(houses.length)
-  const houseByTopic = new Map(houses.map((r, i) => [r.topic, { room: r, pos: housePos(i, houses.length) }]))
+  // Stable slot per room.id: a room keeps its spot across refreshes. The rooms
+  // API returns them in a changing order, so index-based placement shuffled every
+  // house's position/colour on each poll. Slots free up when a room disappears
+  // and get reused by new rooms (keeps the grid compact).
+  const slotRef = useRef<Map<string, number>>(new Map())
+  const houses = useMemo(() => {
+    const capped = rooms.slice(0, MAX_HOUSES)
+    const map = slotRef.current
+    const present = new Set(capped.map((r) => r.id))
+    for (const id of Array.from(map.keys())) if (!present.has(id)) map.delete(id) // free departed rooms' slots
+    const used = new Set(map.values())
+    const nextFree = () => { let s = 0; while (used.has(s)) s++; used.add(s); return s }
+    return capped.map((room) => {
+      let slot = map.get(room.id)
+      if (slot === undefined) { slot = nextFree(); map.set(room.id, slot) }
+      return { room, slot }
+    })
+  }, [rooms])
+  const gridN = Math.max(1, houses.length, ...houses.map((h) => h.slot + 1))
+  const lay = layout(gridN)
+  const houseByTopic = new Map(houses.map(({ room, slot }) => [room.topic, { room, pos: housePos(slot, gridN) }]))
 
   // targets: manual walk point wins; else the bot's house; else the dock
   // Dock slots depend only on room membership — walking one bot away must not
@@ -642,19 +660,19 @@ function Scene({
       })()}
 
       {asset &&
-        houses.map((r, i) => {
-          const [x, z] = housePos(i, houses.length)
+        houses.map(({ room, slot }) => {
+          const [x, z] = housePos(slot, gridN)
           return (
             <House
-              key={r.id}
-              room={r}
+              key={room.id}
+              room={room}
               x={x}
               z={z}
-              index={i}
+              index={slot}
               pal={pal}
-              hasBot={bots.some((b) => b.roomTopic === r.topic)}
+              hasBot={bots.some((b) => b.roomTopic === room.topic)}
               onPick={() => {
-                if (selectedBotId) onAssignRoom(selectedBotId, r.id)
+                if (selectedBotId) onAssignRoom(selectedBotId, room.id)
               }}
             />
           )
