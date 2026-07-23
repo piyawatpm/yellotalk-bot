@@ -2488,18 +2488,29 @@ async function downloadYouTubeAudio(url, botId) {
   return new Promise((resolve, reject) => {
     // MUSIC_FORMAT=m4a: download YouTube's AAC audio directly (no re-encode, ~5s).
     // MUSIC_FORMAT=mp3: re-encode to mp3 (safe, ~13s). Toggle via env if GME can't play m4a.
-    // Source-side quality (SAFE — never touches the room codec, so no room-wide bug):
-    //  • higher bitrate (192k) = cleaner material for the codec
-    //  • -ar 48000 = match GME's internal rate, avoid resample artifacts
-    //  • loudnorm = every song at a consistent, full level (-14 LUFS streaming standard)
-    //    with true-peak limiting, so quiet songs aren't buried and loud ones don't clip
-    // Each is env-toggleable: MUSIC_MP3_BITRATE, MUSIC_LOUDNORM=0 to disable normalization.
+    // Source tuned for the Fluency codec the rooms actually use (measured via
+    // GetRoomType: 16kHz / 30kbps / MONO — the only type enabled without a Tencent
+    // ticket). All SAFE: source-side only, never touches the room codec.
+    //  • presence lift (~3kHz) — restore clarity the narrowband dulls
+    //  • low-pass ~7.8kHz — just under the codec's 8kHz Nyquist, so its 30kbps aren't
+    //    wasted (and don't alias into warble) on highs it can't carry
+    //  • mono downmix (-ac 1) — the codec is mono; do a clean L+R mix ourselves
+    //  • loudnorm last — consistent, full level (-14 LUFS) with true-peak limiting
+    // Toggle any: MUSIC_EQ=0, MUSIC_LOUDNORM=0, MUSIC_STEREO=1, MUSIC_MP3_BITRATE.
     const mp3Bitrate = process.env.MUSIC_MP3_BITRATE || '192k';
-    const loudnorm = process.env.MUSIC_LOUDNORM === '0' ? '' : ' -af loudnorm=I=-14:TP=-1.5:LRA=11';
+    const afChain = [];
+    // Mono downmix FIRST (aformat guarantees 2ch so pan works on mono sources too),
+    // so loudnorm's true-peak limiting at the END applies to the final mono signal —
+    // downmixing AFTER loudnorm (e.g. via -ac 1 output option) re-sums the channels
+    // and pushes peaks back to clipping.
+    if (process.env.MUSIC_STEREO !== '1') afChain.push('aformat=channel_layouts=stereo', 'pan=mono|c0=0.5*c0+0.5*c1');
+    if (process.env.MUSIC_EQ !== '0') afChain.push('highpass=f=90', 'equalizer=f=3000:width_type=o:width=1.4:g=3', 'lowpass=f=7800');
+    if (process.env.MUSIC_LOUDNORM !== '0') afChain.push('loudnorm=I=-14:TP=-2.0:LRA=11');
+    const af = afChain.length ? ` -af ${afChain.join(',')}` : '';
     const fmtArgs = MUSIC_FORMAT === 'm4a'
       ? ['-f', 'ba[ext=m4a]/140']    // AAC in m4a container (itag 140 fallback), no conversion
       : ['-x', '--audio-format', 'mp3', '--audio-quality', '5',
-         '--postprocessor-args', `ffmpeg:-b:a ${mp3Bitrate} -ar 48000${loudnorm}`];
+         '--postprocessor-args', `ffmpeg:-b:a ${mp3Bitrate} -ar 48000${af}`];
     const args = [
       ...fmtArgs,
       '-o', path.join(MUSIC_CACHE_DIR, '%(id)s.%(ext)s'),  // Output template
