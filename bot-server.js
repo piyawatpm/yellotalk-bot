@@ -5963,4 +5963,18 @@ server.listen(PORT, async () => {
   console.log('');
   console.log('✅ Ready! Open web portal to control bot.');
   console.log('='.repeat(70));
+
+  // Auto-start the operator on boot if one is configured, so its summon room comes
+  // back after every restart without a manual /api/operator/start. (scheduleReopen
+  // then keeps it alive if the room ever ends.)
+  try {
+    const cfgNow = JSON.parse(fs.readFileSync('./config.json', 'utf-8'));
+    if (cfgNow.operatorBotId) {
+      setTimeout(() => {
+        initOperator().start()
+          .then(() => console.log('🛎️ [operator] auto-started on boot'))
+          .catch((e) => console.log('🛎️ [operator] auto-start failed:', e.message));
+      }, 5000);
+    }
+  } catch (e) {}
 });

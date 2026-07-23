@@ -154,9 +154,14 @@ module.exports = function createOperator(rawDeps) {
 
   function scheduleReopen() {
     if (!running || reopening) return;
-    if (reopenAttempts >= 4) { log('⚠️ gave up re-opening the operator room; topic-summon still running.'); return; }
     reopening = true; reopenAttempts++;
-    setTimeout(async () => { reopening = false; if (running) await openOperatorRoom().catch((e) => log('reopen err:', e.message)); }, cfg.reopenDelayMs * Math.min(reopenAttempts, 4));
+    // Never give up — the operator's help room must ALWAYS come back once it ends.
+    // Back off up to ~8x (≈32s) so a persistent outage doesn't hammer the API; the
+    // counter resets to 0 on a successful open (openOperatorRoom), so a normal end
+    // reopens on the next tick.
+    const delay = cfg.reopenDelayMs * Math.min(reopenAttempts, 8);
+    log(`reopening operator room in ${Math.round(delay / 1000)}s (attempt ${reopenAttempts})`);
+    setTimeout(async () => { reopening = false; if (running) await openOperatorRoom().catch((e) => log('reopen err:', e.message)); }, delay);
   }
 
   // ---------- summon logic ----------
