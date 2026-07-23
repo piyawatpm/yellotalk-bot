@@ -2512,8 +2512,35 @@ function evictMusicCache() {
 }
 evictMusicCache(); // trim on boot in case the cache is already oversized
 
-// Download YouTube audio and return file path
+// Global download/encode concurrency cap — the ffmpeg encode is CPU-heavy and the box
+// has few cores, so limit simultaneous downloads across all bots + preloads. Others wait.
+const MAX_CONCURRENT_DOWNLOADS = parseInt(process.env.MAX_CONCURRENT_DOWNLOADS || '2', 10);
+let _activeDownloads = 0;
+const _downloadQueue = [];
+function acquireDownloadSlot() {
+  return new Promise(resolve => {
+    if (_activeDownloads < MAX_CONCURRENT_DOWNLOADS) { _activeDownloads++; resolve(); }
+    else _downloadQueue.push(resolve); // wait; the slot is handed over on release (count stays at cap)
+  });
+}
+function releaseDownloadSlot() {
+  const next = _downloadQueue.shift();
+  if (next) next();                    // hand our slot to the next waiter (count unchanged)
+  else _activeDownloads = Math.max(0, _activeDownloads - 1);
+}
+
+// Download YouTube audio and return file path. Wrapper enforces the concurrency cap;
+// if all slots are busy and this is a user-facing play (botId set), tell them to wait.
 async function downloadYouTubeAudio(url, botId) {
+  if (botId && _activeDownloads >= MAX_CONCURRENT_DOWNLOADS) {
+    sendMessageForBot(botId, '⏳ ตอนนี้กำลังโหลดเพลงอื่นอยู่ รอแป๊บนะคะ...');
+  }
+  await acquireDownloadSlot();
+  try { return await _downloadYouTubeAudioRaw(url, botId); }
+  finally { releaseDownloadSlot(); }
+}
+
+async function _downloadYouTubeAudioRaw(url, botId) {
   return new Promise((resolve, reject) => {
     // MUSIC_FORMAT=m4a: download YouTube's AAC audio directly (no re-encode, ~5s).
     // MUSIC_FORMAT=mp3: re-encode to mp3 (safe, ~13s). Toggle via env if GME can't play m4a.
@@ -2556,9 +2583,9 @@ async function downloadYouTubeAudio(url, botId) {
     console.log(`🎵 [YouTube] Downloading: ${url}`);
     io.emit('music-log', { type: 'info', message: `Downloading YouTube audio: ${url}` });
 
-    // Send initial chat message if botId provided
+    // Initial "downloading" text (progress % + "now playing" follow). botId-gated.
     if (botId) {
-      sendMessageForBot(botId, '⏳ กำลังดาวน์โหลดเพลง...');
+      sendMessageForBot(botId, '⏳ กำลังโหลดเพลง...');
     }
 
     const proc = spawn('yt-dlp', args);
@@ -2594,15 +2621,11 @@ async function downloadYouTubeAudio(url, botId) {
         if (progressMatch && botId) {
           const pct = parseFloat(progressMatch[1]);
           const size = progressMatch[2];
-          const now = Date.now();
-          // Send chat update at 25%, 50%, 75% (throttled, max every 5s)
-          if ((pct >= 25 && lastProgressMsg < 25) ||
-              (pct >= 50 && lastProgressMsg < 50) ||
-              (pct >= 75 && lastProgressMsg < 75)) {
-            if (now - lastProgressMsg > 3000 || lastProgressMsg < 100) {
-              sendMessageForBot(botId, `⏳ ดาวน์โหลด ${Math.round(pct)}% (${size})`);
-              lastProgressMsg = pct;
-            }
+          // One progress ping around the halfway mark — keeps it to "downloading → ~50%
+          // → (now playing)" instead of spamming 25/50/75.
+          if (pct >= 45 && lastProgressMsg < 45) {
+            lastProgressMsg = 100; // sent — don't ping again
+            sendMessageForBot(botId, `⏳ โหลดเพลงแล้ว ${Math.round(pct)}%...`);
           }
         }
 
