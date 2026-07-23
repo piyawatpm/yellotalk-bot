@@ -2065,18 +2065,15 @@ async function leaveGMEVoiceRoom(botId, reason) {
     console.log(`[${timestamp}] ℹ️ GME leave skipped for ${botId}: no GME process`);
     return;
   }
-  try {
-    const statusResp = await axios.get(`${gmeUrl}/status`, { timeout: 2000 });
-    if (statusResp.data.inRoom) {
-      console.log(`[${timestamp}] 🔇 [${botId}] Leaving GME voice room (reason: ${reason})`);
-      await axios.post(`${gmeUrl}/stop`, {}, { timeout: 3000 }).catch(() => {});
-      await axios.post(`${gmeUrl}/leave`, {}, { timeout: 5000 });
-      console.log(`[${timestamp}] ✅ [${botId}] GME voice room left`);
-      io.emit('music-log', { type: 'info', message: `[${botId}] Left voice room: ${reason}` });
-    }
-  } catch (err) {
-    console.log(`[${timestamp}] ℹ️ [${botId}] GME leave skipped: ${err.message}`);
-  }
+  // Always stop + leave when asked — do NOT gate on inRoom. The app's inRoom flag can
+  // be stale (and the /status call can time out), so gating on it meant the song kept
+  // playing after the bot had left the room. Stopping/leaving when already idle is
+  // harmless; stop THEN leave so the accompaniment is halted even if leave is slow.
+  console.log(`[${timestamp}] 🔇 [${botId}] Stopping music + leaving GME voice room (reason: ${reason})`);
+  try { await axios.post(`${gmeUrl}/stop`, {}, { timeout: 4000 }); } catch (e) {}
+  try { await axios.post(`${gmeUrl}/leave`, {}, { timeout: 6000 }); } catch (e) {}
+  console.log(`[${timestamp}] ✅ [${botId}] GME voice room left`);
+  io.emit('music-log', { type: 'info', message: `[${botId}] Left voice room: ${reason}` });
   // Kill GME process after leaving
   killGmeProcess(botId);
 }
@@ -3382,10 +3379,14 @@ app.post('/api/music/song-ended', async (req, res) => {
 
     // Skip anything played by id OR the same song by normalized title (a different
     // upload of what we just played), then pick the candidate that best matches the
-    // AI's same-artist suggestion. Fall back gradually so we always pick something.
+    // AI's same-artist suggestion. Fall back gradually — but NEVER repeat the previous
+    // song's title (same song, just another version), which is what the fallbacks used
+    // to let through.
+    const prevNorm = lastSong && lastSong.title ? normalizeTitle(lastSong.title) : '';
     const freshResults = searchResults.filter(s => !playedIds.has(s.id) && !playedTitles.has(normalizeTitle(s.title)));
     let nextSong = pickBestMatch(searchQuery, freshResults);
-    if (!nextSong) nextSong = searchResults.find(s => !playedIds.has(s.id));
+    if (!nextSong) nextSong = searchResults.find(s => !playedIds.has(s.id) && normalizeTitle(s.title) !== prevNorm);
+    if (!nextSong) nextSong = searchResults.find(s => normalizeTitle(s.title) !== prevNorm);
     if (!nextSong && searchResults.length > 0) {
       nextSong = searchResults[Math.floor(Math.random() * searchResults.length)];
     }

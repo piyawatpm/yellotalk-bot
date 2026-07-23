@@ -205,6 +205,18 @@ export default function ControlPage() {
     selectedBotIdRef.current = selectedBotId
   }, [selectedBotId])
 
+  // Default the selected bot to the FIRST bot shown in the list (operator hidden).
+  // Self-corrects if the current selection isn't a visible bot (empty on load, the
+  // operator, or one that was removed); won't override a valid manual selection.
+  useEffect(() => {
+    if (!bots.length) return
+    const visible = bots.filter((b) => b.id !== operatorBotId)
+    if (!visible.length) return
+    if (!selectedBotId || !visible.some((b) => b.id === selectedBotId)) {
+      setSelectedBotId(visible[0].id)
+    }
+  }, [bots, operatorBotId, selectedBotId])
+
   // Sync botState when selectedBotId or botStates changes
   useEffect(() => {
     if (selectedBotId && botStates[selectedBotId]) {
@@ -410,9 +422,8 @@ export default function ControlPage() {
       // Hide whichever bot is the operator from the join/select lists — it's
       // dedicated to hosting the summon room, managed from the Operator page.
       fetch(`${getApiUrl()}/api/operator/status`).then(r => r.json()).then(d => setOperatorBotId(d.operatorBotId || null)).catch(() => {})
-      if (data.selectedBotId) {
-        setSelectedBotId(data.selectedBotId)
-      }
+      // Default selection is handled by the effect below (first bot in the list) so
+      // the panel always opens on the first bot, not the server's last-active bot.
     } catch (error) {
       console.error('Could not fetch bots')
     }
