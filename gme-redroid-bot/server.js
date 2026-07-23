@@ -88,10 +88,12 @@ let state = { currentFile: null, loop: false, playAt: 0 };
 // resets its own volume field to 100 whenever it force-restarts on /join, so we
 // re-assert this after every /play — otherwise each fresh song plays loud.
 let lastVol = 25;
-// Room audio codec to request on join. 2=Standard (48kHz: clearer than Fluency's
-// 16kHz, voice fine, and no HQ hiss). Override via MUSIC_ROOM_TYPE env (1=Fluency,
-// 3=HighQuality). The Android app applies it via ChangeRoomType after entering.
-const MUSIC_ROOM_TYPE = parseInt(process.env.MUSIC_ROOM_TYPE || '2', 10);
+// Room audio codec to request on join. Default 3=HighQuality (48kHz STEREO) per
+// user preference. NOTE: HQ carries a background noise during playback (empty-mic
+// capture, unfixable at app layer) and is room-wide. Override via MUSIC_ROOM_TYPE
+// env: 2=Standard (48kHz mono, NO noise), 1=Fluency (16kHz). App applies it via
+// ChangeRoomType after entering.
+const MUSIC_ROOM_TYPE = parseInt(process.env.MUSIC_ROOM_TYPE || '3', 10);
 // HQ-only capture mode (roomType 3 only; Standard/Fluency unaffected). Default 'on'
 // (normal) — TESTED: 'off'/'delayoff' both MUTE the music (the accompaniment needs
 // continuous capture to transmit) and the HQ noise leaks through anyway (it's in the
