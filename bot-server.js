@@ -637,6 +637,28 @@ async function suggestNextSong(recentTitles) {
   } catch (e) { console.log(`⏭ suggestNextSong failed: ${e.message}`); return null; }
 }
 
+// Read the ARTIST off a song title (e.g. "ร่มสีเทา - วัชราวลี [Official Audio]" -> "วัชราวลี").
+// This is a READING task the model is reliable at — unlike recalling a discography,
+// which hallucinates for less-famous (esp. Thai) artists and drifts to a different
+// singer. We then search YouTube for this artist to ground the next song in their real
+// catalog. Returns the artist string, or null if it can't tell.
+async function extractArtist(title) {
+  if (groqClients.length === 0 || !title) return null;
+  try {
+    const resp = await getNextClient().chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      max_tokens: 24,
+      temperature: 0,
+      messages: [{ role: 'user', content:
+        `ชื่อวิดีโอเพลงบน YouTube: "${title}"\n` +
+        `ตอบเฉพาะ "ชื่อศิลปินหรือวง" ของเพลงนี้เท่านั้น — ห้ามมีชื่อเพลง ห้ามมีคำอธิบายหรือวงเล็บ. ถ้าไม่แน่ใจตอบ NONE.` }],
+    });
+    const s = (resp.choices[0]?.message?.content || '').trim().replace(/^["']+|["']+$/g, '').split('\n')[0].trim();
+    if (!s || /^none$/i.test(s) || s.length < 2) return null;
+    return s;
+  } catch (e) { console.log(`⏭ extractArtist failed: ${e.message}`); return null; }
+}
+
 // Search YouTube and return up to n candidates with metadata (no download).
 function ytSearchCandidates(query, n = 5) {
   return new Promise((resolve, reject) => {
@@ -660,7 +682,7 @@ function ytSearchCandidates(query, n = 5) {
 // (asking "ร่มสีเทา Potato" must not resolve to "อารมณ์สีเทา - Potato"). Scores by
 // how many query tokens appear in the title (2 pts each), with a mild penalty for
 // cover/sped-up/1-hour junk uploads. Falls back to the first result on a tie.
-const _JUNK_RE = /sped\s*up|slowed|nightcore|8\s*d|reverb|cover|karaoke|instrumental|reaction|เวอร์ชั่น|ปกโดย|1\s*hour|ชั่วโมง|loop|mashup/i;
+const _JUNK_RE = /sped\s*up|slowed|nightcore|8\s*d|reverb|cover|karaoke|instrumental|reaction|เวอร์ชั่น|ปกโดย|1\s*hour|ชั่วโมง|loop|mashup|\blive\b|รวมเพลง|เมดเล่ย์|เมดเลย์|medley|non\s*stop|นอนสต็อป/i;
 function pickBestMatch(query, results) {
   if (!results || !results.length) return null;
   const qTokens = String(query || '')
@@ -3271,10 +3293,22 @@ app.post('/api/music/song-ended', async (req, res) => {
     const lastSong = autoPlay.history[autoPlay.history.length - 1];
     let searchQuery;
 
-    // Prefer an AI pick (another song by the same artist / a similar one). A plain
-    // "[title] เพลงคล้ายๆ" search just returns the same song's other uploads.
-    const recentTitles = autoPlay.history.slice(-6).reverse().map(h => h.title).filter(Boolean);
-    searchQuery = await suggestNextSong(recentTitles);
+    // Primary strategy: another REAL song by the SAME artist. Read the artist off the
+    // last song's title (reliable), then search YouTube for THAT artist so the next
+    // pick comes from their real catalog — instead of asking the AI to name a song
+    // from memory, which hallucinates a different singer for less-famous artists.
+    if (lastSong && lastSong.title && lastSong.title !== 'Unknown') {
+      const artist = await extractArtist(lastSong.title);
+      if (artist) {
+        searchQuery = artist;   // bare name → their catalog; pickBestMatch avoids live/compilation uploads
+        console.log(`[${timestamp}] ⏭ [${botId}] Same-artist auto-play → "${artist}"`);
+      }
+    }
+    // Fallbacks: AI song suggestion, then a plain similar search, then generic hits.
+    if (!searchQuery) {
+      const recentTitles = autoPlay.history.slice(-6).reverse().map(h => h.title).filter(Boolean);
+      searchQuery = await suggestNextSong(recentTitles);
+    }
     if (!searchQuery) {
       if (lastSong && lastSong.title && lastSong.title !== 'Unknown') searchQuery = `${lastSong.title} เพลงคล้ายๆ`;
       else if (lastSong && lastSong.query) searchQuery = lastSong.query;
@@ -3288,7 +3322,7 @@ app.post('/api/music/song-ended', async (req, res) => {
     const playedIds = new Set(autoPlay.history.map(h => h.videoId).filter(Boolean));
     const playedTitles = new Set(autoPlay.history.map(h => normalizeTitle(h.title)).filter(Boolean));
 
-    const searchResults = await ytSearchCandidates(searchQuery, 5).catch(() => []);
+    const searchResults = await ytSearchCandidates(searchQuery, 8).catch(() => []);
 
     // Skip anything played by id OR the same song by normalized title (a different
     // upload of what we just played), then pick the candidate that best matches the
