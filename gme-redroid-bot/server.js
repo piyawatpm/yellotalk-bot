@@ -92,6 +92,11 @@ let lastVol = 25;
 // 16kHz, voice fine, and no HQ hiss). Override via MUSIC_ROOM_TYPE env (1=Fluency,
 // 3=HighQuality). The Android app applies it via ChangeRoomType after entering.
 const MUSIC_ROOM_TYPE = parseInt(process.env.MUSIC_ROOM_TYPE || '2', 10);
+// HQ-only empty-mic hiss experiment (roomType 3 only; Standard/Fluency unaffected):
+//   'off'      = don't capture the mic in HQ (may also mute music — that's the test)
+//   'delayoff' = capture to start the song, then drop capture so the noise floor stops
+//   'on'       = normal capture (no experiment)
+const AUDIO_HQ_CAPTURE = process.env.AUDIO_HQ_CAPTURE || 'off';
 let songPoll = null;
 
 let _lastFinishSeen = false;   // edge-trigger: only act when songFinished flips false->true
@@ -174,7 +179,7 @@ const server = http.createServer((req, res) => {
         state.currentFile = host; state.loop = !!j.loop; state.playAt = Date.now();
         _lastFinishSeen = false;   // arm the edge-trigger for this new song's end
         // The app's /play does StopAccompany + StartAccompany (+retry on GME -7).
-        const r = await appCall('POST', '/play', { file: devFile, loop: !!j.loop });
+        const r = await appCall('POST', '/play', { file: devFile, loop: !!j.loop, hqCapture: AUDIO_HQ_CAPTURE });
         // Re-assert the bot's volume (default 25) — the app's field resets to 100
         // on force-restart, so every fresh song would otherwise start loud.
         try { await appCall('POST', '/volume', { vol: lastVol }); } catch (e) {}

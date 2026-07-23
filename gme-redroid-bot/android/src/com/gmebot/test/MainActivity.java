@@ -118,17 +118,30 @@ public class MainActivity extends Activity {
     }
     if(path.startsWith("/play")){
       final String file=req.optString("file",""); final boolean loop=req.optBoolean("loop",false);
+      final String hqCap=req.optString("hqCapture","off");  // HQ-only hiss experiment: off | delayoff | on
+      final int rt=roomType;
       curFile=file;songFinished=false;
       final int[] rc={-999};
       onMain(new Op(){public void run(){
-        ctx.GetAudioCtrl().EnableAudioCaptureDevice(true); ctx.GetAudioCtrl().EnableAudioSend(true);
-        ctx.GetAudioCtrl().SetMicVolume(0); ctx.GetAudioCtrl().EnableSpeaker(false);
+        // Empty-mic hiss fix — ONLY in HQ (roomType 3), where the flat processing
+        // broadcasts Redroid's mic-less noise floor. Standard/Fluency always use the
+        // safe normal path (no regression). off = don't capture the mic (may also mute
+        // music — that's what we're testing); delayoff = capture to start, then drop it.
+        boolean hqOff = (rt==3 && hqCap.equals("off"));
+        if(hqOff){
+          ctx.GetAudioCtrl().EnableAudioCaptureDevice(false); ctx.GetAudioCtrl().EnableAudioSend(true);
+        } else {
+          ctx.GetAudioCtrl().EnableAudioCaptureDevice(true); ctx.GetAudioCtrl().EnableAudioSend(true);
+          ctx.GetAudioCtrl().SetMicVolume(0);
+        }
+        ctx.GetAudioCtrl().EnableSpeaker(false);
         lastStopAt=System.currentTimeMillis();   // any ACCOMPANY_FINISH within ~3s of this is stop-induced, not a real song end
         int stopRc=ctx.GetAudioEffectCtrl().StopAccompany(0);
         rc[0]=ctx.GetAudioEffectCtrl().StartAccompany(file,true,loop?-1:1);
         if(rc[0]!=0){ int s2=ctx.GetAudioEffectCtrl().StopAccompany(0); lastStopAt=System.currentTimeMillis(); rc[0]=ctx.GetAudioEffectCtrl().StartAccompany(file,true,loop?-1:1); Log.i(TAG,"PLAY-RETRY stop2="+s2+" start2="+rc[0]); }
         ctx.GetAudioEffectCtrl().SetAccompanyVolume(volume);
-        Log.i(TAG,"PLAY pkg="+getPackageName()+" room="+room+" file="+file+" stopRc="+stopRc+" startRc="+rc[0]);
+        if(rt==3 && hqCap.equals("delayoff")){ ctx.GetAudioCtrl().EnableAudioCaptureDevice(false); }
+        Log.i(TAG,"PLAY pkg="+getPackageName()+" room="+room+" rt="+rt+" hqCap="+hqCap+" file="+file+" stopRc="+stopRc+" startRc="+rc[0]);
       }});
       status="playing"; j.put("ok",rc[0]==0);j.put("startRc",rc[0]);j.put("file",file);return j.toString();
     }
@@ -136,7 +149,7 @@ public class MainActivity extends Activity {
     if(path.startsWith("/pause")){ onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().PauseAccompany();} }); status="paused"; j.put("ok",true);return j.toString(); }
     if(path.startsWith("/resume")){ onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().ResumeAccompany();} }); status="playing"; j.put("ok",true);return j.toString(); }
     if(path.startsWith("/volume")){ volume=req.optInt("vol",100); onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().SetAccompanyVolume(volume);} }); j.put("ok",true);j.put("volume",volume);return j.toString(); }
-    if(path.startsWith("/roomtype")){ final int rt=req.optInt("type",1); final int[] rc={-999}; onMain(new Op(){public void run(){ try{ rc[0]=ctx.GetRoom().ChangeRoomType(rt); }catch(Throwable t){ Log.e(TAG,"changeRoomType",t); } }}); try{ Thread.sleep(1500); }catch(InterruptedException e){} /* wait for async CHANGE_ROOM_TYPE event to update roomType */ j.put("ok",rc[0]==0);j.put("requested",rt);j.put("changeRc",rc[0]);j.put("roomType",roomType);return j.toString(); }
+    if(path.startsWith("/roomtype")){ final int rt=req.optInt("type",1); final int[] rc={-999}; onMain(new Op(){public void run(){ try{ rc[0]=ctx.GetRoom().ChangeRoomType(rt); }catch(Throwable t){ Log.e(TAG,"changeRoomType",t); } }}); try{ Thread.sleep(2000); }catch(InterruptedException e){} /* wait for async CHANGE_ROOM_TYPE to apply, then re-read the REAL current type so the caller isn't given a stale value */ onMain(new Op(){public void run(){ try{ roomType=ctx.GetRoom().GetRoomType(); }catch(Throwable t){} }}); j.put("ok",rc[0]==0);j.put("requested",rt);j.put("changeRc",rc[0]);j.put("roomType",roomType);return j.toString(); }
     if(path.startsWith("/leave")){ onMain(new Op(){public void run(){ try{ lastStopAt=System.currentTimeMillis(); ctx.GetAudioEffectCtrl().StopAccompany(0); }catch(Throwable t){} ctx.ExitRoom();} }); inRoom=false;status="idle";room=null;curFile=null; j.put("ok",true);return j.toString(); }
     j.put("error","unknown"); return j.toString();
   }

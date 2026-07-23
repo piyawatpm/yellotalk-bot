@@ -1094,6 +1094,7 @@ export default function ControlPage() {
 
   const switchRoomType = async (t: number) => {
     setRoomTypeLoading(t)
+    setRoomType(t) // optimistic: move the highlight instantly, then reconcile with the server's real value below
     try {
       const res = await fetch(`${getApiUrl()}/api/music/room-type`, {
         method: 'POST',
