@@ -2935,14 +2935,22 @@ app.post('/api/music/youtube', async (req, res) => {
       return res.status(500).json({ error: 'GME Music Bot not responding' });
     }
 
-    if (!gmeStatus.inRoom) {
-      io.emit('music-log', { type: 'info', message: 'GME not in room, auto-joining...' });
+    const room = instance.state.currentRoom;
+    const config = instance.config;
+    const gmeRoomId = String(room.gme_id || room.gmeId || '');
+    const gmeUserId = instance.state.botGmeUserId ? String(instance.state.botGmeUserId) : config.user_uuid;
+    const botRealUuid = instance.state.botRealUuid || config.user_uuid;
 
-      const room = instance.state.currentRoom;
-      const config = instance.config;
-      const gmeRoomId = String(room.gme_id || room.gmeId || '');
-      const gmeUserId = instance.state.botGmeUserId ? String(instance.state.botGmeUserId) : config.user_uuid;
-      const botRealUuid = instance.state.botRealUuid || config.user_uuid;
+    // Join if not in a room, OR if in the WRONG room. The app's inRoom flag goes
+    // stale-true (it stays "in" a previous room after a room change or a redeploy),
+    // so trusting inRoom alone makes us play into a room we're not actually in — the
+    // bot announces "playing" but nobody hears it, and the user re-asks. Verify the
+    // GME room id matches THIS room before playing.
+    const inCorrectRoom = !!(gmeStatus.inRoom && gmeRoomId && String(gmeStatus.room) === gmeRoomId);
+    if (!inCorrectRoom) {
+      io.emit('music-log', { type: 'info', message: gmeStatus.inRoom
+        ? `GME in wrong room (${gmeStatus.room} ≠ ${gmeRoomId}), rejoining...`
+        : 'GME not in room, auto-joining...' });
 
       // Auto-join speaker slot if not in one
       const speakers = instance.state.speakers || [];
