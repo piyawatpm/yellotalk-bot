@@ -2456,9 +2456,8 @@ export default function ControlPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-gray-500 whitespace-nowrap">🎚 Room audio:</span>
                     {[
-                      { t: 1, label: 'Fluency', sub: '16kHz mono' },
-                      { t: 2, label: 'Standard', sub: '48kHz mono' },
-                      { t: 3, label: 'HighQuality', sub: '48kHz stereo' },
+                      { t: 1, label: 'Normal', sub: 'default codec' },
+                      { t: 3, label: 'Better (HD)', sub: '48kHz stereo' },
                     ].map(({ t, label, sub }) => (
                       <button
                         key={t}
