@@ -88,6 +88,10 @@ let state = { currentFile: null, loop: false, playAt: 0 };
 // resets its own volume field to 100 whenever it force-restarts on /join, so we
 // re-assert this after every /play — otherwise each fresh song plays loud.
 let lastVol = 25;
+// Room audio codec to request on join. 2=Standard (48kHz: clearer than Fluency's
+// 16kHz, voice fine, and no HQ hiss). Override via MUSIC_ROOM_TYPE env (1=Fluency,
+// 3=HighQuality). The Android app applies it via ChangeRoomType after entering.
+const MUSIC_ROOM_TYPE = parseInt(process.env.MUSIC_ROOM_TYPE || '2', 10);
 let songPoll = null;
 
 let _lastFinishSeen = false;   // edge-trigger: only act when songFinished flips false->true
@@ -154,7 +158,7 @@ const server = http.createServer((req, res) => {
         // GME's auth identifier MUST equal the Init openId (= user). bot-server
         // sometimes passes the YelloTalk uuid (a GUID) which is NOT a valid GME
         // identifier and makes EnterRoom fail auth. Always auth as `user`.
-        const r = await appCall('POST', '/join', { room: String(room), user: String(user), uuid: String(user) });
+        const r = await appCall('POST', '/join', { room: String(room), user: String(user), uuid: String(user), roomType: MUSIC_ROOM_TYPE });
         if (r.inRoom) startSongPoll();
         return res.end(JSON.stringify({ ok: !!r.inRoom, inRoom: !!r.inRoom, status: r.status, room, user, error: r.error }));
       }

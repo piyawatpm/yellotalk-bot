@@ -35,6 +35,9 @@ public class MainActivity extends Activity {
   // 2=standard, 3=highquality/music). Set by whoever CREATED the room (the chat
   // host), not us — this tells us the real ceiling on music quality. Read-only.
   volatile int roomType=0;
+  // Target codec to auto-apply on join. 2=Standard (48kHz: clearer than Fluency,
+  // voice fine, no HQ hiss). Comes from /join's roomType param (default 2).
+  volatile int desiredRoomType=2;
 
   @Override protected void onCreate(Bundle b){
     super.onCreate(b);
@@ -55,12 +58,12 @@ public class MainActivity extends Activity {
         if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_ENTER_ROOM){
           Log.i(TAG,"ENTER_ROOM result="+result);
           if(result==0){inRoom=true;status="joined";lastError=null;
-            // Do NOT ChangeRoomType(HIGHQUALITY): it forces the music codec on the
-            // WHOLE room, thinning out everyone's VOICE (the host becomes inaudible)
-            // and — with no noise-suppression — broadcasting our empty capture (Redroid
-            // has no mic) as a constant hiss. Stay on the room's default (fluency) codec.
-            // Read (never change) the actual room codec so we know the quality ceiling.
             try{ roomType=ctx.GetRoom().GetRoomType(); Log.i(TAG,"ROOM_TYPE="+roomType+" (1=fluency 2=standard 3=highquality)"); }catch(Throwable t){ Log.e(TAG,"getRoomType",t); }
+            // Auto-upgrade the room codec for better music. Tested live: Standard(2)=48kHz
+            // is much clearer than Fluency(1)=16kHz, voice stays fine, and — unlike HQ(3) —
+            // it does NOT expose the bot's mic-less capture as hiss. ChangeRoomType is
+            // ROOM-WIDE; target from /join (default 2). Pass roomType=1 in /join to keep Fluency.
+            if(desiredRoomType>0 && desiredRoomType!=roomType){ try{ int rc2=ctx.GetRoom().ChangeRoomType(desiredRoomType); Log.i(TAG,"auto ChangeRoomType("+desiredRoomType+") rc="+rc2); }catch(Throwable t){ Log.e(TAG,"autoRoomType",t); } }
           } else {lastError="enter="+result;status="error";}
         } else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_EXIT_ROOM){inRoom=false;status="idle";}
         else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_ACCOMPANY_FINISH){ long sinceStop=System.currentTimeMillis()-lastStopAt; if(sinceStop<3000){ Log.i(TAG,"ACCOMPANY_FINISH (stop-induced "+sinceStop+"ms — ignored)"); } else { Log.i(TAG,"ACCOMPANY_FINISH (real end)"); songFinished=true; status="joined"; } }
@@ -107,8 +110,9 @@ public class MainActivity extends Activity {
     }
     if(path.startsWith("/join")){
       room=req.optString("room",""); final String user=req.optString("user","0"); final String uuid=req.optString("uuid",user);
+      desiredRoomType=req.optInt("roomType",2);
       status="joining";inRoom=false;lastError=null;
-      onMain(new Op(){public void run(){ ctx.Init(String.valueOf(APPID),user); byte[] a=AuthBuffer.getInstance().genAuthBuffer(APPID,room,uuid,KEY); ctx.EnterRoom(room,3,a);} });
+      onMain(new Op(){public void run(){ ctx.Init(String.valueOf(APPID),user); byte[] a=AuthBuffer.getInstance().genAuthBuffer(APPID,room,uuid,KEY); ctx.EnterRoom(room,desiredRoomType,a);} });
       long t0=System.currentTimeMillis(); while(!inRoom && lastError==null && System.currentTimeMillis()-t0<20000){ Thread.sleep(150); }
       j.put("ok",inRoom);j.put("inRoom",inRoom);j.put("status",status);j.put("error",lastError);return j.toString();
     }
