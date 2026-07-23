@@ -602,6 +602,36 @@ function getNextClient() {
   return client;
 }
 
+// Collapse a YouTube title to its core "song + artist" so different uploads of the
+// SAME song (Official MV / Lyrics / Live / เนื้อเพลง / 4K …) compare equal.
+function normalizeTitle(t) {
+  return String(t || '')
+    .toLowerCase()
+    .replace(/[([][^)\]]*[)\]]/g, ' ')                                   // (…) […]
+    .replace(/official|music\s*video|lyrics?|audio|เนื้อเพลง|เนื้อร้อง|live|version|remaster\w*|hd|4k|\bmv\b|ost|cover/gi, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')                                     // punctuation -> space
+    .trim();
+}
+
+// Ask the AI for the next auto-play song — another song by the SAME artist, or a
+// similar one, never a repeat/other-version of what just played. Returns a YouTube
+// search string, or null on failure (caller falls back to a plain search).
+async function suggestNextSong(recentTitles) {
+  if (groqClients.length === 0 || !recentTitles.length) return null;
+  try {
+    const list = recentTitles.slice(0, 6).map((t, i) => `${i + 1}. ${t}`).join('\n');
+    const resp = await getNextClient().chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      max_tokens: 40,
+      temperature: 0.9,
+      messages: [{ role: 'user', content:
+        `เพลงที่เพิ่งเล่น (ล่าสุดอยู่บรรทัดแรก):\n${list}\n\nแนะนำเพลงถัดไป 1 เพลง: เป็นเพลง"อื่น"ของศิลปินคนเดียวกับเพลงล่าสุด หรือเพลงแนวเดียวกันของศิลปินอื่น. ห้ามซ้ำหรือเป็นเพลงเดิมคนละเวอร์ชันกับรายการข้างบน. ตอบแค่ "ชื่อเพลง ชื่อศิลปิน" สำหรับค้นหา YouTube เท่านั้น ห้ามมีคำอธิบายหรือเครื่องหมายคำพูด.` }],
+    });
+    const s = (resp.choices[0]?.message?.content || '').trim().replace(/^["']+|["']+$/g, '');
+    return s.length > 2 ? s : null;
+  } catch (e) { console.log(`⏭ suggestNextSong failed: ${e.message}`); return null; }
+}
+
 // Store conversation history per user (for memory)
 const conversationHistory = new Map();
 
@@ -3181,12 +3211,14 @@ app.post('/api/music/song-ended', async (req, res) => {
     const lastSong = autoPlay.history[autoPlay.history.length - 1];
     let searchQuery;
 
-    if (lastSong && lastSong.title && lastSong.title !== 'Unknown') {
-      searchQuery = `${lastSong.title} เพลงคล้ายๆ`;
-    } else if (lastSong && lastSong.query) {
-      searchQuery = lastSong.query;
-    } else {
-      searchQuery = 'เพลงไทย ฮิต 2024 เพราะๆ';
+    // Prefer an AI pick (another song by the same artist / a similar one). A plain
+    // "[title] เพลงคล้ายๆ" search just returns the same song's other uploads.
+    const recentTitles = autoPlay.history.slice(-6).reverse().map(h => h.title).filter(Boolean);
+    searchQuery = await suggestNextSong(recentTitles);
+    if (!searchQuery) {
+      if (lastSong && lastSong.title && lastSong.title !== 'Unknown') searchQuery = `${lastSong.title} เพลงคล้ายๆ`;
+      else if (lastSong && lastSong.query) searchQuery = lastSong.query;
+      else searchQuery = 'เพลงไทย ฮิต 2024 เพราะๆ';
     }
 
     console.log(`[${timestamp}] ⏭ [${botId}] Auto-play searching: "${searchQuery}"`);
@@ -3194,6 +3226,7 @@ app.post('/api/music/song-ended', async (req, res) => {
 
     // Search for 5 results and pick one we haven't played recently
     const playedIds = new Set(autoPlay.history.map(h => h.videoId).filter(Boolean));
+    const playedTitles = new Set(autoPlay.history.map(h => normalizeTitle(h.title)).filter(Boolean));
 
     const searchResults = await new Promise((resolve, reject) => {
       execFile('yt-dlp', [
@@ -3210,10 +3243,11 @@ app.post('/api/music/song-ended', async (req, res) => {
       });
     });
 
-    // Pick the first result that hasn't been played recently
-    let nextSong = searchResults.find(s => !playedIds.has(s.id));
+    // Skip anything played by id OR the same song by normalized title (a different
+    // upload of what we just played). Fall back gradually so we always pick something.
+    let nextSong = searchResults.find(s => !playedIds.has(s.id) && !playedTitles.has(normalizeTitle(s.title)));
+    if (!nextSong) nextSong = searchResults.find(s => !playedIds.has(s.id));
     if (!nextSong && searchResults.length > 0) {
-      // All were played recently, just pick a random one
       nextSong = searchResults[Math.floor(Math.random() * searchResults.length)];
     }
 
