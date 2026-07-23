@@ -92,11 +92,12 @@ let lastVol = 25;
 // 16kHz, voice fine, and no HQ hiss). Override via MUSIC_ROOM_TYPE env (1=Fluency,
 // 3=HighQuality). The Android app applies it via ChangeRoomType after entering.
 const MUSIC_ROOM_TYPE = parseInt(process.env.MUSIC_ROOM_TYPE || '2', 10);
-// HQ-only empty-mic hiss experiment (roomType 3 only; Standard/Fluency unaffected):
-//   'off'      = don't capture the mic in HQ (may also mute music — that's the test)
-//   'delayoff' = capture to start the song, then drop capture so the noise floor stops
-//   'on'       = normal capture (no experiment)
-const AUDIO_HQ_CAPTURE = process.env.AUDIO_HQ_CAPTURE || 'off';
+// HQ-only capture mode (roomType 3 only; Standard/Fluency unaffected). Default 'on'
+// (normal) — TESTED: 'off'/'delayoff' both MUTE the music (the accompaniment needs
+// continuous capture to transmit) and the HQ noise leaks through anyway (it's in the
+// Redroid/HQ send path, below GME's capture lever). So HQ = music+noise; Standard(2)
+// is the real answer. Kept configurable in case the Redroid audio source is fixed later.
+const AUDIO_HQ_CAPTURE = process.env.AUDIO_HQ_CAPTURE || 'on';
 let songPoll = null;
 
 let _lastFinishSeen = false;   // edge-trigger: only act when songFinished flips false->true
