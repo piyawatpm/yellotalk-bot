@@ -2291,10 +2291,12 @@ app.post('/api/music/volume', async (req, res) => {
 const { execFile, spawn } = require('child_process');
 const path = require('path');
 const MUSIC_CACHE_DIR = path.join(__dirname, 'music-cache');
-// Audio format for downloads: 'm4a' = grab YouTube AAC directly, NO re-encode (~5s,
-// but GME must be able to play m4a) | 'mp3' = re-encode (safe, ~13s). Flip with the
-// MUSIC_FORMAT env var + restart if m4a plays silence.
-const MUSIC_FORMAT = (process.env.MUSIC_FORMAT || 'm4a').toLowerCase();
+// Audio format for downloads. Default 'mp3' (re-encode, ~13s): GME fires
+// ACCOMPANY_FINISH reliably at the end of an mp3, which is what drives auto-play /
+// queue-advance. 'm4a' is faster (~5s, direct AAC) BUT its end-of-file often does
+// NOT fire ACCOMPANY_FINISH, so songs don't auto-advance — only flip to m4a via the
+// MUSIC_FORMAT env var if you don't need auto-play.
+const MUSIC_FORMAT = (process.env.MUSIC_FORMAT || 'mp3').toLowerCase();
 const MUSIC_EXT = MUSIC_FORMAT === 'm4a' ? 'm4a' : 'mp3';
 
 // Ensure cache dir exists
