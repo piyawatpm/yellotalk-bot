@@ -31,6 +31,10 @@ public class MainActivity extends Activity {
   // desyncs under rapid consecutive /play calls — stop-when-idle emits no finish —
   // and then swallows the NEXT real song-end, killing auto-play.)
   volatile long lastStopAt=0;
+  // Actual room audio codec, read AFTER we enter (1=fluency/narrowband voice,
+  // 2=standard, 3=highquality/music). Set by whoever CREATED the room (the chat
+  // host), not us — this tells us the real ceiling on music quality. Read-only.
+  volatile int roomType=0;
 
   @Override protected void onCreate(Bundle b){
     super.onCreate(b);
@@ -55,6 +59,8 @@ public class MainActivity extends Activity {
             // WHOLE room, thinning out everyone's VOICE (the host becomes inaudible)
             // and — with no noise-suppression — broadcasting our empty capture (Redroid
             // has no mic) as a constant hiss. Stay on the room's default (fluency) codec.
+            // Read (never change) the actual room codec so we know the quality ceiling.
+            try{ roomType=ctx.GetRoom().GetRoomType(); Log.i(TAG,"ROOM_TYPE="+roomType+" (1=fluency 2=standard 3=highquality)"); }catch(Throwable t){ Log.e(TAG,"getRoomType",t); }
           } else {lastError="enter="+result;status="error";}
         } else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_EXIT_ROOM){inRoom=false;status="idle";}
         else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_ACCOMPANY_FINISH){ long sinceStop=System.currentTimeMillis()-lastStopAt; if(sinceStop<3000){ Log.i(TAG,"ACCOMPANY_FINISH (stop-induced "+sinceStop+"ms — ignored)"); } else { Log.i(TAG,"ACCOMPANY_FINISH (real end)"); songFinished=true; status="joined"; } }
@@ -96,7 +102,7 @@ public class MainActivity extends Activity {
   String route(String path, JSONObject req) throws Exception {
     JSONObject j=new JSONObject();
     if(path.startsWith("/status")){
-      j.put("status",status);j.put("inRoom",inRoom);j.put("room",room);j.put("currentFile",curFile);j.put("volume",volume);j.put("songFinished",songFinished);j.put("error",lastError);return j.toString();
+      j.put("status",status);j.put("inRoom",inRoom);j.put("room",room);j.put("currentFile",curFile);j.put("volume",volume);j.put("songFinished",songFinished);j.put("error",lastError);j.put("roomType",roomType);return j.toString();
     }
     if(path.startsWith("/join")){
       room=req.optString("room",""); final String user=req.optString("user","0"); final String uuid=req.optString("uuid",user);
