@@ -90,20 +90,36 @@ let state = { currentFile: null, loop: false, playAt: 0 };
 let lastVol = 25;
 let songPoll = null;
 
+let _lastFinishSeen = false;   // edge-trigger: only act when songFinished flips false->true
+let _pollFails = 0;            // consecutive /status failures (detect a dead adb forward)
 function startSongPoll() {
   if (songPoll) return;
+  log('songPoll STARTED (polling app /status every 500ms)');
   songPoll = setInterval(async () => {
     try {
       const s = await appCall('GET', '/status');
-      // Guard: a real song can't "finish" a few seconds after it starts. If the app
-      // reports finished that soon, it's a spurious end (e.g. a stop-induced finish
-      // that slipped through) — ignore it, or we'd auto-play the next track instantly.
-      if (s && s.songFinished && state.currentFile && (Date.now() - (state.playAt || 0)) > 3000) {
-        const f = state.currentFile; state.currentFile = null;
-        log(`song finished: ${f}`);
-        if (CALLBACK_URL) notifyCallback(f);
+      if (_pollFails > 0) { log(`songPoll: /status recovered after ${_pollFails} fails`); _pollFails = 0; }
+      const finished = !!(s && s.songFinished);
+      // Edge-trigger on the app's songFinished flag. A real song can't "finish" within
+      // a few seconds of starting (stop-induced spurious end) — the sincePlay guard
+      // rejects those so we don't auto-play the next track instantly.
+      if (finished && !_lastFinishSeen) {
+        const sincePlay = Date.now() - (state.playAt || 0);
+        const base = state.currentFile ? require('path').basename(state.currentFile) : 'null';
+        log(`songPoll: songFinished=true (currentFile=${base}, sincePlay=${sincePlay}ms)`);
+        if (state.currentFile && sincePlay > 3000) {
+          const f = state.currentFile; state.currentFile = null;
+          log(`song finished -> firing callback: ${f}`);
+          if (CALLBACK_URL) notifyCallback(f); else log('song finished but NO CALLBACK_URL set!');
+        } else {
+          log(`songPoll: IGNORED (currentFile=${!!state.currentFile}, sincePlay=${sincePlay}ms <= 3000)`);
+        }
       }
-    } catch (e) { /* app briefly unreachable */ }
+      _lastFinishSeen = finished;
+    } catch (e) {
+      _pollFails++;
+      if (_pollFails === 1 || _pollFails % 20 === 0) log(`songPoll: /status FAILED x${_pollFails}: ${e.message}`);
+    }
   }, 500);
 }
 
@@ -112,9 +128,10 @@ function notifyCallback(file) {
     const data = JSON.stringify({ file, botId: BOT_ID });
     const u = url.parse(CALLBACK_URL);
     const req = http.request({ hostname: u.hostname, port: u.port, path: u.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } });
-    req.on('error', () => {});
+    req.on('error', (e) => log(`callback POST error: ${e.message}`));
+    req.on('response', (r) => log(`callback POST -> ${r.statusCode}`));
     req.write(data); req.end();
-  } catch (e) {}
+  } catch (e) { log(`notifyCallback threw: ${e.message}`); }
 }
 
 const server = http.createServer((req, res) => {
@@ -151,11 +168,16 @@ const server = http.createServer((req, res) => {
         const push = await adb(['push', host, devFile]);
         if (push.e) return res.end(JSON.stringify({ error: 'adb push failed: ' + push.e.message }));
         state.currentFile = host; state.loop = !!j.loop; state.playAt = Date.now();
+        _lastFinishSeen = false;   // arm the edge-trigger for this new song's end
         // The app's /play does StopAccompany + StartAccompany (+retry on GME -7).
         const r = await appCall('POST', '/play', { file: devFile, loop: !!j.loop });
         // Re-assert the bot's volume (default 25) — the app's field resets to 100
         // on force-restart, so every fresh song would otherwise start loud.
         try { await appCall('POST', '/volume', { vol: lastVol }); } catch (e) {}
+        // Ensure we poll for THIS song's end even if bot-server played into a bot
+        // that was already in the room (so /join — which used to be the only place
+        // the poll started — was skipped). Idempotent: no-op if already polling.
+        startSongPoll();
         log(`play -> ${APP_PKG} startRc=${r.startRc} ok=${r.ok} vol=${lastVol}`);
         return res.end(JSON.stringify({ ok: !!r.ok, status: 'playing', file: host, startRc: r.startRc }));
       }
