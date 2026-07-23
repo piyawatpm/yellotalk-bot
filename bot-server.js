@@ -4186,7 +4186,7 @@ app.post('/api/bot/start', async (req, res) => {
           // (no need to say the bot's name), and stops before the AI runs.
           if (/@help\b/i.test(message)) {
             const bn = botConfig.name;
-            const helpMessage = `📖 คำสั่งของ ${bn} ทั้งหมดค่ะ:\n\n🎵 เพลง\n• ${bn} เปิดเพลง [ชื่อเพลง]\n• วางลิงก์ YouTube / เพลย์ลิสต์ (เล่น/เพิ่มทั้งอัน)\n• ${bn} เพิ่มเพลง [ชื่อ] (เข้าคิว)\n• ${bn} ข้ามเพลง / คิวเพลง\n• ${bn} หยุด / เล่นต่อ / เลิกเล่น\n• ${bn} ปรับเสียง [0-200] / ดังขึ้น / เบาลง\n• ${bn} เพลงอะไร\n\n🎙️ เสียงห้อง\n• ${bn} ขึ้นหลุม / ลงหลุม\n\n💬 คุยเล่น\n• ${bn} [ถามอะไรก็ได้] — AI ตอบให้\n• ${bn} เรียกฉันว่า [ชื่อ] (ตั้งคำทักทาย)\n\n🚪 ${bn} ออกไป — ให้บอทออกจากห้อง`;
+            const helpMessage = `📖 คำสั่งของ ${bn} ทั้งหมดค่ะ:\n\n🎵 เพลง\n• ${bn} เปิดเพลง [ชื่อเพลง]\n• วางลิงก์ YouTube / เพลย์ลิสต์ (เล่น/เพิ่มทั้งอัน)\n• ${bn} เพิ่มเพลง [ชื่อ] (เข้าคิว)\n• ${bn} ข้ามเพลง / คิวเพลง\n• ${bn} หยุด / เล่นต่อ / เลิกเล่น\n• ${bn} ปรับเสียง [0-200] / ดังขึ้น / เบาลง\n• ${bn} ปรับเสียงให้ดีขึ้น 🎧 / ปรับเสียงกลับมาปกติ ✨\n• ${bn} เพลงอะไร\n\n🎙️ เสียงห้อง\n• ${bn} ขึ้นหลุม / ลงหลุม\n\n💬 คุยเล่น\n• ${bn} [ถามอะไรก็ได้] — AI ตอบให้\n• ${bn} เรียกฉันว่า [ชื่อ] (ตั้งคำทักทาย)\n\n🚪 ${bn} ออกไป — ให้บอทออกจากห้อง`;
             sendMessageForBot(targetBotId, helpMessage);
             console.log(`[${timestamp}] 📖 ${botConfig.name} sent @help to ${sender}`);
             return;
@@ -4683,7 +4683,7 @@ app.post('/api/bot/start', async (req, res) => {
           if (instance.state.enableWelcomeMessage) {
             setTimeout(() => {
               const bn = botConfig.name; // Bot name for welcome message
-              const welcomeMessage = `สวัสดีค่ะ! 🤖 ${bn} มาแล้วค่า~\n🎵 ลองพิมพ์ "${bn} เปิดเพลง [ชื่อเพลง]" หรือทักหนู "@${bn} ..." ได้เลย\n📖 ดูคำสั่งทั้งหมด พิมพ์ "@help"`;
+              const welcomeMessage = `สวัสดีค่ะ! 🤖 ${bn} มาแล้วค่า~\n🎵 ลองพิมพ์ "${bn} เปิดเพลง [ชื่อเพลง]" หรือทักหนู "@${bn} ..." ได้เลย\n✨ ใหม่! อยากให้เสียงเพลงชัดขึ้น พิมพ์ "${bn} ปรับเสียงให้ดีขึ้น" 🎧 (กลับปกติ: "${bn} ปรับเสียงกลับมาปกติ")\n📖 ดูคำสั่งทั้งหมด พิมพ์ "@help"`;
               sendMessageForBot(targetBotId, welcomeMessage);
               console.log(`[${timestamp}] 👋 Sent ${botConfig.name} welcome message`);
             }, 2000); // 2 second delay to let room fully load
