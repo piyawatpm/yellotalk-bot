@@ -236,11 +236,17 @@ module.exports = function createOperator(rawDeps) {
       const takenRoomIds = new Set(bots.map((b) => b.currentRoomId).filter(Boolean));
       let allRooms = [];
       try { allRooms = await fetchAllRooms(); } catch { post('ขอโทษค่ะ ดึงรายชื่อห้องไม่ได้ ลองใหม่นะคะ'); return; }
-      const options = joinableRooms(allRooms, takenRoomIds).slice(0, 9);
+      const options = joinableRooms(allRooms, takenRoomIds); // show ALL joinable rooms (was capped at 9)
       if (options.length === 0) { post(`คุณ${sender} ตอนนี้ไม่มีห้องว่างให้บอทเข้าเลยค่ะ (ทุกห้องมีบอทแล้ว/ปิดอยู่)`); return; }
 
       sessions.set(uuid, { step: 'awaiting_choice', rooms: options, name: sender, ts: Date.now() });
-      const list = options.map((r, i) => `${i + 1}. ${r.topic} (${r.participants_count || 0} คน)`).join('\n');
+      // One compact line each: "N. <topic…> · <owner…> (count)" — topic truncated, room owner's name after.
+      const trunc = (s, n) => { s = String(s || '').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+      const list = options.map((r, i) => {
+        const owner = trunc(r.owner?.pin_name || r.owner?.name || r.pin_name || '', 10);
+        const topic = trunc(r.topic || 'ห้อง', 16);
+        return `${i + 1}. ${topic}${owner ? ' · ' + owner : ''} (${r.participants_count || 0})`;
+      }).join('\n');
       post(`🤖 คุณ${sender} เลือกห้องที่อยากให้บอทเข้า พิมพ์เลขนะคะ (บอทว่าง ${free.length} ตัว):\n${list}\n(พิมพ์ "ยกเลิก" เพื่อยกเลิก)`);
     }
   }
