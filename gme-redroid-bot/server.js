@@ -83,7 +83,7 @@ async function ensureApp(fresh) {
   }
 }
 
-let state = { currentFile: null, loop: false };
+let state = { currentFile: null, loop: false, playAt: 0 };
 // Per-bot music volume (GME native scale 0-200, default 25). The Android app
 // resets its own volume field to 100 whenever it force-restarts on /join, so we
 // re-assert this after every /play — otherwise each fresh song plays loud.
@@ -95,7 +95,10 @@ function startSongPoll() {
   songPoll = setInterval(async () => {
     try {
       const s = await appCall('GET', '/status');
-      if (s && s.songFinished && state.currentFile) {
+      // Guard: a real song can't "finish" a few seconds after it starts. If the app
+      // reports finished that soon, it's a spurious end (e.g. a stop-induced finish
+      // that slipped through) — ignore it, or we'd auto-play the next track instantly.
+      if (s && s.songFinished && state.currentFile && (Date.now() - (state.playAt || 0)) > 3000) {
         const f = state.currentFile; state.currentFile = null;
         log(`song finished: ${f}`);
         if (CALLBACK_URL) notifyCallback(f);
@@ -147,7 +150,7 @@ const server = http.createServer((req, res) => {
         const devFile = `/data/local/tmp/gmesong${INSTANCE}${ext}`;
         const push = await adb(['push', host, devFile]);
         if (push.e) return res.end(JSON.stringify({ error: 'adb push failed: ' + push.e.message }));
-        state.currentFile = host; state.loop = !!j.loop;
+        state.currentFile = host; state.loop = !!j.loop; state.playAt = Date.now();
         // The app's /play does StopAccompany + StartAccompany (+retry on GME -7).
         const r = await appCall('POST', '/play', { file: devFile, loop: !!j.loop });
         // Re-assert the bot's volume (default 25) — the app's field resets to 100
@@ -157,7 +160,7 @@ const server = http.createServer((req, res) => {
         return res.end(JSON.stringify({ ok: !!r.ok, status: 'playing', file: host, startRc: r.startRc }));
       }
       if (['/stop', '/pause', '/resume', '/leave'].includes(u.pathname) && req.method === 'POST') {
-        if (u.pathname === '/leave') { state.currentFile = null; }
+        if (u.pathname === '/leave' || u.pathname === '/stop') { state.currentFile = null; }
         const r = await appCall('POST', u.pathname, {});
         return res.end(JSON.stringify(r));
       }
