@@ -246,14 +246,24 @@ module.exports = function createOperator(rawDeps) {
       if (options.length === 0) { post(`คุณ${sender} ตอนนี้ไม่มีห้องว่างให้บอทเข้าเลยค่ะ (ทุกห้องมีบอทแล้ว/ปิดอยู่)`); return; }
 
       sessions.set(uuid, { step: 'awaiting_choice', rooms: options, name: sender, ts: Date.now() });
-      // One compact line each: "N. <topic…> · <owner…> (count)" — topic truncated, room owner's name after.
+      // Split into messages of max 9 rooms each — a single long message comes through
+      // BLANK on YelloTalk. Continuous numbering so picking by number still works; header
+      // on the first message, footer on the last. One compact line each:
+      // "N. <topic…> · <owner…> (count)" (topic truncated, room owner's name after).
       const trunc = (s, n) => { s = String(s || '').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
-      const list = options.map((r, i) => {
+      const fmt = (r, idx) => {
         const owner = trunc(r.owner?.pin_name || r.owner?.name || r.pin_name || '', 10);
         const topic = trunc(r.topic || 'ห้อง', 16);
-        return `${i + 1}. ${topic}${owner ? ' · ' + owner : ''} (${r.participants_count || 0})`;
-      }).join('\n');
-      post(`🤖 คุณ${sender} เลือกห้องที่อยากให้บอทเข้า พิมพ์เลขนะคะ (บอทว่าง ${free.length} ตัว):\n${list}\n(พิมพ์ "ยกเลิก" เพื่อยกเลิก)`);
+        return `${idx}. ${topic}${owner ? ' · ' + owner : ''} (${r.participants_count || 0})`;
+      };
+      const CHUNK = 9;
+      const chunks = [];
+      for (let i = 0; i < options.length; i += CHUNK) {
+        chunks.push(options.slice(i, i + CHUNK).map((r, j) => fmt(r, i + j + 1)).join('\n'));
+      }
+      chunks[0] = `🤖 คุณ${sender} เลือกห้องให้บอทเข้า พิมพ์เลขนะคะ (บอทว่าง ${free.length} ตัว):\n${chunks[0]}`;
+      chunks[chunks.length - 1] += `\n(พิมพ์เลข 1-${options.length} หรือ "ยกเลิก")`;
+      for (const c of chunks) post(c);
     }
   }
 
