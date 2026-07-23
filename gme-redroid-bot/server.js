@@ -194,6 +194,11 @@ const server = http.createServer((req, res) => {
         const r = await appCall('POST', '/volume', { vol: lastVol });
         return res.end(JSON.stringify({ ...r, vol: lastVol }));
       }
+      if (u.pathname === '/roomtype' && req.method === 'POST') {
+        const t = parseInt(j.type, 10) || 1;   // 1=Fluency 2=Standard 3=HighQuality
+        const r = await appCall('POST', '/roomtype', { type: t });
+        return res.end(JSON.stringify(r));
+      }
       if (u.pathname === '/voice-users') { return res.end(JSON.stringify({ ok: true, events: [] })); }
       res.statusCode = 404; res.end(JSON.stringify({ error: 'unknown endpoint' }));
     } catch (e) {

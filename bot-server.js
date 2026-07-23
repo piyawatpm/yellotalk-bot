@@ -2441,6 +2441,33 @@ app.post('/api/music/volume', async (req, res) => {
   }
 });
 
+// Manually switch the GME room audio type so you can A/B the sound live.
+// 1=Fluency(16kHz/mono) 2=Standard(48kHz/mono) 3=HighQuality(48kHz/stereo).
+// NOTE: ChangeRoomType is ROOM-WIDE (affects everyone) and types 2/3 may require a
+// Tencent ticket on the AppID — if `enabled` comes back false, the type stayed put
+// (gated), which is itself the answer to "is it enabled?".
+const ROOM_TYPE_NAMES = { 1: 'Fluency', 2: 'Standard', 3: 'HighQuality' };
+app.post('/api/music/room-type', async (req, res) => {
+  const { type, botId } = req.body;
+  const targetBotId = botId || selectedBotId || 'bot-1'; logRoute('voice-cmd', botId, targetBotId);
+  const t = parseInt(type, 10);
+  if (![1, 2, 3].includes(t)) return res.status(400).json({ error: 'type must be 1, 2, or 3' });
+  const instance = botInstances.get(targetBotId);
+  if (!instance || !instance.state.currentRoom) return res.status(400).json({ error: 'Bot not in a room' });
+  const gmeUrl = getGmeUrl(targetBotId);
+  if (!gmeUrl) return res.status(500).json({ error: 'No GME process' });
+  try {
+    const resp = await axios.post(`${gmeUrl}/roomtype`, { type: t }, { timeout: 8000 });
+    const actual = resp.data.roomType;
+    const enabled = actual === t;
+    io.emit('music-log', { type: enabled ? 'info' : 'warn',
+      message: `[${targetBotId}] Room type: requested ${ROOM_TYPE_NAMES[t]}, now ${ROOM_TYPE_NAMES[actual] || actual}${enabled ? '' : ' (change did NOT stick — likely not enabled on the AppID)'}` });
+    res.json({ success: true, requested: t, actual, enabled, changeRc: resp.data.changeRc, botId: targetBotId });
+  } catch (error) {
+    res.status(500).json({ error: error.response?.data?.error || error.message });
+  }
+});
+
 // ==================== YOUTUBE AUDIO ====================
 const { execFile, spawn } = require('child_process');
 const path = require('path');

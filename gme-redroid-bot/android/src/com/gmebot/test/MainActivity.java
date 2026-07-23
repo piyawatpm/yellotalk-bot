@@ -64,6 +64,7 @@ public class MainActivity extends Activity {
           } else {lastError="enter="+result;status="error";}
         } else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_EXIT_ROOM){inRoom=false;status="idle";}
         else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_ACCOMPANY_FINISH){ long sinceStop=System.currentTimeMillis()-lastStopAt; if(sinceStop<3000){ Log.i(TAG,"ACCOMPANY_FINISH (stop-induced "+sinceStop+"ms — ignored)"); } else { Log.i(TAG,"ACCOMPANY_FINISH (real end)"); songFinished=true; status="joined"; } }
+        else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_CHANGE_ROOM_TYPE){ try{ roomType=ctx.GetRoom().GetRoomType(); }catch(Throwable t){} Log.i(TAG,"CHANGE_ROOM_TYPE result="+result+" -> roomType="+roomType); }
       }
     });
     main.post(new Runnable(){public void run(){ if(ctx!=null) ctx.Poll(); main.postDelayed(this,100);} });
@@ -131,6 +132,7 @@ public class MainActivity extends Activity {
     if(path.startsWith("/pause")){ onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().PauseAccompany();} }); status="paused"; j.put("ok",true);return j.toString(); }
     if(path.startsWith("/resume")){ onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().ResumeAccompany();} }); status="playing"; j.put("ok",true);return j.toString(); }
     if(path.startsWith("/volume")){ volume=req.optInt("vol",100); onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().SetAccompanyVolume(volume);} }); j.put("ok",true);j.put("volume",volume);return j.toString(); }
+    if(path.startsWith("/roomtype")){ final int rt=req.optInt("type",1); final int[] rc={-999}; onMain(new Op(){public void run(){ try{ rc[0]=ctx.GetRoom().ChangeRoomType(rt); }catch(Throwable t){ Log.e(TAG,"changeRoomType",t); } }}); try{ Thread.sleep(1500); }catch(InterruptedException e){} /* wait for async CHANGE_ROOM_TYPE event to update roomType */ j.put("ok",rc[0]==0);j.put("requested",rt);j.put("changeRc",rc[0]);j.put("roomType",roomType);return j.toString(); }
     if(path.startsWith("/leave")){ onMain(new Op(){public void run(){ try{ lastStopAt=System.currentTimeMillis(); ctx.GetAudioEffectCtrl().StopAccompany(0); }catch(Throwable t){} ctx.ExitRoom();} }); inRoom=false;status="idle";room=null;curFile=null; j.put("ok",true);return j.toString(); }
     j.put("error","unknown"); return j.toString();
   }

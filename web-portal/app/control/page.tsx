@@ -179,6 +179,8 @@ export default function ControlPage() {
   const [youtubeSearching, setYoutubeSearching] = useState(false)
   const [youtubeNowPlaying, setYoutubeNowPlaying] = useState<string | null>(null)
   const [autoPlayEnabled, setAutoPlayEnabled] = useState(true)
+  const [roomType, setRoomType] = useState<number | null>(null) // GME room audio type: 1=Fluency 2=Standard 3=HQ
+  const [roomTypeLoading, setRoomTypeLoading] = useState<number | null>(null)
   const [voiceUsers, setVoiceUsers] = useState<any[]>([])
   const [loadingRoomUsers, setLoadingRoomUsers] = useState(false)
   const [selectedUserDetail, setSelectedUserDetail] = useState<any>(null)
@@ -1087,6 +1089,30 @@ export default function ControlPage() {
       addMusicLog(`Auto-play ${data.enabled ? 'enabled' : 'disabled'}`)
     } catch (error: any) {
       addMusicLog(`Auto-play toggle failed: ${error.message}`)
+    }
+  }
+
+  const switchRoomType = async (t: number) => {
+    setRoomTypeLoading(t)
+    try {
+      const res = await fetch(`${getApiUrl()}/api/music/room-type`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: t, botId: selectedBotId })
+      })
+      const data = await res.json()
+      const names: Record<number, string> = { 1: 'Fluency', 2: 'Standard', 3: 'HighQuality' }
+      if (data.error) {
+        addMusicLog(`Room type failed: ${data.error}`)
+      } else {
+        setRoomType(data.actual)
+        if (data.enabled) addMusicLog(`✓ Room audio → ${names[data.actual]} (whole room)`)
+        else addMusicLog(`⚠ Requested ${names[t]} but stayed ${names[data.actual] || data.actual} — type not enabled on the AppID (needs Tencent ticket)`)
+      }
+    } catch (error: any) {
+      addMusicLog(`Room type failed: ${error.message}`)
+    } finally {
+      setRoomTypeLoading(null)
     }
   }
 
@@ -2413,6 +2439,30 @@ export default function ControlPage() {
                     />
                     <span className="text-xs font-mono w-14 text-right">{musicVolume}/200</span>
                   </div>
+
+                  {/* Room Audio Type — live A/B of the codec. ChangeRoomType is ROOM-WIDE. */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-gray-500 whitespace-nowrap">🎚 Room audio:</span>
+                    {[
+                      { t: 1, label: 'Fluency', sub: '16kHz mono' },
+                      { t: 2, label: 'Standard', sub: '48kHz mono' },
+                      { t: 3, label: 'HighQuality', sub: '48kHz stereo' },
+                    ].map(({ t, label, sub }) => (
+                      <button
+                        key={t}
+                        onClick={() => switchRoomType(t)}
+                        disabled={roomTypeLoading !== null}
+                        title={`${label} (${sub}) — applies to the WHOLE room, everyone hears the change`}
+                        className={`text-xs px-2 py-1 rounded-md border transition-colors disabled:opacity-50 ${roomType === t ? 'bg-purple-100 border-purple-400 text-purple-700 dark:bg-purple-900/40 dark:border-purple-600 dark:text-purple-300' : 'bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-400'}`}
+                      >
+                        {roomTypeLoading === t ? '…' : label}
+                      </button>
+                    ))}
+                    {roomType && (
+                      <span className="text-[10px] text-gray-400 ml-auto">now: {({ 1: 'Fluency', 2: 'Standard', 3: 'HQ' } as Record<number, string>)[roomType]}</span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-amber-600 dark:text-amber-500 -mt-1">⚠ Changes the codec for everyone in the room. If a button doesn&apos;t stick, that type isn&apos;t enabled on the app (needs a Tencent ticket).</p>
 
                   {/* Debug Logs */}
                   <div className="border rounded-lg bg-gray-950 text-green-400 p-3 font-mono text-xs max-h-48 overflow-y-auto">
