@@ -2515,23 +2515,25 @@ async function downloadYouTubeAudio(url, botId) {
   return new Promise((resolve, reject) => {
     // MUSIC_FORMAT=m4a: download YouTube's AAC audio directly (no re-encode, ~5s).
     // MUSIC_FORMAT=mp3: re-encode to mp3 (safe, ~13s). Toggle via env if GME can't play m4a.
-    // Source tuned for the Fluency codec the rooms actually use (measured via
-    // GetRoomType: 16kHz / 30kbps / MONO — the only type enabled without a Tencent
-    // ticket). All SAFE: source-side only, never touches the room codec.
-    //  • presence lift (~3kHz) — restore clarity the narrowband dulls
-    //  • low-pass ~7.8kHz — just under the codec's 8kHz Nyquist, so its 30kbps aren't
-    //    wasted (and don't alias into warble) on highs it can't carry
-    //  • mono downmix (-ac 1) — the codec is mono; do a clean L+R mix ourselves
-    //  • loudnorm last — consistent, full level (-14 LUFS) with true-peak limiting
-    // Toggle any: MUSIC_EQ=0, MUSIC_LOUDNORM=0, MUSIC_STEREO=1, MUSIC_MP3_BITRATE.
+    // Source tuned to match the room codec. DEFAULT = full-range STEREO for the
+    // HighQuality room type (48kHz stereo): keep stereo, NO low-pass, so HQ actually
+    // delivers highs + stereo. GME downmixes/downsamples cleanly for lower room types.
+    //   • loudnorm — consistent, full level (-14 LUFS) with true-peak limiting
+    //   • gentle 35Hz high-pass — trims sub-rumble only
+    // For a mono/narrowband target (Fluency/Standard) set MUSIC_STEREO=0 → adds a mono
+    // downmix + presence EQ + 7.8kHz low-pass tuned to the 16kHz codec's Nyquist.
+    // Toggle: MUSIC_EQ=0, MUSIC_LOUDNORM=0, MUSIC_STEREO=0, MUSIC_MP3_BITRATE.
     const mp3Bitrate = process.env.MUSIC_MP3_BITRATE || '192k';
+    const narrowband = process.env.MUSIC_STEREO === '0';
     const afChain = [];
-    // Mono downmix FIRST (aformat guarantees 2ch so pan works on mono sources too),
-    // so loudnorm's true-peak limiting at the END applies to the final mono signal —
-    // downmixing AFTER loudnorm (e.g. via -ac 1 output option) re-sums the channels
-    // and pushes peaks back to clipping.
-    if (process.env.MUSIC_STEREO !== '1') afChain.push('aformat=channel_layouts=stereo', 'pan=mono|c0=0.5*c0+0.5*c1');
-    if (process.env.MUSIC_EQ !== '0') afChain.push('highpass=f=90', 'equalizer=f=3000:width_type=o:width=1.4:g=3', 'lowpass=f=7800');
+    if (narrowband) {
+      // Mono downmix FIRST (aformat guarantees 2ch so pan works on mono sources too) so
+      // loudnorm's peak-limiting applies to the final mono signal; then narrowband EQ.
+      afChain.push('aformat=channel_layouts=stereo', 'pan=mono|c0=0.5*c0+0.5*c1');
+      if (process.env.MUSIC_EQ !== '0') afChain.push('highpass=f=90', 'equalizer=f=3000:width_type=o:width=1.4:g=3', 'lowpass=f=7800');
+    } else if (process.env.MUSIC_EQ !== '0') {
+      afChain.push('highpass=f=35'); // full-range stereo: just trim sub-rumble, keep all highs
+    }
     if (process.env.MUSIC_LOUDNORM !== '0') afChain.push('loudnorm=I=-14:TP=-2.0:LRA=11');
     const af = afChain.length ? ` -af ${afChain.join(',')}` : '';
     const fmtArgs = MUSIC_FORMAT === 'm4a'
