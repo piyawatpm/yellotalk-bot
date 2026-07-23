@@ -623,13 +623,63 @@ async function suggestNextSong(recentTitles) {
     const resp = await getNextClient().chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       max_tokens: 40,
-      temperature: 0.9,
+      temperature: 0.5,
       messages: [{ role: 'user', content:
-        `เพลงที่เพิ่งเล่น (ล่าสุดอยู่บรรทัดแรก):\n${list}\n\nแนะนำเพลงถัดไป 1 เพลง: เป็นเพลง"อื่น"ของศิลปินคนเดียวกับเพลงล่าสุด หรือเพลงแนวเดียวกันของศิลปินอื่น. ห้ามซ้ำหรือเป็นเพลงเดิมคนละเวอร์ชันกับรายการข้างบน. ตอบแค่ "ชื่อเพลง ชื่อศิลปิน" สำหรับค้นหา YouTube เท่านั้น ห้ามมีคำอธิบายหรือเครื่องหมายคำพูด.` }],
+        `เพลงที่เพิ่งเล่น (บรรทัดแรก = ล่าสุด):\n${list}\n\n` +
+        `งานของคุณ: ดูว่าเพลงล่าสุด "ศิลปินคือใคร" แล้วแนะนำอีก 1 เพลงของ "ศิลปินคนเดียวกัน" นั้น.\n` +
+        `- ต้องเป็นเพลงจริงที่มีอยู่ ของศิลปินคนเดียวกับเพลงล่าสุด และต้องดัง/เป็นที่รู้จัก\n` +
+        `- ห้ามซ้ำกับรายการข้างบน และห้ามเป็นเพลงเดิมคนละเวอร์ชัน (คนละ MV/cover/live)\n` +
+        `- เฉพาะถ้าไม่รู้จักเพลงอื่นของศิลปินนั้นจริงๆ ค่อยเลือกเพลงดังของศิลปินแนวเดียวกัน\n` +
+        `ตอบบรรทัดเดียวรูปแบบ: ชื่อเพลง ชื่อศิลปิน (ใช้ค้นหา YouTube) ห้ามมีคำอธิบายหรือเครื่องหมายคำพูด.` }],
     });
-    const s = (resp.choices[0]?.message?.content || '').trim().replace(/^["']+|["']+$/g, '');
+    const s = (resp.choices[0]?.message?.content || '').trim().replace(/^["']+|["']+$/g, '').split('\n')[0].trim();
     return s.length > 2 ? s : null;
   } catch (e) { console.log(`⏭ suggestNextSong failed: ${e.message}`); return null; }
+}
+
+// Search YouTube and return up to n candidates with metadata (no download).
+function ytSearchCandidates(query, n = 5) {
+  return new Promise((resolve, reject) => {
+    execFile('yt-dlp', [
+      `ytsearch${n}:${query}`,
+      '--print', '%(id)s\t%(title)s\t%(duration)s',
+      '--no-download', '--flat-playlist'
+    ], { timeout: 15000 }, (err, stdout) => {
+      if (err) return reject(err);
+      const items = (stdout || '').trim().split('\n').filter(Boolean).map(line => {
+        const [id, title, duration] = line.split('\t');
+        return { id, title: title || 'Unknown', duration: parseInt(duration) || 0 };
+      });
+      resolve(items);
+    });
+  });
+}
+
+// Pick the search result that best matches the requested query, so YouTube's
+// popularity ranking can't swap in a more-famous song by the same artist
+// (asking "ร่มสีเทา Potato" must not resolve to "อารมณ์สีเทา - Potato"). Scores by
+// how many query tokens appear in the title (2 pts each), with a mild penalty for
+// cover/sped-up/1-hour junk uploads. Falls back to the first result on a tie.
+const _JUNK_RE = /sped\s*up|slowed|nightcore|8\s*d|reverb|cover|karaoke|instrumental|reaction|เวอร์ชั่น|ปกโดย|1\s*hour|ชั่วโมง|loop|mashup/i;
+function pickBestMatch(query, results) {
+  if (!results || !results.length) return null;
+  const qTokens = String(query || '')
+    .toLowerCase()
+    .replace(/[([][^)\]]*[)\]]/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .split(' ')
+    .filter(t => t.length >= 2);
+  if (!qTokens.length) return results[0];
+  const queryHasJunk = _JUNK_RE.test(query);
+  let best = results[0], bestScore = -Infinity;
+  for (const r of results) {
+    const title = normalizeTitle(r.title);
+    let score = 0;
+    for (const t of qTokens) if (title.includes(t)) score += 2;
+    if (!queryHasJunk && _JUNK_RE.test(r.title)) score -= 1; // deprioritize covers/edits unless asked for
+    if (score > bestScore) { bestScore = score; best = r; }
+  }
+  return best;
 }
 
 // Store conversation history per user (for memory)
@@ -3238,24 +3288,13 @@ app.post('/api/music/song-ended', async (req, res) => {
     const playedIds = new Set(autoPlay.history.map(h => h.videoId).filter(Boolean));
     const playedTitles = new Set(autoPlay.history.map(h => normalizeTitle(h.title)).filter(Boolean));
 
-    const searchResults = await new Promise((resolve, reject) => {
-      execFile('yt-dlp', [
-        `ytsearch5:${searchQuery}`,
-        '--print', '%(id)s\t%(title)s\t%(duration)s',
-        '--no-download', '--flat-playlist'
-      ], { timeout: 15000 }, (err, stdout) => {
-        if (err) return reject(err);
-        const items = stdout.trim().split('\n').filter(Boolean).map(line => {
-          const [id, title, duration] = line.split('\t');
-          return { id, title: title || 'Unknown', duration: parseInt(duration) || 0 };
-        });
-        resolve(items);
-      });
-    });
+    const searchResults = await ytSearchCandidates(searchQuery, 5).catch(() => []);
 
     // Skip anything played by id OR the same song by normalized title (a different
-    // upload of what we just played). Fall back gradually so we always pick something.
-    let nextSong = searchResults.find(s => !playedIds.has(s.id) && !playedTitles.has(normalizeTitle(s.title)));
+    // upload of what we just played), then pick the candidate that best matches the
+    // AI's same-artist suggestion. Fall back gradually so we always pick something.
+    const freshResults = searchResults.filter(s => !playedIds.has(s.id) && !playedTitles.has(normalizeTitle(s.title)));
+    let nextSong = pickBestMatch(searchQuery, freshResults);
     if (!nextSong) nextSong = searchResults.find(s => !playedIds.has(s.id));
     if (!nextSong && searchResults.length > 0) {
       nextSong = searchResults[Math.floor(Math.random() * searchResults.length)];
@@ -3487,10 +3526,21 @@ async function executeBotCommand(action, param, botId, sender = '', senderUuid =
       }
       instance.state.currentlyPlaying = null;
 
-      // Use yt-dlp search format: ytsearch1:query
-      const searchUrl = `ytsearch1:${param}`;
       console.log(`[${timestamp}] 🎵 AI PLAY: searching "${param}"`);
       io.emit('music-log', { type: 'info', message: `AI searching: ${param}` });
+
+      // Resolve the best-matching video ourselves instead of blindly downloading
+      // YouTube's #1 hit — its ranking otherwise swaps in a more-famous song by the
+      // same artist (asked "ร่มสีเทา Potato" -> got "อารมณ์สีเทา - Potato").
+      let searchUrl = `ytsearch1:${param}`;
+      try {
+        const cands = await ytSearchCandidates(param, 5);
+        const best = pickBestMatch(param, cands);
+        if (best && best.id) {
+          searchUrl = `https://www.youtube.com/watch?v=${best.id}`;
+          console.log(`[${timestamp}] 🎯 AI PLAY matched: ${best.title}`);
+        }
+      } catch (e) { console.log(`[${timestamp}] ⚠️ AI PLAY match failed, using ytsearch1: ${e.message}`); }
 
       // Call our own YouTube endpoint internally
       try {
