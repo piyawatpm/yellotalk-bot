@@ -1965,14 +1965,24 @@ function killAllGmeProcesses() {
 }
 
 // Clean up GME processes on Node.js exit
-process.on('SIGINT', () => {
-  killAllGmeProcesses();
-  process.exit(0);
-});
-process.on('SIGTERM', () => {
-  killAllGmeProcesses();
-  process.exit(0);
-});
+// On shutdown, cleanly disconnect every bot's YelloTalk socket BEFORE exiting so
+// YelloTalk drops the session immediately, instead of holding a ghost that then
+// kicks the fresh connection on the next restart — that ghost was the reconnect
+// loop for the active/selected bot after our frequent redeploys.
+function cleanShutdown() {
+  try { killAllGmeProcesses(); } catch (e) {}
+  for (const [, inst] of botInstances) {
+    try {
+      if (inst.socket) {
+        try { if (inst.state && inst.state.currentRoom) inst.socket.emit('leave_room', { room: inst.state.currentRoom.id, uuid: inst.config.user_uuid }); } catch (e) {}
+        inst.socket.removeAllListeners();
+        inst.socket.disconnect();
+      }
+    } catch (e) {}
+  }
+}
+process.on('SIGINT', () => { cleanShutdown(); setTimeout(() => process.exit(0), 400); });
+process.on('SIGTERM', () => { cleanShutdown(); setTimeout(() => process.exit(0), 400); });
 
 // Leave GME voice room (call when bot's room ends/closes)
 async function leaveGMEVoiceRoom(botId, reason) {
@@ -4883,11 +4893,14 @@ app.post('/api/bot/start', async (req, res) => {
         }
       });
 
-      instance.socket.on('disconnect', () => {
-        console.log(`⚠️  [${botConfig.name}] Disconnected from YelloTalk`);
+      instance.socket.on('disconnect', (reason) => {
+        console.log(`⚠️  [${botConfig.name}] Disconnected from YelloTalk (reason: ${reason})`);
         instance.state.connected = false;
         instance.state.status = 'stopped';
         broadcastBotState(targetBotId);
+      });
+      instance.socket.on('connect_error', (err) => {
+        console.log(`⚠️  [${botConfig.name}] connect_error: ${err && err.message}`);
       });
 
       // THEN handle connect event
