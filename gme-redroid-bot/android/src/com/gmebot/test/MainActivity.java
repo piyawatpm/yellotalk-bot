@@ -25,9 +25,12 @@ public class MainActivity extends Activity {
   volatile int volume=100;
   volatile boolean inRoom=false, songFinished=false;
   // StopAccompany fires an ACCOMPANY_FINISH for the song it stops — that is NOT a
-  // real end-of-song. Without this flag the adapter treats every /play (and /stop)
-  // as "song ended" and instantly auto-plays the next track (rapid-fire loop).
-  volatile boolean expectStopFinish=false;
+  // real end-of-song. We discriminate by TIME, not a boolean flag: a stop-induced
+  // finish arrives within ~1s of a StopAccompany, while a real song-end arrives
+  // minutes later. lastStopAt = when we last called StopAccompany. (A boolean flag
+  // desyncs under rapid consecutive /play calls — stop-when-idle emits no finish —
+  // and then swallows the NEXT real song-end, killing auto-play.)
+  volatile long lastStopAt=0;
 
   @Override protected void onCreate(Bundle b){
     super.onCreate(b);
@@ -54,7 +57,7 @@ public class MainActivity extends Activity {
             // has no mic) as a constant hiss. Stay on the room's default (fluency) codec.
           } else {lastError="enter="+result;status="error";}
         } else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_EXIT_ROOM){inRoom=false;status="idle";}
-        else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_ACCOMPANY_FINISH){ if(expectStopFinish){ expectStopFinish=false; Log.i(TAG,"ACCOMPANY_FINISH (from Stop — ignored)"); } else { Log.i(TAG,"ACCOMPANY_FINISH"); songFinished=true; status="joined"; } }
+        else if(type==ITMGContext.ITMG_MAIN_EVENT_TYPE.ITMG_MAIN_EVENT_TYPE_ACCOMPANY_FINISH){ long sinceStop=System.currentTimeMillis()-lastStopAt; if(sinceStop<3000){ Log.i(TAG,"ACCOMPANY_FINISH (stop-induced "+sinceStop+"ms — ignored)"); } else { Log.i(TAG,"ACCOMPANY_FINISH (real end)"); songFinished=true; status="joined"; } }
       }
     });
     main.post(new Runnable(){public void run(){ if(ctx!=null) ctx.Poll(); main.postDelayed(this,100);} });
@@ -109,20 +112,20 @@ public class MainActivity extends Activity {
       onMain(new Op(){public void run(){
         ctx.GetAudioCtrl().EnableAudioCaptureDevice(true); ctx.GetAudioCtrl().EnableAudioSend(true);
         ctx.GetAudioCtrl().SetMicVolume(0); ctx.GetAudioCtrl().EnableSpeaker(false);
+        lastStopAt=System.currentTimeMillis();   // any ACCOMPANY_FINISH within ~3s of this is stop-induced, not a real song end
         int stopRc=ctx.GetAudioEffectCtrl().StopAccompany(0);
-        if(stopRc==0) expectStopFinish=true;   // stopping a live song emits a spurious finish — ignore it
         rc[0]=ctx.GetAudioEffectCtrl().StartAccompany(file,true,loop?-1:1);
-        if(rc[0]!=0){ int s2=ctx.GetAudioEffectCtrl().StopAccompany(0); if(s2==0) expectStopFinish=true; rc[0]=ctx.GetAudioEffectCtrl().StartAccompany(file,true,loop?-1:1); Log.i(TAG,"PLAY-RETRY stop2="+s2+" start2="+rc[0]); }
+        if(rc[0]!=0){ int s2=ctx.GetAudioEffectCtrl().StopAccompany(0); lastStopAt=System.currentTimeMillis(); rc[0]=ctx.GetAudioEffectCtrl().StartAccompany(file,true,loop?-1:1); Log.i(TAG,"PLAY-RETRY stop2="+s2+" start2="+rc[0]); }
         ctx.GetAudioEffectCtrl().SetAccompanyVolume(volume);
         Log.i(TAG,"PLAY pkg="+getPackageName()+" room="+room+" file="+file+" stopRc="+stopRc+" startRc="+rc[0]);
       }});
       status="playing"; j.put("ok",rc[0]==0);j.put("startRc",rc[0]);j.put("file",file);return j.toString();
     }
-    if(path.startsWith("/stop")){ onMain(new Op(){public void run(){ if(ctx.GetAudioEffectCtrl().StopAccompany(0)==0) expectStopFinish=true;} }); status=inRoom?"joined":"idle";curFile=null; j.put("ok",true);return j.toString(); }
+    if(path.startsWith("/stop")){ onMain(new Op(){public void run(){ lastStopAt=System.currentTimeMillis(); ctx.GetAudioEffectCtrl().StopAccompany(0);} }); status=inRoom?"joined":"idle";curFile=null; j.put("ok",true);return j.toString(); }
     if(path.startsWith("/pause")){ onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().PauseAccompany();} }); status="paused"; j.put("ok",true);return j.toString(); }
     if(path.startsWith("/resume")){ onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().ResumeAccompany();} }); status="playing"; j.put("ok",true);return j.toString(); }
     if(path.startsWith("/volume")){ volume=req.optInt("vol",100); onMain(new Op(){public void run(){ ctx.GetAudioEffectCtrl().SetAccompanyVolume(volume);} }); j.put("ok",true);j.put("volume",volume);return j.toString(); }
-    if(path.startsWith("/leave")){ onMain(new Op(){public void run(){ try{ if(ctx.GetAudioEffectCtrl().StopAccompany(0)==0) expectStopFinish=true; }catch(Throwable t){} ctx.ExitRoom();} }); inRoom=false;status="idle";room=null;curFile=null; j.put("ok",true);return j.toString(); }
+    if(path.startsWith("/leave")){ onMain(new Op(){public void run(){ try{ lastStopAt=System.currentTimeMillis(); ctx.GetAudioEffectCtrl().StopAccompany(0); }catch(Throwable t){} ctx.ExitRoom();} }); inRoom=false;status="idle";room=null;curFile=null; j.put("ok",true);return j.toString(); }
     j.put("error","unknown"); return j.toString();
   }
 }
