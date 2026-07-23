@@ -2488,10 +2488,18 @@ async function downloadYouTubeAudio(url, botId) {
   return new Promise((resolve, reject) => {
     // MUSIC_FORMAT=m4a: download YouTube's AAC audio directly (no re-encode, ~5s).
     // MUSIC_FORMAT=mp3: re-encode to mp3 (safe, ~13s). Toggle via env if GME can't play m4a.
+    // Source-side quality (SAFE — never touches the room codec, so no room-wide bug):
+    //  • higher bitrate (192k) = cleaner material for the codec
+    //  • -ar 48000 = match GME's internal rate, avoid resample artifacts
+    //  • loudnorm = every song at a consistent, full level (-14 LUFS streaming standard)
+    //    with true-peak limiting, so quiet songs aren't buried and loud ones don't clip
+    // Each is env-toggleable: MUSIC_MP3_BITRATE, MUSIC_LOUDNORM=0 to disable normalization.
+    const mp3Bitrate = process.env.MUSIC_MP3_BITRATE || '192k';
+    const loudnorm = process.env.MUSIC_LOUDNORM === '0' ? '' : ' -af loudnorm=I=-14:TP=-1.5:LRA=11';
     const fmtArgs = MUSIC_FORMAT === 'm4a'
       ? ['-f', 'ba[ext=m4a]/140']    // AAC in m4a container (itag 140 fallback), no conversion
       : ['-x', '--audio-format', 'mp3', '--audio-quality', '5',
-         '--postprocessor-args', `ffmpeg:-b:a ${process.env.MUSIC_MP3_BITRATE || '128k'}`];
+         '--postprocessor-args', `ffmpeg:-b:a ${mp3Bitrate} -ar 48000${loudnorm}`];
     const args = [
       ...fmtArgs,
       '-o', path.join(MUSIC_CACHE_DIR, '%(id)s.%(ext)s'),  // Output template
