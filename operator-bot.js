@@ -161,7 +161,13 @@ module.exports = function createOperator(rawDeps) {
     // reopens on the next tick.
     const delay = cfg.reopenDelayMs * Math.min(reopenAttempts, 8);
     log(`reopening operator room in ${Math.round(delay / 1000)}s (attempt ${reopenAttempts})`);
-    setTimeout(async () => { reopening = false; if (running) await openOperatorRoom().catch((e) => log('reopen err:', e.message)); }, delay);
+    setTimeout(async () => {
+      if (!running) { reopening = false; return; }
+      let ok = false;
+      try { ok = await openOperatorRoom(); } catch (e) { log('reopen err:', e.message); }
+      reopening = false;                         // release AFTER the attempt (not before)
+      if (running && !ok) { log('reopen failed — retrying'); scheduleReopen(); } // KEEP retrying until it works
+    }, delay);
   }
 
   // ---------- summon logic ----------
@@ -272,6 +278,10 @@ module.exports = function createOperator(rawDeps) {
   // ---------- topic summon poller ----------
   async function topicPoll() {
     if (!running) return; // works even if the hosted operator room couldn't be opened
+    // Self-heal: if the operator's hosted room is gone (a reopen failed, or a live_end
+    // was missed while disconnected) and nothing is already reopening, kick off a
+    // reopen. Runs every poll tick (~15s) so the help room can't stay dead.
+    if (!room && !reopening) { log('operator room missing — reopening (health check)'); scheduleReopen(); }
     try {
       const bots = (deps.getSummonableBots && deps.getSummonableBots()) || [];
       const free = bots.filter((b) => b.available);
