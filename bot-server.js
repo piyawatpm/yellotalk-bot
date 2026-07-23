@@ -238,8 +238,14 @@ async function _playNextFromPlaylistInner(botId, depth = 0) {
       playlist.shift();
       return _playNextFromPlaylistInner(botId, depth + 1);
     }
-    await axios.post(`${gmeUrl}/play`, { file: next.file, loop: false }, { timeout: 10000 });
-    console.log(`[${timestamp}] 🎵 [${botId}] Playing from queue${label}: ${next.title}`);
+    // Join the GME voice room first, else StartAccompany fails with room=null.
+    await ensureGmeInRoom(botId, gmeUrl);
+    let pr = await axios.post(`${gmeUrl}/play`, { file: next.file, loop: false }, { timeout: 60000 }).then(x => x.data).catch(() => ({}));
+    if (!pr || pr.ok === false) { // first play failed (likely not joined yet) — re-join + retry once
+      await ensureGmeInRoom(botId, gmeUrl);
+      pr = await axios.post(`${gmeUrl}/play`, { file: next.file, loop: false }, { timeout: 60000 }).then(x => x.data).catch(() => ({}));
+    }
+    console.log(`[${timestamp}] 🎵 [${botId}] Playing from queue${label}: ${next.title} (ok=${pr && pr.ok}, startRc=${pr && pr.startRc})`);
     sendMessageForBot(botId, `🎵 กำลังเล่น: ${next.title}`);
 
     const autoPlay = getAutoPlayState(botId);
@@ -1883,6 +1889,42 @@ async function ensureGmeProcess(botId) {
 
   console.log(`✅ [GME:${botId}] Process ready on port ${gmePortMap.get(botId)}`);
   return getGmeUrl(botId);
+}
+
+// Make sure the bot is actually IN the GME voice room before playing. The queue /
+// paste-link path (playFile) used to skip this, so a freshly-spawned bot's FIRST
+// play hit room=null and failed (StartAccompany rc=1201) — only the 2nd worked.
+// Mirrors the join logic in /api/music/youtube. Returns true if in-room afterward.
+async function ensureGmeInRoom(botId, gmeUrl) {
+  const instance = botInstances.get(botId);
+  if (!instance || !instance.state.currentRoom) return false;
+  try { const st = await axios.get(`${gmeUrl}/status`, { timeout: 3000 }); if (st.data && st.data.inRoom) return true; } catch (e) {}
+  const room = instance.state.currentRoom;
+  const config = instance.config;
+  const gmeRoomId = String(room.gme_id || room.gmeId || '');
+  const gmeUserId = instance.state.botGmeUserId ? String(instance.state.botGmeUserId) : config.user_uuid;
+  const botRealUuid = instance.state.botRealUuid || config.user_uuid;
+  // Take an empty speaker slot first if we're not on one (needed to send audio).
+  const speakers = instance.state.speakers || [];
+  if (instance.socket && !speakers.find(s => s.uuid === config.user_uuid)) {
+    const emptySlot = speakers.find(s => !s.locked && s.pin_name === 'Empty');
+    if (emptySlot) {
+      try {
+        await new Promise((resolve, reject) => {
+          const to = setTimeout(() => reject(new Error('timeout')), 10000);
+          instance.socket.emit('join_speaker', { room: room.id, uuid: config.user_uuid, position: emptySlot.position + 1 }, (r) => { clearTimeout(to); (r?.result >= 200 && r?.result < 300) ? resolve(r) : reject(new Error(r?.description || 'join_speaker failed')); });
+        });
+      } catch (e) { console.log(`⚠️ [${botId}] join_speaker: ${e.message}`); }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+  if (!gmeRoomId || !gmeUserId) return false;
+  try {
+    const joinResp = await axios.post(`${gmeUrl}/join`, { room: gmeRoomId, user: gmeUserId, uuid: botRealUuid }, { timeout: 55000 });
+    if (joinResp.data && joinResp.data.inRoom) { await new Promise(r => setTimeout(r, 500)); return true; }
+    console.log(`❌ [${botId}] GME join failed: ${(joinResp.data && joinResp.data.error) || 'unknown'}`);
+  } catch (e) { console.log(`❌ [${botId}] GME join error: ${e.message}`); }
+  return false;
 }
 
 function killAllGmeProcesses() {
