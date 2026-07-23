@@ -4588,11 +4588,16 @@ app.post('/api/bot/start', async (req, res) => {
         // DEBUG: Confirm state was set
         console.log(`[${timestamp}] 💾 instance.state.participants set: ${instance.state.participants.length} items`);
 
-        // CHECK FOR BLOCKED USERS - if found, leave room immediately
-        const blockedUserFound = participants.find(p => {
-          const name = (p.pin_name || '').toLowerCase();
-          return BLOCKED_USERNAMES.some(blocked => name.includes(blocked.toLowerCase()));
-        });
+        // DISABLED (per user): do NOT leave the room when another bot (botyoi/bottom)
+        // is present — let our bot coexist with other bots instead of bailing out.
+        // Forced to null so the leave-on-blocked-user block below never triggers.
+        // (The operator still ignores blocked users' MESSAGES via isBlockedUser — that
+        // is a separate behavior and stays. To re-enable leaving, restore the find().)
+        const blockedUserFound = null;
+        // const blockedUserFound = participants.find(p => {
+        //   const name = (p.pin_name || '').toLowerCase();
+        //   return BLOCKED_USERNAMES.some(blocked => name.includes(blocked.toLowerCase()));
+        // });
 
         if (blockedUserFound) {
           const blockedName = blockedUserFound.pin_name;
